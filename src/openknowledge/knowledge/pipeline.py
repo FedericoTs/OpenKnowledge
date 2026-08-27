@@ -22,8 +22,7 @@ import logging
 from dataclasses import dataclass, field
 
 from ..providers.base import ChatProvider
-from ..retrieval.base import Document
-from ..retrieval.bm25 import BM25Retriever
+from ..retrieval.base import Document, Retriever
 from .claims import find_conflicts
 from .crosscheck import crosscheck_answers
 from .generate import draft_from_document
@@ -71,7 +70,7 @@ def scan_documents(
     documents: list[Document],
     *,
     store: KnowledgeStore,
-    retriever: BM25Retriever | None = None,
+    retriever: Retriever | None = None,
     min_conflict_overlap: float = 0.34,
     deontic_strictness: float = 1.0,
 ) -> IngestReport:

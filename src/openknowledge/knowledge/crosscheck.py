@@ -29,8 +29,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 
-from ..retrieval.base import Document
-from ..retrieval.bm25 import BM25Retriever
+from ..retrieval.base import Document, Retriever
 from .claims import Conflict, find_conflicts
 from .store import KnowledgeStore, Proposal, ProposalStatus
 
@@ -79,7 +78,7 @@ def _answer_as_document(proposal: Proposal) -> Document:
 def crosscheck_answers(
     *,
     store: KnowledgeStore,
-    retriever: BM25Retriever,
+    retriever: Retriever,
     document_ids: frozenset[str],
     top_k: int = DEFAULT_TOP_K,
     deontic_strictness: float = 1.0,

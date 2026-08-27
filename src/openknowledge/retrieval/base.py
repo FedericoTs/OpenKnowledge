@@ -60,14 +60,34 @@ class ScoredChunk:
 
 @runtime_checkable
 class Retriever(Protocol):
+    """What the cascade needs from a retriever, and nothing more.
+
+    ADR 0004 put lexical search behind this so a dense half could be added
+    later without the cascade knowing. Declaring it was not enough - the
+    cascade and the engine were annotated with the concrete BM25 class, so the
+    first thing to implement the protocol did not type-check. The annotations
+    now name this.
+    """
+
     def index(self, documents: list[Document]) -> None: ...
 
     def search(
         self, query: str, *, k: int = 6, principals: frozenset[str] | None = None
     ) -> list[ScoredChunk]: ...
 
+    def documents_visible_to(self, principals: frozenset[str] | None) -> tuple[list[str], int]: ...
+
+    def visible_to(self, document_ids: set[str], principals: frozenset[str] | None) -> bool: ...
+
+    def describe_document(self, document_id: str) -> tuple[str, str] | None: ...
+
+    def __len__(self) -> int: ...
+
     @property
     def corpus_version(self) -> str: ...
+
+    @property
+    def document_count(self) -> int: ...
 
 
 def chunk_document(

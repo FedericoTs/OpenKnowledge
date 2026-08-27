@@ -32,8 +32,7 @@ from ..prompts import (
     format_context,
 )
 from ..providers.base import ChatProvider, ProviderError
-from ..retrieval.base import Chunk
-from ..retrieval.bm25 import BM25Retriever
+from ..retrieval.base import Chunk, Retriever
 from ..retrieval.grounding import check_grounding
 from ..retrieval.rerank import Reranker, StructuralReranker
 from ..types import Answer, Citation, Tier
@@ -83,7 +82,7 @@ class Cascade:
         self,
         *,
         store: AnswerStore,
-        retriever: BM25Retriever,
+        retriever: Retriever,
         settings: Settings,
         local: ChatProvider | None = None,
         frontier: ChatProvider | None = None,

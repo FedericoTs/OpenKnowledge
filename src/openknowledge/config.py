@@ -88,6 +88,25 @@ class Settings(BaseSettings):
     #: finished reading eight gigabytes off disk.
     local_timeout_seconds: float = Field(default=600.0, gt=0)
 
+    # -- dense retrieval ---------------------------------------------------
+    #: Add semantic search alongside BM25, fused by reciprocal rank.
+    #:
+    #: BM25 matches words; someone asking "how much can I spend on dinner" gets
+    #: nothing from a document that says "meals are reimbursed up to EUR 45",
+    #: which is exactly the casual phrasing a chat box invites. Embeddings close
+    #: that gap and are worse at the things BM25 is best at - EUR 500, form
+    #: RA-14 - so both run and the ranks are fused.
+    #:
+    #: On by default, and harmless when it cannot run: no embedding model means
+    #: BM25 alone, reported rather than failed.
+    embedding_enabled: bool = True
+    #: Runs on the same endpoint as the local chat model unless set otherwise.
+    embedding_model: str = "nomic-embed-text"
+    embedding_base_url: str = ""
+    #: Where chunk vectors live. Derived and disposable: deleting it costs one
+    #: re-embed. Kept out of the answer store, which holds human decisions.
+    vectors_db: str = "vectors.db"
+
     # -- escalation tier -------------------------------------------------
     #: Off by default. Nothing leaves the machine until an operator opts in.
     escalation_enabled: bool = False

@@ -26,8 +26,7 @@ from dataclasses import dataclass
 from ..costs import PricingError, cost_usd, get_price
 from ..prompts import SYSTEM_PROMPT, format_context
 from ..providers.base import ChatProvider, ProviderError
-from ..retrieval.base import Document
-from ..retrieval.bm25 import BM25Retriever
+from ..retrieval.base import Document, Retriever
 from ..retrieval.grounding import check_grounding
 from .claims import extract_claims
 from .store import KnowledgeStore, Proposal
@@ -86,7 +85,7 @@ def figure_changes(old_text: str, new_text: str) -> tuple[tuple[str, str], ...]:
 
 async def _answer_freshly(
     provider: ChatProvider,
-    retriever: BM25Retriever,
+    retriever: Retriever,
     question: str,
     *,
     k: int,
@@ -131,7 +130,7 @@ async def reverify_changed_documents(
     changed_documents: frozenset[str],
     *,
     store: KnowledgeStore,
-    retriever: BM25Retriever,
+    retriever: Retriever,
     provider: ChatProvider,
     corpus_version: str,
     k: int = 6,

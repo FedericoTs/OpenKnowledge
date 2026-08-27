@@ -60,5 +60,11 @@ def settings() -> Settings:
     return Settings(
         local_enabled=True,
         escalation_enabled=False,
+        # Off here, on in production. A unit test that reaches for an embedding
+        # endpoint is testing the network, and every one of them would log a
+        # connection refused on the way to testing something else. Fusion,
+        # fallback and determinism are covered in test_hybrid.py against a
+        # stub with hand-placed vectors.
+        embedding_enabled=False,
         _env_file=None,  # type: ignore[call-arg]
     )

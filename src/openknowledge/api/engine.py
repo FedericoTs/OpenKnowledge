@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from ..cache import AnswerStore
 from ..cascade import Cascade
@@ -17,7 +18,10 @@ from ..providers.anthropic_provider import AnthropicProvider
 from ..providers.base import ChatProvider
 from ..providers.openai_compat import OpenAICompatProvider
 from ..retrieval import BM25Retriever
-from ..retrieval.base import Document
+from ..retrieval.base import Document, Retriever
+from ..retrieval.embed import Embedder
+from ..retrieval.hybrid import HybridRetriever
+from ..retrieval.vectorstore import VectorCache
 from ..types import Tier
 
 log = logging.getLogger(__name__)
@@ -27,7 +31,7 @@ log = logging.getLogger(__name__)
 class Engine:
     settings: Settings
     store: AnswerStore
-    retriever: BM25Retriever
+    retriever: Retriever
     cascade: Cascade
     connector: LocalFilesConnector
     knowledge: KnowledgeStore
@@ -221,13 +225,35 @@ def _build_ladder(settings: Settings, local: ChatProvider | None) -> Ladder:
     return Ladder(tuple(rungs))
 
 
-def build_engine(settings: Settings) -> Engine:
-    store = AnswerStore(settings.db_path)
-    knowledge = KnowledgeStore(settings.knowledge_db_path)
-    retriever = BM25Retriever(
+def _build_retriever(settings: Settings) -> Retriever:
+    """BM25 alone, or BM25 with a dense half fused onto it.
+
+    Always wrapped the same way round: lexical search is the thing that works
+    with nothing installed, and the dense half is an addition that is allowed
+    to be missing. An unreachable embedding endpoint costs quality, never
+    service.
+    """
+    lexical = BM25Retriever(
         target_words=settings.chunk_target_words,
         overlap_words=settings.chunk_overlap_words,
     )
+    if not settings.embedding_enabled:
+        return lexical
+
+    embedder = Embedder(
+        model=settings.embedding_model,
+        base_url=settings.embedding_base_url or settings.local_base_url,
+        api_key=settings.local_api_key,
+        timeout=settings.local_timeout_seconds,
+    )
+    cache = VectorCache(Path(settings.data_dir) / settings.vectors_db)
+    return HybridRetriever(lexical=lexical, embedder=embedder, cache=cache.load(), store=cache)
+
+
+def build_engine(settings: Settings) -> Engine:
+    store = AnswerStore(settings.db_path)
+    knowledge = KnowledgeStore(settings.knowledge_db_path)
+    retriever = _build_retriever(settings)
     connector = LocalFilesConnector(settings.documents_dir, pdf_backend=settings.pdf_backend)
     local = _build_local(settings)
     ladder = _build_ladder(settings, local)
