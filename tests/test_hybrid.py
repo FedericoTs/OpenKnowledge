@@ -287,3 +287,25 @@ def test_changing_the_prefix_changes_the_fingerprint() -> None:
     plain = Embedder(model="x", document_prefix="", query_prefix="")
     prefixed = Embedder(model="x", document_prefix="passage: ", query_prefix="query: ")
     assert plain.fingerprint != prefixed.fingerprint
+
+
+def test_the_fused_score_is_comparable_across_retrievers() -> None:
+    """The regression that took accuracy from 100% to 23.5%.
+
+    The reranker downstream sorts by score. Handed BM25 scores (unbounded) and
+    cosine similarities (0 to 1) in one list, it re-sorted the interleaved order
+    by a mixture of two scales and buried the right chunk under noise from the
+    other one. Thirteen answerable questions were refused.
+
+    The fused score has to describe the fused position and nothing else.
+    """
+    from openknowledge.retrieval.base import ScoredChunk
+    from openknowledge.retrieval.hybrid import _interleave
+
+    dense = [ScoredChunk(chunk=Chunk_("d1"), score=0.61)]  # cosine
+    lexical = [ScoredChunk(chunk=Chunk_("l1"), score=14.2)]  # BM25
+
+    fused = _interleave(dense, lexical)
+    assert [s.chunk.document_id for s in fused] == ["d1", "l1"]
+    assert [s.score for s in fused] == [1.0, 0.5], "kept an incomparable score"
+    assert fused[0].score > fused[1].score, "fused score must fall with position"

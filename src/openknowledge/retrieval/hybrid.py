@@ -233,10 +233,20 @@ def _interleave(*rankings: list[ScoredChunk]) -> list[ScoredChunk]:
     """Round robin: every retriever's Nth choice before anyone's N+1th.
 
     Parameter-free, and deterministic given deterministic inputs - both
-    properties the answer cache depends on. The returned score is whichever
-    retriever contributed the chunk, so it is not comparable across the two;
-    nothing downstream compares them, because the reranker and the context
-    builder both care only about order.
+    properties the answer cache depends on.
+
+    Scores are rewritten to the fused position, and that is not cosmetic. The
+    first version of this kept each chunk's original score, on the stated
+    reasoning that nothing downstream compares them. That was simply false:
+    StructuralReranker sorts by ``hit.score``, so it was handed BM25 scores
+    (unbounded, 2 to 15 here) and cosine similarities (0.5 to 0.8) in one list
+    and re-sorted the careful interleaved order by the mixture. Accuracy on the
+    golden set went from 100% to 23.5% - thirteen answerable questions refused,
+    because the right chunk was ranked below noise from the other scale.
+
+    So the fused score is 1/position: comparable by construction, descending,
+    and it leaves the reranker's multiplicative boost doing what it was written
+    to do.
     """
     out: list[ScoredChunk] = []
     seen: set[str] = set()
@@ -250,5 +260,5 @@ def _interleave(*rankings: list[ScoredChunk]) -> list[ScoredChunk]:
             if key in seen:
                 continue
             seen.add(key)
-            out.append(scored)
+            out.append(ScoredChunk(chunk=scored.chunk, score=1.0 / (len(out) + 1)))
     return out
