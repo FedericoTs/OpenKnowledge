@@ -42,8 +42,14 @@ anthropic = ["anthropic>=0.40"]
 # core dependency because it needs a JVM - which the container has and a bare
 # pip install does not. Without it the pdfplumber backend is used.
 opendataloader = ["opendataloader-pdf>=2.5"]
+# Counting tokens without calling a model, for `tools/measure_prompts.py`.
+# Deliberately not a runtime dependency: the running system takes token counts
+# from the provider's own usage response, and an estimator in that path would
+# put a guess into the ledger.
+measure = ["tiktoken>=0.7"]
 dev = [
   "pytest>=8.3",
+  "tiktoken>=0.7",
   "reportlab>=4.0",  # BSD - generates the PDF fixtures the parser tests read
 
   "pytest-asyncio>=0.24",
@@ -76,7 +82,7 @@ select = ["E", "F", "I", "UP", "B", "SIM"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["src", "tests"]
+pythonpath = ["src", "tests", "."]
 asyncio_mode = "auto"
 
 [tool.mypy]

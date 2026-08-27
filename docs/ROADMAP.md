@@ -6,6 +6,11 @@ Honest status. "Built" means implemented and covered by tests in this repository
 
 - **Cost accounting** — per-call token accounting, rates with verification dates, an
   unpriced model raises rather than reporting $0, ledger and blended cost report.
+- **Measured cost model** — `tools/measure_prompts.py` assembles the exact prompt the
+  running system would send over a real corpus and counts it, so the cost tables are fed by
+  measurement rather than assumption. It found that the static system prompt is under the
+  API's minimum cacheable prefix, making prompt caching inert, and corrected the headline
+  from 19× to 11×. See [COST-MODEL.md](COST-MODEL.md) and `evals/measured/`.
 - **Determinism layer** — conservative canonicalisation, five-part cache key, corpus
   fingerprinting, pinned answers, corpus-version eviction.
 - **Grounding gate** — citation presence, invented-source detection, unsupported-number
@@ -115,7 +120,8 @@ Worth stating plainly, and the first one is the largest thing wrong with this pr
 
 - Admin web UI (pins, costs, prompt, connectors) — the API exists, the UI does not
 - Slack channel adapter
-- Per-document prompt caching for hot documents
+- Per-document prompt caching for hot documents — the only caching lever that pays here,
+  since the system prompt is measured at 476 tokens and cannot cache at all
 - Incremental re-indexing (today's full rebuild is correct but O(corpus))
 - Postgres + pgvector backend for multi-instance deployments
 - Batch pre-warming: answer the top questions overnight at the 50% batch rate

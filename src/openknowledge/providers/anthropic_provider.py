@@ -30,9 +30,12 @@ from ..costs import Usage
 from .base import Completion, Message, ProviderError
 
 #: Below this the API silently declines to cache (varies by model; 512 is the
-#: Opus 5 floor). A system prompt shorter than this gets no cache benefit, which
-#: is worth surfacing rather than leaving as a mystery in the usage numbers.
-_CACHE_MIN_TOKENS_HINT = 512
+#: Opus 5 floor). A system prompt shorter than this gets no cache benefit however
+#: the cache_control marker is placed, which is worth surfacing rather than
+#: leaving as a mystery in the usage numbers - and worth checking against, which
+#: `tools/measure_prompts.py` does. This project's own system prompt currently
+#: measures under it, so prompt caching is priced at zero rather than assumed.
+CACHE_MIN_TOKENS = 512
 
 
 class AnthropicProvider:
@@ -146,6 +149,6 @@ class AnthropicProvider:
             return "cold: cache written this call, reads should appear on the next one"
         return (
             "MISS: no cache activity. Either the system prompt changes between calls "
-            f"(check for interpolated dates/IDs) or it is under ~{_CACHE_MIN_TOKENS_HINT} "
+            f"(check for interpolated dates/IDs) or it is under ~{CACHE_MIN_TOKENS} "
             "tokens, below the minimum cacheable prefix."
         )

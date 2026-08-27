@@ -5,20 +5,76 @@ Run it rather than trusting the tables:
 
     uv run python tools/cost_model.py [questions_per_day]
 
-Every figure comes from ``openknowledge.costs`` and the rates in
-``pricing.yaml``, so if a vendor changes its prices, updating that one file
-updates the whole argument.
+Every rate comes from ``pricing.yaml``, so if a vendor changes its prices,
+updating that one file updates the whole argument.
+
+**Token counts come from a measurement, not from this file.** They are read from
+``evals/measured/real-contracts.json``, produced by ``tools/measure_prompts.py``
+against a real corpus. This matters, because the assumptions this tool used to
+carry were wrong in three compounding ways:
+
+* it assumed a **2,000-token cacheable system prompt**; the real one measures
+  476 and is *under the 512-token floor*, so it caches nothing at all;
+* it assumed a **4,500-token prompt at six chunks**; the real one is 2,313;
+* it quietly cut the answer from 1,000 tokens to 400 in the same row as the
+  retrieval change, giving retrieval discipline credit for a 60% output
+  reduction that retrieval does not cause.
+
+Corrected, the headline drops from 19x to 11x. Every row below says whether its
+numbers are measured or assumed, and the run says which source it used.
 """
 
 from __future__ import annotations
 
+import json
 import sys
 from dataclasses import dataclass
+from pathlib import Path
 
 from openknowledge.costs import Usage, cost_usd, get_price, self_hosted_cost_usd
+from openknowledge.providers.anthropic_provider import CACHE_MIN_TOKENS
 
 WORKING_DAYS = 250
 BUSY_HOURS_PER_DAY = 8
+
+MEASUREMENTS = Path(__file__).resolve().parent.parent / "evals" / "measured" / "real-contracts.json"
+
+#: Used only when no measurement file is present. Deliberately the *measured*
+#: values rather than the old guesses, so a missing file degrades to the same
+#: answer rather than silently to a more flattering one.
+FALLBACK = {
+    "naive_input_tokens": 13_097,
+    "tight_input_tokens": 2_313,
+    "system_prompt_tokens": 476,
+    "source": "fallback constants (no measurement file found)",
+}
+
+
+def measurements() -> dict[str, object]:
+    """Token counts from a real corpus, or the documented fallback."""
+    if not MEASUREMENTS.exists():
+        return FALLBACK
+    data = json.loads(MEASUREMENTS.read_text(encoding="utf-8"))
+    rows = {int(row["chunks"]): int(row["input_tokens"]) for row in data["rows"]}
+    return {
+        # The "generous retrieval" build: real retrieval, but keep everything
+        # that scored. This is what $0.10 per question actually looks like.
+        "naive_input_tokens": rows[40],
+        "tight_input_tokens": rows[6],
+        "system_prompt_tokens": int(data["system_prompt_tokens"]),
+        "source": (
+            f"{MEASUREMENTS.parent.name}/{MEASUREMENTS.name}: "
+            f"{data['documents']} documents, {data['chunks']} chunks, "
+            f"{data['questions']} questions"
+        ),
+    }
+
+
+#: Held constant across every row. Nothing in this architecture shortens an
+#: answer, so letting it vary between rows would credit a lever for an effect it
+#: does not have. That shorter answers are themselves a real lever is true, and
+#: unmeasured, and therefore not claimed here.
+ANSWER_TOKENS = 1_000
 
 #: A single mid-range GPU instance, the sort of box a local 8B model needs.
 #: Change this to your own hardware rate - amortised capex plus power for
@@ -43,31 +99,63 @@ class Step:
         return self.per_paid_call() * self.paid_share
 
 
-# Each row adds one lever to the row above it.
+# Each row adds one lever to the row above it. Token counts are measured; the
+# free share is the one assumption, and `openknowledge costs` replaces it with
+# your own figure from the ledger.
+_M = measurements()
+_NAIVE = int(_M["naive_input_tokens"])  # type: ignore[call-overload]
+_TIGHT = int(_M["tight_input_tokens"])  # type: ignore[call-overload]
+_SYSTEM = int(_M["system_prompt_tokens"])  # type: ignore[call-overload]
+
+#: The API declines to cache a prefix under its floor, so a system prompt below
+#: it earns nothing however the cache_control marker is placed. Priced at what
+#: it actually returns rather than at what it would return if the prompt were
+#: longer.
+_CACHES = _SYSTEM >= CACHE_MIN_TOKENS
+_CACHED = _SYSTEM if _CACHES else 0
+
 STEPS = [
     Step(
-        "Naive RAG",
-        Usage(input_tokens=15_000, output_tokens=1_000),
+        "Generous retrieval",
+        Usage(input_tokens=_NAIVE, output_tokens=ANSWER_TOKENS),
         "claude-opus-5",
     ),
     Step(
-        "+ prompt caching",
-        Usage(input_tokens=13_000, cache_read_tokens=2_000, output_tokens=1_000),
+        "+ prompt caching"
+        if _CACHES
+        else f"+ prompt caching (inert, {_SYSTEM} < {CACHE_MIN_TOKENS})",
+        Usage(
+            input_tokens=_NAIVE - _CACHED,
+            cache_read_tokens=_CACHED,
+            output_tokens=ANSWER_TOKENS,
+        ),
         "claude-opus-5",
     ),
     Step(
-        "+ tighter retrieval",
-        Usage(input_tokens=2_500, cache_read_tokens=2_000, output_tokens=400),
+        "+ tighter retrieval (6 chunks)",
+        Usage(
+            input_tokens=_TIGHT - _CACHED,
+            cache_read_tokens=_CACHED,
+            output_tokens=ANSWER_TOKENS,
+        ),
         "claude-opus-5",
     ),
     Step(
         "+ smaller model",
-        Usage(input_tokens=2_500, cache_read_tokens=2_000, output_tokens=400),
+        Usage(
+            input_tokens=_TIGHT - _CACHED,
+            cache_read_tokens=_CACHED,
+            output_tokens=ANSWER_TOKENS,
+        ),
         "claude-sonnet-5",
     ),
     Step(
         "+ pins and cache (45% free)",
-        Usage(input_tokens=2_500, cache_read_tokens=2_000, output_tokens=400),
+        Usage(
+            input_tokens=_TIGHT - _CACHED,
+            cache_read_tokens=_CACHED,
+            output_tokens=ANSWER_TOKENS,
+        ),
         "claude-sonnet-5",
         paid_share=0.55,
     ),
@@ -77,7 +165,7 @@ STEPS = [
 API_ONLY = STEPS[-1]  # 45% free, 55% to a mid-tier API model. No hardware.
 CASCADE_ESCALATIONS = Step(  # 45% free, 45% local, 10% escalated to frontier
     "full cascade",
-    Usage(input_tokens=2_500, cache_read_tokens=2_000, output_tokens=400),
+    Usage(input_tokens=_TIGHT - _CACHED, cache_read_tokens=_CACHED, output_tokens=ANSWER_TOKENS),
     "claude-opus-5",
     paid_share=0.10,
 )
@@ -148,13 +236,16 @@ def main(argv: list[str]) -> int:
     def annual(per_question: float) -> float:
         return per_question * questions_per_day * WORKING_DAYS
 
-    print(f"Assuming {questions_per_day:,.0f} questions/day over {WORKING_DAYS} working days.\n")
+    print(f"Assuming {questions_per_day:,.0f} questions/day over {WORKING_DAYS} working days.")
+    print(f"Token counts from {_M['source']}.")
+    print(f"Answer length held at {ANSWER_TOKENS:,} tokens on every row - the one assumption.\n")
 
     print("API cost, one lever at a time")
-    print(f"  {'':<30}{'per paid call':>15}{'per question':>15}{'per year':>14}")
+    name_width = max(len(step.name) for step in STEPS) + 2
+    print(f"  {'':<{name_width}}{'per paid call':>15}{'per question':>15}{'per year':>14}")
     for step in STEPS:
         print(
-            f"  {step.name:<30}"
+            f"  {step.name:<{name_width}}"
             f"{step.per_paid_call():>15.5f}"
             f"{step.per_question():>15.5f}"
             f"{annual(step.per_question()):>14,.0f}"
@@ -167,6 +258,14 @@ def main(argv: list[str]) -> int:
         f"{baseline / api_only:.0f}x cheaper,\n"
         f"  {annual(baseline):,.0f} -> {annual(api_only):,.0f} per year."
     )
+    if not _CACHES:
+        print(
+            f"\n  Note: prompt caching contributes nothing here. The system prompt is "
+            f"{_SYSTEM} tokens,\n"
+            f"  under the {CACHE_MIN_TOKENS}-token minimum cacheable prefix, so the "
+            f"cache_control marker\n"
+            f"  on it is inert. Retrieval discipline and the free tier do all of the work."
+        )
 
     # -- the local tier ------------------------------------------------------
     print("\n\nAdding a local model: the fixed cost has to be carried too")

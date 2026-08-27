@@ -58,19 +58,47 @@ escalating changes the price, not the rules.
 
 ### What that's actually worth
 
-Run `python tools/cost_model.py` and it prices each lever separately, from the same rate
-table the running system uses. At 2,000 questions/day:
+These are **measured**, not modelled. `tools/measure_prompts.py` parses a real corpus —
+15 third-party vendor contracts, SLAs and DPAs, around 100 pages — retrieves for real
+questions, assembles the exact prompt that would be sent, and counts it. Only the answer
+length is assumed, and it is held constant on every row so it cancels out.
+
+| retrieval discipline | input tokens | $/question | $/year |
+|---|---:|---:|---:|
+| Whole corpus in context | 126,234 | $0.65617 | $328,085 |
+| Top 40 chunks — *"keep everything that scored"* | 13,097 | $0.09048 | $45,242 |
+| Top 20 chunks | 6,679 | $0.05840 | $29,198 |
+| Top 10 chunks | 3,575 | $0.04288 | $21,438 |
+| **Top 6 chunks — OpenKnowledge default** | **2,313** | **$0.03657** | **$18,282** |
+
+The second row is the diagnosis, confirmed independently: a build that retrieves generously
+over real documents lands at **$0.090 per question**. That is where the $0.10 comes from.
+
+Then the remaining levers, at the measured prompt size:
 
 | | per question | per year |
 |---|---:|---:|
-| Naive RAG (today) | $0.10000 | $50,000 |
-| \+ prompt caching | $0.09100 | $45,500 |
-| \+ tighter retrieval (6 chunks, not everything) | $0.02350 | $11,750 |
-| \+ mid-tier model instead of frontier | $0.00940 | $4,700 |
-| \+ pins and cache (45% never reach a model) | **$0.00517** | **$2,585** |
+| Generous retrieval | $0.09048 | $45,242 |
+| \+ prompt caching — *inert, see below* | $0.09048 | $45,242 |
+| \+ tighter retrieval (6 chunks, not everything) | $0.03657 | $18,282 |
+| \+ mid-tier model instead of frontier | $0.01463 | $7,313 |
+| \+ pins and cache (45% never reach a model) | **$0.00804** | **$4,022** |
 
-**That is 19× cheaper with no local model and no new hardware** — just caching, retrieval
-discipline, right-sized models, and not re-answering the same question twice.
+**11× cheaper with no local model and no new hardware** — retrieval discipline, right-sized
+models, and not re-answering the same question twice.
+
+That figure used to read 19×, from assumed token counts. Measuring found three errors that
+had been compounding: the model assumed a 2,000-token cacheable system prompt (the real one
+is **476 tokens, under Anthropic's 512-token floor, so it caches nothing at all**), assumed
+a 4,500-token prompt at six chunks (real: 2,313), and quietly shortened the answer from
+1,000 tokens to 400 in the same row as the retrieval change — crediting retrieval with an
+output reduction it does not cause. 11× is lower and true. `tools/cost_model.py` now reads
+the measurement file and prints which numbers are measured and which are assumed.
+
+The other thing measurement showed: once retrieval is tight, **the answer is the expensive
+part.** At 6 chunks on a frontier model, context costs $0.0116 and the answer costs $0.025.
+Caching the input cannot fix that, and that is exactly why the architecture is a cascade —
+the levers that work are a smaller model and not calling one at all.
 
 ### Where self-hosting actually helps — and where it doesn't
 
@@ -78,16 +106,16 @@ A local model has no per-token bill, but it does have a GPU behind it, and that 
 *fixed*: it lands on every question whether or not anyone asks one. Carry it honestly and
 the picture is less flattering than the usual pitch:
 
-| questions/day | hardware/question | cascade total | vs. API-only |
+| questions/day | hardware/question | cascade total | vs. API-only ($0.00804) |
 |---:|---:|---:|:--|
-| 1,000 | $0.00960 | $0.01195 | **more expensive** |
-| 2,000 | $0.00480 | $0.00715 | **more expensive** |
-| 5,000 | $0.00192 | $0.00427 | cheaper |
-| 25,000 | $0.00038 | $0.00273 | cheaper |
+| 1,000 | $0.00960 | $0.01326 | **more expensive** |
+| 2,000 | $0.00480 | $0.00846 | **more expensive** |
+| 5,000 | $0.00192 | $0.00558 | cheaper |
+| 25,000 | $0.00038 | $0.00404 | cheaper |
 
 *(a $1.20/hour GPU running 8h/day)*
 
-**Break-even is around 3,400 questions/day.** Below that, running your own model costs more
+**Break-even is around 2,200 questions/day.** Below that, running your own model costs more
 per question than the API tier it replaces. It is still the right choice when documents must
 not leave your network — but that is a **privacy** decision, and this project would rather
 say so than sell a saving that isn't there. Above that volume, the fixed cost spreads thin

@@ -12,6 +12,19 @@ uv run python tools/cost_model.py 10000      # your volume
 Rates carry a `verified` date. Slots we have not verified ship **without numbers**, and
 `cost_usd()` raises rather than reporting $0 for a call that really cost money.
 
+**Token counts are measured, not assumed.** They come from
+[`evals/measured/real-contracts.json`](../evals/measured/README.md), produced by
+`tools/measure_prompts.py` against 15 real third-party vendor contracts, SLAs and DPAs —
+around 100 pages. It parses the corpus, retrieves for real questions, assembles the exact
+prompt the running system would send, and counts it. Point it at your own folder:
+
+```bash
+uv run python tools/measure_prompts.py --corpus ./policies --questions questions.txt
+```
+
+Only the answer length is assumed, and it is held constant on every row so it cancels out of
+every comparison. Every run prints which numbers came from measurement and which did not.
+
 ## Where $0.10 per question comes from
 
 | | tokens | rate | cost |
@@ -23,30 +36,55 @@ Rates carry a `verified` date. Slots we have not verified ship **without numbers
 Nothing exotic: a frontier model, a fat context, no caching, on every call. The interesting
 part is how little of that is buying anything.
 
+That table was originally reverse-engineered from a reported figure. It has since been
+**confirmed against real documents**: a build that retrieves generously — top 40 chunks,
+keep everything that scored — over 100 pages of real contracts measures **13,097 input
+tokens and $0.09048 per question**. The diagnosis was right, and it is no longer a guess.
+
+| retrieval discipline | input tokens | $/question | $/year |
+|---|---:|---:|---:|
+| Whole corpus in context | 126,234 | $0.65617 | $328,085 |
+| Top 40 chunks | 13,097 | $0.09048 | $45,242 |
+| Top 20 chunks | 6,679 | $0.05840 | $29,198 |
+| Top 10 chunks | 3,575 | $0.04288 | $21,438 |
+| **Top 6 chunks — the default here** | **2,313** | **$0.03657** | **$18,282** |
+
+Same corpus, same prompt, same model, same assumed answer length. One variable: how many
+chunks were sent.
+
 ## The levers, one at a time
 
 At 2,000 questions/day over 250 working days:
 
 | | per question | per year | what changed |
 |---|---:|---:|---|
-| Naive RAG | $0.10000 | $50,000 | — |
-| \+ prompt caching | $0.09100 | $45,500 | fixed prompt read at ~0.1× |
-| \+ tighter retrieval | $0.02350 | $11,750 | 6 chunks, not everything that scored |
-| \+ smaller model | $0.00940 | $4,700 | grounded extraction is not a reasoning task |
-| \+ pins and cache | $0.00517 | $2,585 | 45% of questions never reach a model |
+| Generous retrieval | $0.09048 | $45,242 | top 40 chunks over a real corpus |
+| \+ prompt caching | $0.09048 | $45,242 | **inert: 476-token prompt, 512-token floor** |
+| \+ tighter retrieval | $0.03657 | $18,282 | 6 chunks, not everything that scored |
+| \+ smaller model | $0.01463 | $7,313 | grounded extraction is not a reasoning task |
+| \+ pins and cache | $0.00804 | $4,022 | 45% of questions never reach a model |
 
-**19× cheaper, no local model, no new hardware.**
+**11× cheaper, no local model, no new hardware.**
 
-Two things are worth noticing about the order.
+Three things are worth noticing, and the first only became visible on measurement.
 
-**Caching is the smallest win here, not the biggest.** It saves 9%, because in this workload
-the cacheable part (the system prompt) is small and the expensive part (retrieved context)
-changes every call. Caching is close to free, so take it — but a project that stops there has
-left almost everything on the table.
+**Prompt caching contributes nothing.** Not "a little" — nothing. The cacheable part is the
+static system prompt, which measures **476 tokens**, and Anthropic declines to cache a prefix
+under **512**. The `cache_control` marker in the provider is placed correctly and returns
+zero, silently, forever. This is the failure mode caching has: everything keeps working and
+the bill is just higher. Padding the prompt to clear the floor would earn about $0.002 a
+question and is the wrong instinct; the real caching opportunity is the *documents*, which
+is per-document caching for hot corpora, and is on the roadmap rather than in the numbers.
 
-**Retrieval discipline is the biggest single lever: 4× on its own.** Sending 15,000 tokens
-when 2,500 would do is not a modelling decision, it is a bug that bills you. This is the main
-reason to invest in reranking: fewer, better chunks are cheaper *and* more accurate.
+**Retrieval discipline and model choice are now the same size: 2.5× each.** Sending 13,097
+tokens when 2,313 would do is not a modelling decision, it is a bug that bills you — and
+this is the main reason to invest in reranking, because fewer, better chunks are cheaper
+*and* more accurate. But it no longer dominates, which leads to the third point.
+
+**Once retrieval is tight, the answer is the expensive part.** At six chunks on a frontier
+model the context costs $0.0116 and the answer costs $0.0250 — output is 68% of the bill.
+No amount of input-side cleverness touches that. The only two levers that reach it are a
+smaller model and not calling one at all, which is the entire argument for the cascade.
 
 ### Why not cache the retrieved context too?
 
@@ -65,21 +103,21 @@ repeatedly within the cache TTL.
 A self-hosted model has no per-token invoice. It has a GPU, and that cost is *fixed*: it is
 incurred whether or not anyone asks a question. Divided across question volume:
 
-| questions/day | hardware/question | cascade total | vs. API-only ($0.00517) |
+| questions/day | hardware/question | cascade total | vs. API-only ($0.00804) |
 |---:|---:|---:|:--|
-| 250 | $0.03840 | $0.04075 | **7.9× more expensive** |
-| 1,000 | $0.00960 | $0.01195 | **2.3× more expensive** |
-| 2,000 | $0.00480 | $0.00715 | **1.4× more expensive** |
-| 5,000 | $0.00192 | $0.00427 | 1.2× cheaper |
-| 10,000 | $0.00096 | $0.00331 | 1.6× cheaper |
-| 25,000 | $0.00038 | $0.00273 | 1.9× cheaper |
+| 250 | $0.03840 | $0.04206 | **5.2× more expensive** |
+| 1,000 | $0.00960 | $0.01326 | **1.6× more expensive** |
+| 2,000 | $0.00480 | $0.00846 | **1.1× more expensive** |
+| 5,000 | $0.00192 | $0.00558 | 1.4× cheaper |
+| 10,000 | $0.00096 | $0.00462 | 1.7× cheaper |
+| 25,000 | $0.00038 | $0.00404 | 2.0× cheaper |
 
 *(a $1.20/hour GPU running 8h/day; cascade = 45% free, 45% local, 10% escalated to frontier)*
 
-**Break-even is around 3,400 questions/day.**
+**Break-even is around 2,200 questions/day.**
 
 This is the number most self-hosting pitches leave out, so to be direct about it: **below
-roughly 3,400 questions/day, running your own model costs more per question than the API
+roughly 2,200 questions/day, running your own model costs more per question than the API
 tier it replaces.** It can still be the right call — if documents must not leave your
 network, the hardware is buying privacy and the price is reasonable. But it is a privacy
 purchase, not a saving, and OpenKnowledge would rather say that than sell a number that

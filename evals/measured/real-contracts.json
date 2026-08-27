@@ -1,0 +1,105 @@
+{
+  "levers": [
+    {
+      "name": "measured prompt, frontier model",
+      "usd_per_question": 0.03657,
+      "usd_per_year": 18282.5
+    },
+    {
+      "name": "+ prompt caching (inert: 476 < 512 floor)",
+      "usd_per_question": 0.03657,
+      "usd_per_year": 18282.5
+    },
+    {
+      "name": "+ mid-tier model",
+      "usd_per_question": 0.01463,
+      "usd_per_year": 7313.0
+    },
+    {
+      "name": "+ 45% of questions never reach a model",
+      "usd_per_question": 0.00804,
+      "usd_per_year": 4022.15
+    },
+    {
+      "name": "+ 75% of questions never reach a model",
+      "usd_per_question": 0.00366,
+      "usd_per_year": 1828.25
+    }
+  ],
+  "system_prompt_tokens": 476,
+  "documents": 23,
+  "chunks": 476,
+  "questions": 12,
+  "model": "claude-opus-5",
+  "output_tokens_assumed": 1000,
+  "questions_per_day": 2000,
+  "rows": [
+    {
+      "discipline": "Whole corpus in context",
+      "note": "no retrieval at all",
+      "chunks": 476,
+      "input_tokens": 126234,
+      "min_input_tokens": 126231,
+      "max_input_tokens": 126238,
+      "usd_per_question": 0.65617,
+      "usd_per_year": 328085.0
+    },
+    {
+      "discipline": "Top 40 chunks",
+      "note": "retrieval, but keep everything that scored",
+      "chunks": 40,
+      "input_tokens": 13097,
+      "min_input_tokens": 10611,
+      "max_input_tokens": 15567,
+      "usd_per_question": 0.09048,
+      "usd_per_year": 45242.5
+    },
+    {
+      "discipline": "Top 20 chunks",
+      "note": "the usual 'be generous' default",
+      "chunks": 20,
+      "input_tokens": 6679,
+      "min_input_tokens": 5063,
+      "max_input_tokens": 9352,
+      "usd_per_question": 0.0584,
+      "usd_per_year": 29197.5
+    },
+    {
+      "discipline": "Top 10 chunks",
+      "note": "tightening",
+      "chunks": 10,
+      "input_tokens": 3575,
+      "min_input_tokens": 2523,
+      "max_input_tokens": 6158,
+      "usd_per_question": 0.04288,
+      "usd_per_year": 21437.5
+    },
+    {
+      "discipline": "Top 6 chunks",
+      "note": "OpenKnowledge default",
+      "chunks": 6,
+      "input_tokens": 2313,
+      "min_input_tokens": 1649,
+      "max_input_tokens": 4098,
+      "usd_per_question": 0.03657,
+      "usd_per_year": 18282.5
+    }
+  ],
+  "provenance": {
+    "corpus": "15 real third-party vendor contracts, SLAs, DPAs and registers (~100 pages), plus a parallel copy of seven of them",
+    "not_redistributed": "the documents are third-party and are not in this repository; these are the derived token counts only",
+    "produced_by": "uv run python tools/measure_prompts.py --corpus <folder> --questions <file> --json",
+    "measured": [
+      "input_tokens",
+      "system_prompt_tokens",
+      "documents",
+      "chunks"
+    ],
+    "assumed": [
+      "output_tokens_assumed",
+      "questions_per_day",
+      "free share in `levers`"
+    ],
+    "tokenizer": "cl100k_base, used as a vendor-neutral counter"
+  }
+}

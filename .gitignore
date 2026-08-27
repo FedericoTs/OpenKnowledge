@@ -26,3 +26,8 @@ data/
 
 # Node (web widget tooling, if added)
 node_modules/
+
+# uv writes this on `uv run`. Not committed: the project is a library plus a
+# container, and the container pins its own versions at build time. Committing a
+# lock generated on one contributor's machine would pin everyone else to it.
+uv.lock
