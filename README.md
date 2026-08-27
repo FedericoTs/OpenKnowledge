@@ -124,6 +124,12 @@ Files that cannot be read are named with a remedy rather than silently skipped:
   old-handbook.doc: .doc is the pre-2007 Office format; re-save it as .docx
 ```
 
+PDFs get two parsers. Where a JVM is available — as in the container — it uses
+[OpenDataLoader](https://github.com/opendataloader-project) (Apache 2.0), which *reports*
+heading levels and table cells instead of inferring them from type size and ruling lines,
+and reads PDF/UA tags as true structure. Without a JVM it falls back to a pure-Python
+path, so a bare `pip install` still works.
+
 See [DOCUMENTS.md](docs/DOCUMENTS.md).
 
 ### Maintenance is a one-off at upload

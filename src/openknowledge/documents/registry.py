@@ -59,7 +59,9 @@ def skip_reason(path: str | Path) -> str | None:
     return f"no parser for {suffix or 'files without an extension'}"
 
 
-def parse_file(path: str | Path, *, title: str | None = None) -> ParsedDocument:
+def parse_file(
+    path: str | Path, *, title: str | None = None, pdf_backend: str = "auto"
+) -> ParsedDocument:
     """Parse a file from disk, choosing the parser by extension.
 
     Never raises: an unreadable file returns an empty document carrying a
@@ -82,10 +84,14 @@ def parse_file(path: str | Path, *, title: str | None = None) -> ParsedDocument:
         data = p.read_bytes()
     except OSError as exc:
         return ParsedDocument(warnings=(f"could not read {p.name}: {exc}",))
+    if suffix == ".pdf":
+        return parse_pdf(data, title=title, backend=pdf_backend)
     return parser(data, title=title)
 
 
-def parse_bytes(data: bytes, *, suffix: str, title: str | None = None) -> ParsedDocument:
+def parse_bytes(
+    data: bytes, *, suffix: str, title: str | None = None, pdf_backend: str = "auto"
+) -> ParsedDocument:
     """Parse in-memory content - for connectors that fetch rather than read."""
     normalised = suffix.lower() if suffix.startswith(".") else f".{suffix.lower()}"
     if normalised in TEXT_SUFFIXES:
@@ -94,6 +100,8 @@ def parse_bytes(data: bytes, *, suffix: str, title: str | None = None) -> Parsed
         except UnicodeDecodeError as exc:
             return ParsedDocument(warnings=(f"not valid UTF-8 text: {exc}",))
 
+    if normalised == ".pdf":
+        return parse_pdf(data, title=title, backend=pdf_backend)
     parser = BINARY_PARSERS.get(normalised)
     if parser is None:
         return ParsedDocument(warnings=(f"no parser for {normalised}",))

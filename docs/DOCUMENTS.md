@@ -73,7 +73,61 @@ the chunk right is the only place that failure can be prevented.
 A document with no recovered structure still falls back to overlapping word
 windows, so nothing regresses.
 
-## PDFs, and what they cost
+## Two PDF backends
+
+PDFs get two parsers, chosen at runtime by `OK_PDF_BACKEND` (`auto` by default).
+
+| | | |
+|---|---|---|
+| **OpenDataLoader** | Apache 2.0, Java | Preferred. Reports structure. |
+| **pdfplumber** | MIT, pure Python | Always available. Infers structure. |
+
+OpenDataLoader reports what pdfplumber has to guess: heading levels are stated
+rather than inferred from type size, tables arrive as cells with row and column
+spans rather than reconstructed from ruling lines, and a PDF/UA-tagged document —
+which a good share of enterprise compliance material is — is read as true
+structure rather than inference at all. It is also deterministic by design and
+runs at 60+ pages/sec on CPU with no GPU and no external calls.
+
+It needs a JVM. That is unremarkable in a container and impossible in a
+serverless function, which is why it is an extra rather than a core dependency:
+the container installs it with a headless JRE, and a bare `pip install` gets the
+pure-Python path with nothing broken.
+
+```bash
+OK_PDF_BACKEND=auto            # OpenDataLoader if Java is present, else pdfplumber
+OK_PDF_BACKEND=opendataloader  # require it; fail loudly if it cannot run
+OK_PDF_BACKEND=pdfplumber      # pin the pure-Python path
+```
+
+### What the JRE costs
+
+The headless JRE roughly doubles the container: **379 MB → 707 MB**. That is the
+honest price of the better parser, and it is avoidable — a build that drops
+`default-jre-headless` and the `opendataloader` extra from the Dockerfile runs
+the pure-Python path at the smaller size, with no code change and nothing broken.
+Set `OK_PDF_BACKEND=pdfplumber` there so the choice is explicit rather than
+incidental.
+
+### One sharp edge
+
+The two backends extract slightly different text, so the same corpus fingerprints
+differently under each. Cached answers regenerate rather than going stale — the
+corpus version is part of the cache key, which is what that key is for — but
+**moving a deployment between a machine with Java and one without invalidates
+every cached answer**, and the first day back is expensive. Pin the backend if
+that matters more than convenience.
+
+Within one backend, extraction is byte-stable: the same PDF fingerprints
+identically on the host and inside the container, which is what makes the
+corpus version safe to cache against.
+
+## What the geometric backend does
+
+Everything below describes the pdfplumber path, which is what runs when there is
+no JVM.
+
+
 
 A PDF knows where glyphs sit on a page and nothing about headings or sections.
 Three things are recovered from geometry:

@@ -43,6 +43,7 @@ class LocalFilesConnector:
     root: Path = field(default_factory=Path)
     suffixes: frozenset[str] = SUPPORTED_SUFFIXES
     allowed_principals: frozenset[str] = frozenset()
+    pdf_backend: str = "auto"
     #: Files from the last fetch that could not be indexed. Read by the engine
     #: so `index` can report them rather than leaving them invisible.
     skipped: list[SkippedFile] = field(default_factory=list)
@@ -53,6 +54,7 @@ class LocalFilesConnector:
         *,
         suffixes: frozenset[str] = SUPPORTED_SUFFIXES,
         allowed_principals: frozenset[str] = frozenset(),
+        pdf_backend: str = "auto",
     ) -> None:
         self.name = "local-files"
         # Resolved eagerly: a relative root cannot be turned into the file:// URI
@@ -60,6 +62,7 @@ class LocalFilesConnector:
         self.root = Path(root).expanduser().resolve()
         self.suffixes = suffixes
         self.allowed_principals = allowed_principals
+        self.pdf_backend = pdf_backend
         self.skipped = []
 
     def fetch(self) -> list[Document]:
@@ -80,7 +83,7 @@ class LocalFilesConnector:
                     self.skipped.append(SkippedFile(relative, reason))
                 continue
 
-            parsed = parse_file(path, title=None)
+            parsed = parse_file(path, title=None, pdf_backend=self.pdf_backend)
             for warning in parsed.warnings:
                 self.skipped.append(SkippedFile(relative, warning))
                 log.warning("%s: %s", relative, warning)

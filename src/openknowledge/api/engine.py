@@ -185,7 +185,7 @@ def build_engine(settings: Settings) -> Engine:
         target_words=settings.chunk_target_words,
         overlap_words=settings.chunk_overlap_words,
     )
-    connector = LocalFilesConnector(settings.documents_dir)
+    connector = LocalFilesConnector(settings.documents_dir, pdf_backend=settings.pdf_backend)
     local = _build_local(settings)
     frontier = _build_frontier(settings)
     engine = Engine(

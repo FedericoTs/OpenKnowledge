@@ -37,6 +37,11 @@ dependencies = [
 
 [project.optional-dependencies]
 anthropic = ["anthropic>=0.40"]
+# OpenDataLoader PDF (Apache-2.0): a Java parser that reports a document's
+# real structure instead of inferring it from geometry. An extra rather than a
+# core dependency because it needs a JVM - which the container has and a bare
+# pip install does not. Without it the pdfplumber backend is used.
+opendataloader = ["opendataloader-pdf>=2.5"]
 dev = [
   "pytest>=8.3",
   "reportlab>=4.0",  # BSD - generates the PDF fixtures the parser tests read

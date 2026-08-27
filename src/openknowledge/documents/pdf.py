@@ -70,8 +70,40 @@ _MAX_HEADING_CHARS = 90
 _NUMERIC_COLUMN_RATIO = 0.6
 
 
-def parse_pdf(data: bytes, *, title: str | None = None) -> ParsedDocument:
-    """Parse a PDF into per-page blocks, keeping tables and headings intact."""
+def parse_pdf(data: bytes, *, title: str | None = None, backend: str = "auto") -> ParsedDocument:
+    """Parse a PDF, preferring OpenDataLoader when it can run.
+
+    ``backend`` is ``"auto"``, ``"opendataloader"`` or ``"pdfplumber"``.
+
+    Auto-selection is a convenience with a consequence worth knowing: the two
+    backends extract slightly different text, so the same corpus fingerprints
+    differently under each. Answers regenerate rather than going stale - the
+    corpus version is part of the cache key - but moving a deployment between
+    a machine with Java and one without will invalidate every cached answer.
+    Pin the backend explicitly if that matters more than convenience.
+    """
+    from . import opendataloader
+
+    if backend in ("auto", "opendataloader") and opendataloader.is_available():
+        parsed = opendataloader.parse_pdf_opendataloader(data, title=title)
+        # An empty result from a healthy backend means a scan; falling through
+        # costs one cheap second pass and occasionally rescues a file whose
+        # structure the Java parser declined but whose text is readable.
+        if parsed.blocks or backend == "opendataloader":
+            return parsed
+    elif backend == "opendataloader":
+        reason = opendataloader.unavailable_reason() or "unavailable"
+        return ParsedDocument(warnings=(f"OpenDataLoader was requested but {reason}",))
+
+    return parse_pdf_pdfplumber(data, title=title)
+
+
+def parse_pdf_pdfplumber(data: bytes, *, title: str | None = None) -> ParsedDocument:
+    """Parse a PDF from its geometry alone - pure Python, no JVM.
+
+    Always available, and the reason the tool still works from a plain pip
+    install.
+    """
     try:
         import pdfplumber
     except ImportError:  # pragma: no cover - dependency is declared

@@ -326,3 +326,90 @@ def test_parse_bytes_dispatches_on_suffix() -> None:
     doc = parse_bytes(b"# Title\n\nBody.", suffix=".md")
     assert doc.title == "Title"
     assert parse_bytes(b"x", suffix=".bin").warnings
+
+
+# -- PDF backends ----------------------------------------------------------
+
+from openknowledge.documents import opendataloader as odl  # noqa: E402
+from openknowledge.documents.pdf import parse_pdf, parse_pdf_pdfplumber  # noqa: E402
+
+needs_java = pytest.mark.skipif(
+    not odl.is_available(), reason="OpenDataLoader needs a JVM and the wrapper package"
+)
+
+
+def test_pdfplumber_backend_is_always_available(corpus: Path) -> None:
+    """The reason a bare pip install still reads PDFs."""
+    doc = parse_pdf_pdfplumber((corpus / "policy.pdf").read_bytes())
+    assert doc.blocks and doc.title == "Expenses Policy"
+
+
+def test_requesting_a_missing_backend_says_why(monkeypatch, corpus: Path) -> None:
+    monkeypatch.setattr(odl, "is_available", lambda: False)
+    monkeypatch.setattr(odl, "unavailable_reason", lambda: "no Java runtime on PATH")
+    doc = parse_pdf((corpus / "policy.pdf").read_bytes(), backend="opendataloader")
+    assert doc.is_empty
+    assert any("no Java runtime" in w for w in doc.warnings)
+
+
+def test_auto_falls_back_when_opendataloader_cannot_run(monkeypatch, corpus: Path) -> None:
+    monkeypatch.setattr(odl, "is_available", lambda: False)
+    doc = parse_pdf((corpus / "policy.pdf").read_bytes(), backend="auto")
+    assert doc.blocks, "auto must still parse without a JVM"
+
+
+@needs_java
+def test_opendataloader_reports_heading_levels_rather_than_guessing(corpus: Path) -> None:
+    """The clearest win over geometry: the level is stated, not inferred."""
+    doc = parse_pdf((corpus / "policy.pdf").read_bytes(), backend="opendataloader")
+    headings = [b for b in doc.blocks if b.kind is BlockKind.HEADING]
+    assert [h.level for h in headings[:2]] == [1, 2]
+
+
+@needs_java
+def test_opendataloader_keeps_table_rows_labelled(corpus: Path) -> None:
+    doc = parse_pdf((corpus / "policy.pdf").read_bytes(), backend="opendataloader")
+    rows = [b.text for b in doc.blocks if b.kind is BlockKind.TABLE_ROW]
+    assert any("Grade: Senior" in r and "EUR 45" in r for r in rows)
+
+
+@needs_java
+def test_opendataloader_gives_real_page_locators(corpus: Path) -> None:
+    doc = parse_pdf((corpus / "policy.pdf").read_bytes(), backend="opendataloader")
+    assert all(b.locator == "p. 1" for b in doc.blocks)
+    assert doc.pages == 1
+
+
+@needs_java
+def test_opendataloader_is_deterministic(corpus: Path) -> None:
+    """Two runs must fingerprint identically, or every re-index invalidates the
+    cache on a corpus that did not change."""
+    data = (corpus / "policy.pdf").read_bytes()
+    first = parse_pdf(data, backend="opendataloader")
+    second = parse_pdf(data, backend="opendataloader")
+    assert first.text == second.text
+
+
+@needs_java
+def test_placeholder_pdf_titles_are_ignored(corpus: Path) -> None:
+    """Writers leave "(anonymous)" in the metadata; citing that helps nobody."""
+    doc = parse_pdf((corpus / "policy.pdf").read_bytes(), backend="opendataloader")
+    assert doc.title == "Expenses Policy"
+
+
+@needs_java
+def test_both_backends_agree_on_the_facts(corpus: Path) -> None:
+    """They extract different bytes, but the figures a policy turns on must
+    survive either one."""
+    data = (corpus / "policy.pdf").read_bytes()
+    for doc in (parse_pdf(data, backend="opendataloader"), parse_pdf_pdfplumber(data)):
+        text = doc.text
+        assert "EUR 500" in text
+        assert "EUR 45" in text
+        assert "Expenses Policy" in text
+
+
+@needs_java
+def test_a_corrupt_pdf_is_survivable_on_the_java_backend(tmp_path: Path) -> None:
+    doc = parse_pdf(b"%PDF-1.4 not really a pdf", backend="opendataloader")
+    assert doc.is_empty

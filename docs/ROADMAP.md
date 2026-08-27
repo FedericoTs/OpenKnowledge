@@ -24,10 +24,11 @@ Honest status. "Built" means implemented and covered by tests in this repository
   precomputed cache entries, a review queue ranked by value, free numeric conflict
   detection, citation-anchored re-verification when documents change, and refusal on
   contested claims including the stale-pin case. See [KNOWLEDGE.md](KNOWLEDGE.md).
-- **Document parsing** — PDF (headings from type size, ruled and unruled tables),
-  Word, Excel, PowerPoint and Markdown into structured blocks with citable locators,
-  plus structure-aware chunking that never splits a rule from its condition. See
-  [DOCUMENTS.md](DOCUMENTS.md) and ADR 0007.
+- **Document parsing** — PDF, Word, Excel, PowerPoint and Markdown into structured blocks
+  with citable locators, plus structure-aware chunking that never splits a rule from its
+  condition. PDFs get two backends: OpenDataLoader where a JVM exists, which reports
+  heading levels and table cells rather than inferring them, and pdfplumber everywhere
+  else. See [DOCUMENTS.md](DOCUMENTS.md), ADR 0007 and ADR 0008.
 - **Prose contradiction detection** — deontic claim extraction (must / may / must not) with
   predicate families and hard-versus-soft force pairs, plus a free FAQ cross-check that
   catches a newly uploaded document disagreeing with an existing answer. Measured by
@@ -64,8 +65,11 @@ Honest status. "Built" means implemented and covered by tests in this repository
 ### Known gaps in document parsing
 
 - **No OCR.** A scanned PDF is reported and indexed as nothing.
-- **PDF headings are inferred from type size**, so a document that styles headings at body
-  size reads as one flat section.
+- **PDF headings are inferred from type size** on the pdfplumber backend, so a document
+  that styles headings at body size reads as one flat section. OpenDataLoader reports
+  levels explicitly and does not have this limitation.
+- **Borderless tables are missed by both PDF backends**, so a purely visual table with no
+  ruling lines reads as prose.
 - **Unruled tables need a numeric column**, so a purely textual table reads as prose.
 - **Spreadsheet formulas are read as last-saved values**, which can be stale.
 

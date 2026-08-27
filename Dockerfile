@@ -7,16 +7,17 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
-# pdfplumber needs libgomp for its image backend; everything else in the
-# parsing stack is pure Python.
+# libgomp1 for pdfplumber's image backend, and a headless JRE for the
+# OpenDataLoader PDF parser. The JVM is the reason that parser is optional:
+# unremarkable in a container, impossible in a serverless function.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends libgomp1 \
+    && apt-get install -y --no-install-recommends libgomp1 default-jre-headless \
     && rm -rf /var/lib/apt/lists/*
 
 # Dependencies first so application edits do not invalidate the layer.
 COPY pyproject.toml README.md ./
 COPY src/ ./src/
-RUN pip install --no-cache-dir ".[anthropic]"
+RUN pip install --no-cache-dir ".[anthropic,opendataloader]"
 
 COPY web/ ./web/
 COPY documents/ ./documents/

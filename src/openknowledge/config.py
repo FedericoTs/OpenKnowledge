@@ -25,6 +25,18 @@ class Settings(BaseSettings):
 
     # -- retrieval -------------------------------------------------------
     retrieval_k: int = Field(default=6, ge=1, le=50)
+    #: Which PDF backend to use: "auto", "opendataloader" or "pdfplumber".
+    #:
+    #: OpenDataLoader reports a document's real structure - explicit heading
+    #: levels, native table cells, PDF/UA tags - where pdfplumber infers it
+    #: from geometry. It needs a JVM, which is unremarkable in a container and
+    #: absent from a bare pip install, so "auto" picks whichever can run.
+    #:
+    #: The two extract slightly different text, so a corpus fingerprints
+    #: differently under each. Cached answers regenerate rather than going
+    #: stale, but moving between a machine with Java and one without
+    #: invalidates all of them. Pin this if that matters.
+    pdf_backend: str = Field(default="auto", pattern="^(auto|opendataloader|pdfplumber)$")
     chunk_target_words: int = Field(default=350, ge=50)
     chunk_overlap_words: int = Field(default=60, ge=0)
 
