@@ -19,6 +19,7 @@ class Tier(StrEnum):
     EXACT_CACHE = "exact"  # byte-identical question seen before; $0
     SEMANTIC_CACHE = "semantic"  # near-identical question; $0
     DRAFT = "draft"  # auto-drafted at ingest, gate-passed, unreviewed; $0
+    CORPUS = "corpus"  # a question about the collection, answered from the index; $0
     LOCAL = "local"  # self-hosted model; no per-token invoice
     FRONTIER = "frontier"  # paid API call
     REFUSED = "refused"  # nothing grounded enough to answer with
@@ -38,6 +39,7 @@ class Tier(StrEnum):
             Tier.EXACT_CACHE,
             Tier.SEMANTIC_CACHE,
             Tier.DRAFT,
+            Tier.CORPUS,
         )
 
     @property

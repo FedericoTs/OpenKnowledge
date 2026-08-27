@@ -38,6 +38,7 @@ from ..retrieval.grounding import check_grounding
 from ..retrieval.rerank import Reranker, StructuralReranker
 from ..types import Answer, Citation, Tier
 from .budget import Budget, BudgetGovernor
+from .corpus import describe, recognise
 from .ladder import Ladder, Rung
 
 log = logging.getLogger(__name__)
@@ -172,6 +173,24 @@ class Cascade:
         key: str,
         principals: frozenset[str] | None,
     ) -> Answer:
+        # Before anything else, and before any cost: a question about the
+        # collection rather than from it. No retriever can answer "what
+        # documents do you have" - it has no subject to match - so it used to
+        # come back as "that isn't covered by the documents I have", which is a
+        # system that plainly does know, saying it does not. Free, instant, and
+        # correct by construction rather than by a model reading a passage.
+        asking_about_the_corpus = recognise(question)
+        if asking_about_the_corpus is not None:
+            titles, hidden = self.retriever.documents_visible_to(principals)
+            return Answer(
+                text=describe(titles, chunks=len(self.retriever), hidden=hidden),
+                tier=Tier.CORPUS,
+                model_id="none",
+                cache_key=key,
+                grounded=True,
+                notes=("answered from the index; no model was called",),
+            )
+
         # A contested claim is where the bot would otherwise be confidently
         # wrong, so an unresolved disagreement outranks everything except a pin
         # that has already accounted for it.

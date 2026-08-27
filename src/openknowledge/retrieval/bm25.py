@@ -43,6 +43,26 @@ class BM25Retriever:
     def __len__(self) -> int:
         return len(self._chunks)
 
+    def documents_visible_to(self, principals: frozenset[str] | None) -> tuple[list[str], int]:
+        """Titles this asker may see, and how many are being withheld.
+
+        Access control applies here exactly as it does to retrieval. A list of
+        document titles is not nothing: "Project Northstar - Redundancy Plan"
+        tells you what it is without opening it, so answering "what do you have"
+        without filtering would route around the ACL that search respects.
+        """
+        seen: dict[str, str] = {}
+        hidden: set[str] = set()
+        for chunk in self._chunks:
+            if chunk.document_id in seen or chunk.document_id in hidden:
+                continue
+            allowed = chunk.allowed_principals
+            if principals is not None and allowed and not (allowed & principals):
+                hidden.add(chunk.document_id)
+                continue
+            seen[chunk.document_id] = chunk.document_title
+        return sorted(seen.values()), len(hidden)
+
     @property
     def document_count(self) -> int:
         """How many documents, not how many chunks.
