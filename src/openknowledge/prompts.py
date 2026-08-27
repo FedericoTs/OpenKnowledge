@@ -82,3 +82,15 @@ def format_context(chunks: list[Chunk]) -> str:
 
 
 REFUSAL_TEXT = "I don't know - that isn't covered by the documents I have."
+
+#: What to say when no model could be reached, so the documents were never read.
+#:
+#: This is a different statement from :data:`REFUSAL_TEXT` and has to be, because
+#: the two send an operator to opposite places. "Not covered by the documents"
+#: sends them to look at their corpus; when the real cause is a model server that
+#: is not running, that is a wrong answer about why there is no answer - the one
+#: kind of wrong answer a system built on honest refusal cannot afford.
+UNAVAILABLE_TEXT = (
+    "I could not answer this: no model was reachable, so your documents were "
+    "never read. This is a configuration problem, not a gap in them."
+)

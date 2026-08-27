@@ -94,6 +94,44 @@ async def test_refuses_rather_than_guessing_when_nothing_is_grounded(
     assert any("escalation is disabled" in n for n in answer.notes)
 
 
+async def test_an_unreachable_model_does_not_blame_the_documents(
+    store, retriever, settings
+) -> None:
+    """The two refusals are different statements and must not be swapped.
+
+    Reported from a real deployment: Ollama was not running, and the widget
+    answered "that isn't covered by the documents I have" over a corpus it had
+    never read. That sends the operator to look at their documents when the
+    problem is their model server - a wrong answer about why there is no answer,
+    which is the one kind of wrong answer this design cannot afford.
+    """
+    local = FakeProvider(fail=True)
+    answer = await build(store, retriever, settings, local=local).answer(QUESTION)
+
+    assert answer.tier is Tier.REFUSED
+    assert "never read" in answer.text
+    assert "isn't covered by the documents" not in answer.text
+
+    # And no sources: listing them under this claim implies something read them.
+    assert answer.citations == ()
+    assert any("tier unavailable" in n for n in answer.notes)
+    assert any("model status" in n for n in answer.notes)
+    assert any("nothing read them" in n for n in answer.notes)
+
+
+async def test_a_model_that_read_them_and_failed_does_blame_the_documents(
+    store, retriever, settings
+) -> None:
+    """The other half. Here the sentence is true, and the sources are worth showing."""
+    local = FakeProvider(replies=[INVENTED])
+    answer = await build(store, retriever, settings, local=local).answer(QUESTION)
+
+    assert answer.tier is Tier.REFUSED
+    assert "isn't covered by the documents" in answer.text
+    assert "never read" not in answer.text
+    assert answer.citations, "it read these; say which"
+
+
 async def test_refusals_are_not_cached(store, retriever, settings) -> None:
     local = FakeProvider(replies=[INVENTED, GROUNDED])
     cascade = build(store, retriever, settings, local=local)

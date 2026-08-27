@@ -106,12 +106,39 @@ def _contact_store(app: FastAPI, settings: Settings) -> ContactStore:
     return store
 
 
+def _warn_if_the_model_is_unreachable(settings: Settings) -> None:
+    """Say at startup that the local endpoint is down, not one question later.
+
+    The operator is looking at this terminal now. Finding out from a refused
+    question in a chat widget - which is how this was reported - costs them a
+    confusing round trip through their own documents first.
+
+    One probe, at startup, non-fatal: a server that cannot reach its model still
+    serves the audit tier, pinned answers and the cache, and refusing to boot
+    over it would be worse than saying so.
+    """
+    if not settings.local_enabled:
+        return
+    from ..models import probe
+
+    runtime = probe(settings.local_base_url, timeout=2.0)
+    if runtime.reachable:
+        return
+    log.warning(
+        "no model is answering at %s, so questions will be refused rather than answered "
+        "(pins, the cache and `openknowledge audit` still work). Start it - `ollama serve` "
+        "if you use Ollama - or check `openknowledge model status`.",
+        settings.local_base_url,
+    )
+
+
 def create_app(settings: Settings | None = None) -> FastAPI:
     resolved = settings or load_settings()
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.engine = build_engine(app.state.settings)
+        _warn_if_the_model_is_unreachable(app.state.settings)
         try:
             yield
         finally:

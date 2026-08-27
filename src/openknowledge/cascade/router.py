@@ -24,7 +24,13 @@ from ..knowledge.relevance import (
     relevant_conflicts,
 )
 from ..knowledge.store import KnowledgeStore, StoredConflict
-from ..prompts import PROMPT_VERSION, REFUSAL_TEXT, SYSTEM_PROMPT, format_context
+from ..prompts import (
+    PROMPT_VERSION,
+    REFUSAL_TEXT,
+    SYSTEM_PROMPT,
+    UNAVAILABLE_TEXT,
+    format_context,
+)
 from ..providers.base import ChatProvider, ProviderError
 from ..retrieval.base import Chunk
 from ..retrieval.bm25 import BM25Retriever
@@ -50,6 +56,12 @@ class _Attempt:
     usage: Usage
     cost_usd: float
     notes: tuple[str, ...] = ()
+    #: Whether the model actually produced text. False means the call never
+    #: happened - unreachable endpoint, missing model, a prompt that would not
+    #: fit - and so the sources were never assessed. True with `answer` None
+    #: means it read them and its answer failed the gate. The two look identical
+    #: from here and mean opposite things to whoever asked.
+    reached_model: bool = False
 
 
 #: How much of a chunk to keep as the citation snippet shown to the user.
@@ -291,6 +303,9 @@ class Cascade:
         notes.extend(withheld)
 
         climbed_from: Tier | None = None
+        #: Did any rung actually read the sources? Decides which of the two
+        #: refusals is true at the end of this loop.
+        any_rung_ran = False
         for rung in affordable:
             rung_chunks = chunks[: rung.k] if rung.k is not None else chunks
             attempt = await self._try_provider(
@@ -307,6 +322,7 @@ class Cascade:
             spent_usd += attempt.cost_usd
             spent_usage += attempt.usage
             notes.extend(attempt.notes)
+            any_rung_ran = any_rung_ran or attempt.reached_model
 
             if attempt.answer is not None:
                 # Bill the answer for every failed attempt below it too, so the
@@ -342,20 +358,43 @@ class Cascade:
         elif budget_state.enabled:
             notes.append(f"budget: {budget_state.describe()}")
 
-        # Nothing could be grounded. Say so rather than passing along a guess -
-        # and do not cache it, so a later corpus update, or a recovered budget,
-        # gets a fresh attempt. The cost is still reported: rejected answers are
-        # not free.
+        # Two different refusals, and saying the wrong one is itself a wrong
+        # answer. If some rung read the sources and could not ground an answer,
+        # "not covered by the documents" is true and the sources are worth
+        # showing. If no rung ever ran - nothing reachable, or the budget
+        # withheld them all - the documents were never assessed, so claiming
+        # they do not cover it is false, and listing them as "sources" under
+        # that claim is worse: it implies something read them.
+        #
+        # Not cached either way, so a recovered endpoint or a later corpus
+        # update gets a fresh attempt. The cost is still reported: rejected
+        # answers are not free.
+        if any_rung_ran:
+            return Answer(
+                text=REFUSAL_TEXT,
+                tier=Tier.REFUSED,
+                model_id="none",
+                cache_key=key,
+                citations=_citations(chunks),
+                usage=spent_usage,
+                cost_usd=spent_usd,
+                grounded=False,
+                notes=tuple(notes) or ("no rung produced a grounded answer",),
+            )
+
+        notes.append(
+            f"retrieval found {len(chunks)} passage(s); nothing read them, so the documents "
+            "have not been ruled out"
+        )
         return Answer(
-            text=REFUSAL_TEXT,
+            text=UNAVAILABLE_TEXT,
             tier=Tier.REFUSED,
             model_id="none",
             cache_key=key,
-            citations=_citations(chunks),
             usage=spent_usage,
             cost_usd=spent_usd,
             grounded=False,
-            notes=tuple(notes) or ("no rung produced a grounded answer",),
+            notes=tuple(notes),
         )
 
     async def _try_provider(
@@ -381,7 +420,16 @@ class Cascade:
         except ProviderError as exc:
             log.warning("%s tier failed: %s", tier.value, exc)
             # Nothing was generated, so nothing was billed.
-            return _Attempt(None, Usage(), 0.0, (f"{tier.value} tier unavailable: {exc}",))
+            return _Attempt(
+                None,
+                Usage(),
+                0.0,
+                (
+                    f"{tier.value} tier unavailable: {exc}",
+                    "`openknowledge model status` checks whether that endpoint is up",
+                ),
+                reached_model=False,
+            )
 
         cost, cost_notes = _price(completion.usage, provider)
 
@@ -400,6 +448,7 @@ class Cascade:
                 completion.usage,
                 cost,
                 (*cost_notes, f"{tier.value} answer rejected: {reasons}"),
+                reached_model=True,
             )
 
         cited = set(report.cited_ids)
@@ -415,7 +464,7 @@ class Cascade:
             notes=cost_notes,
             support=round(report.support_ratio, 3),
         )
-        return _Attempt(answer, completion.usage, cost, cost_notes)
+        return _Attempt(answer, completion.usage, cost, cost_notes, reached_model=True)
 
 
 def _suffix_hash(suffix: str) -> str:
