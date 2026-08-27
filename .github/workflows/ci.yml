@@ -47,6 +47,11 @@ jobs:
       - name: Golden set loads and the safety set runs
         run: uv run openknowledge eval --only refusal
 
+      # Unlike the golden set, this is a real evaluation without a model:
+      # deterministic, and it fails on any precision or recall regression.
+      - name: Contradiction detection holds its precision and recall
+        run: uv run openknowledge eval-conflicts
+
   docker:
     runs-on: ubuntu-latest
     steps:

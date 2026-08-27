@@ -85,14 +85,14 @@ def test_duplicate_ids_are_rejected() -> None:
 
 
 def test_the_shipped_golden_set_loads() -> None:
-    cases = load_cases(Path(__file__).resolve().parents[1] / "evals")
+    cases = load_cases(Path(__file__).resolve().parents[1] / "evals" / "golden")
     assert len(cases) >= 10
     assert any(c.kind == "refusal" for c in cases), "a golden set with no safety cases is naive"
 
 
 def test_every_asserted_fact_has_a_counterpart_where_it_matters() -> None:
     """Numeric facts should carry the plausible wrong answer in must_not_say."""
-    cases = load_cases(Path(__file__).resolve().parents[1] / "evals")
+    cases = load_cases(Path(__file__).resolve().parents[1] / "evals" / "golden")
     numeric = [
         c
         for c in cases
@@ -305,3 +305,86 @@ async def test_a_clean_run_says_so(store, retriever, settings) -> None:
     cascade = build(store, retriever, settings, [GOOD_LEAVE])
     text = format_report(await run_eval(cascade, [LEAVE_CASE]))
     assert "PASSED" in text
+
+
+# -- contradiction detection -----------------------------------------------
+
+from openknowledge.evaluation import (  # noqa: E402
+    ConflictSetError,
+    format_conflict_report,
+    load_conflict_cases,
+    parse_conflict_cases,
+    run_conflict_eval,
+)
+
+REAL = {
+    "id": "flip",
+    "expect": "conflict",
+    "documents": [
+        {"id": "a", "text": "Contractors are eligible for parental leave."},
+        {"id": "b", "text": "Contractors are excluded from parental leave."},
+    ],
+}
+CLEAN = {
+    "id": "quiet",
+    "expect": "clean",
+    "documents": [
+        {"id": "a", "text": "Alcohol is not reimbursable under any circumstances."},
+        {"id": "b", "text": "VPN access requests must be approved by IT Operations."},
+    ],
+}
+
+
+def test_a_set_without_clean_cases_is_rejected() -> None:
+    """A set of only real contradictions measures recall and cannot see a
+    false positive - which is the failure that gets a detector switched off."""
+    with pytest.raises(ConflictSetError, match="clean"):
+        parse_conflict_cases([REAL])
+
+
+@pytest.mark.parametrize(
+    ("entry", "match"),
+    [
+        ({"id": "x", "expect": "maybe", "documents": [{"id": "a", "text": "t"}]}, "expect must"),
+        ({"id": "x", "expect": "clean"}, "at least one document"),
+        ({"id": "x", "expect": "clean", "documents": [{"id": "a"}]}, "id and text"),
+    ],
+)
+def test_malformed_conflict_cases_fail_loudly(entry: dict, match: str) -> None:
+    with pytest.raises(ConflictSetError, match=match):
+        parse_conflict_cases([entry, CLEAN])
+
+
+def test_both_directions_are_scored() -> None:
+    report = run_conflict_eval(parse_conflict_cases([REAL, CLEAN]))
+    assert report.precision == 1.0
+    assert report.recall == 1.0
+    assert report.passed
+
+
+def test_a_miss_shows_up_as_lost_recall() -> None:
+    """Strictness high enough to suppress a real contradiction."""
+    report = run_conflict_eval(parse_conflict_cases([REAL, CLEAN]), deontic_strictness=2.5)
+    assert report.recall == 0.0
+    assert report.precision == 1.0, "suppressing everything cannot hurt precision"
+    assert not report.passed
+    assert "MISSED" in format_conflict_report(report)
+
+
+def test_the_shipped_conflict_set_is_clean() -> None:
+    """The standing measurement. Any regression here is an accuracy regression."""
+    cases = load_conflict_cases(Path(__file__).resolve().parents[1] / "evals" / "conflicts")
+    report = run_conflict_eval(cases)
+
+    assert len(cases) >= 15
+    assert sum(not c.expect_conflict for c in cases) >= len(cases) // 3, (
+        "at least a third of the set should be near-misses that must stay quiet"
+    )
+    assert report.precision == 1.0, report.to_dict()["failures"]
+    assert report.recall == 1.0, report.to_dict()["failures"]
+
+
+def test_both_detectors_are_represented_in_the_set() -> None:
+    cases = load_conflict_cases(Path(__file__).resolve().parents[1] / "evals" / "conflicts")
+    kinds = {c.kind for c in cases if c.kind}
+    assert {"numeric", "deontic"} <= kinds

@@ -24,6 +24,10 @@ Honest status. "Built" means implemented and covered by tests in this repository
   precomputed cache entries, a review queue ranked by value, free numeric conflict
   detection, citation-anchored re-verification when documents change, and refusal on
   contested claims including the stale-pin case. See [KNOWLEDGE.md](KNOWLEDGE.md).
+- **Prose contradiction detection** — deontic claim extraction (must / may / must not) with
+  predicate families and hard-versus-soft force pairs, plus a free FAQ cross-check that
+  catches a newly uploaded document disagreeing with an existing answer. Measured by
+  `eval-conflicts` on a labelled set that is majority near-misses. See ADR 0006.
 - **Evaluation harness** — golden set with a first-class safety set, scoring for accuracy,
   false answers, determinism and paraphrase consistency, cost reported alongside, and
   baseline comparison that fails CI on regressions. See [EVALUATION.md](EVALUATION.md).
@@ -47,6 +51,19 @@ Honest status. "Built" means implemented and covered by tests in this repository
    `files.list`, and permission mapping including inherited folder ACLs.
 6. **Teams channel.** Bot Framework adapter, with the asker's tenant groups supplying
    `principals` so access control works from the identity Teams already has.
+
+### Known gaps in contradiction detection
+
+Worth stating plainly, because the measurement only covers what the set contains:
+
+- **No deontic marker, no detection.** "The policy was withdrawn in March" against a document
+  still stating the policy is invisible to the pattern passes.
+- **English-only.** The marker vocabulary is English; another language gets numeric
+  detection only.
+- **Retrieved-window bound.** The cross-check compares against the passage that matched, so a
+  contradiction stated elsewhere in a long document is missed.
+- **Validated on 21 cases.** Enough to catch a regression, not enough to characterise a real
+  corpus. Growing that set is the cheapest accuracy work available.
 
 ## Later
 

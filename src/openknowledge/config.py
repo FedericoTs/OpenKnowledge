@@ -50,6 +50,9 @@ class Settings(BaseSettings):
     #: first import of ten thousand files cannot spend without warning.
     max_documents_per_ingest: int = 200
     conflict_min_overlap: float = Field(default=0.34, ge=0.0, le=1.0)
+    #: Scales the prose-contradiction thresholds. Above 1.0 flags less.
+    #: Measured by `openknowledge eval-conflicts` - move it with evidence.
+    deontic_strictness: float = Field(default=1.0, gt=0.0, le=3.0)
 
     # -- local tier ------------------------------------------------------
     local_enabled: bool = True

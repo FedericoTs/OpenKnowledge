@@ -48,7 +48,9 @@ class Engine:
         self.last_scan = scan_documents(
             self.documents,
             store=self.knowledge,
+            retriever=self.retriever,
             min_conflict_overlap=self.settings.conflict_min_overlap,
+            deontic_strictness=self.settings.deontic_strictness,
         )
         log.info(
             "indexed %d documents into %d chunks (corpus %s); evicted %d stale answers; "

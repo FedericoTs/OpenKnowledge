@@ -3,11 +3,19 @@
 Without this, "the cheap tier is good enough" is an opinion — and the entire cost argument
 rests on it. The harness exists to turn that into a number that a change can break.
 
+Two sets, two runners:
+
+| | | |
+|---|---|---|
+| `evals/golden/` | question → expected answer | `openknowledge eval` — needs a model |
+| `evals/conflicts/` | document pair → contradiction or not | `openknowledge eval-conflicts` — no model |
+
 ```bash
 openknowledge eval                      # the whole golden set
 openknowledge eval --only refusal       # just the safety set
 openknowledge eval --tag finance        # one area
 openknowledge eval --json               # machine-readable
+openknowledge eval-conflicts            # contradiction precision and recall
 ```
 
 ## What it measures
@@ -73,6 +81,22 @@ plausibly ask that your documents do not answer:
 The most dangerous questions are the ones *adjacent* to something you do document — the
 retriever returns a confident, topically-relevant document that happens not to contain the
 answer. Those cases are cheap to write and they are the ones that catch real regressions.
+
+## Measuring contradiction detection
+
+`openknowledge eval-conflicts` scores the free contradiction passes on a labelled
+set of document pairs. It reports **precision and recall separately**, because
+they protect different things: recall protects the employee who would otherwise
+be told the superseded policy, precision protects the feature from being switched
+off after three bogus flags.
+
+The shipped set is more than half near-misses — restatements, carve-outs, the
+same subject under unrelated kinds of rule. A set of only real contradictions
+measures recall and cannot see a false positive, so the loader refuses to run
+without clean cases.
+
+It needs no model, so unlike the golden set it is a real evaluation in CI rather
+than a smoke test. See [KNOWLEDGE.md](KNOWLEDGE.md) for what the detectors do.
 
 ## Catching regressions in CI
 

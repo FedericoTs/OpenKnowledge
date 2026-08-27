@@ -1,0 +1,213 @@
+# Labelled set for contradiction detection.
+#
+# Detection is now an accuracy component, so it needs its own measurement in
+# both directions. A missed contradiction means somebody is told the wrong
+# policy with a citation attached. A false one blocks a question that could
+# have been answered - and an admin who sees three bogus flags stops reading
+# the fourth, which costs you every real one after that.
+#
+# So the `clean` cases matter at least as much as the `conflict` cases. Most of
+# them are deliberately close to a contradiction without being one.
+#
+# Runs with no model, deterministically, in CI:  openknowledge eval-conflicts
+
+# ---------------------------------------------------------------- numeric ---
+
+- id: approval-threshold-moved
+  expect: conflict
+  kind: numeric
+  documents:
+    - id: expenses-2025
+      text: Travel expenses require prior written approval for any amount above EUR 500.
+    - id: expenses-2026
+      text: Travel expenses require prior written approval for any amount above EUR 1,000.
+
+- id: deadline-shortened
+  expect: conflict
+  kind: numeric
+  documents:
+    - id: expenses-2025
+      text: Expense claims must be submitted within 60 days of the date incurred.
+    - id: expenses-2026
+      text: Expense claims must be submitted within 30 days of the date incurred.
+
+- id: leave-entitlement-changed
+  expect: conflict
+  kind: numeric
+  documents:
+    - id: leave-old
+      text: Employees with 12 months of continuous service receive 20 weeks of paid parental leave.
+    - id: leave-new
+      text: Employees with 12 months of continuous service receive 26 weeks of paid parental leave.
+
+- id: same-figure-restated
+  expect: clean
+  documents:
+    - id: handbook
+      text: Meals are reimbursed up to EUR 45 per day when travelling.
+    - id: summary
+      text: Meals are reimbursed up to EUR 45 per day.
+  notes: Two documents agreeing is the system working, not a disagreement.
+
+- id: different-rules-different-figures
+  expect: clean
+  documents:
+    - id: expenses
+      text: Approval is required above EUR 500. Meals are reimbursed up to EUR 45 per day.
+    - id: travel
+      text: Hotel bookings are capped at EUR 180 per night in European cities.
+  notes: Three different limits for three different things.
+
+- id: unit-mismatch-not-comparable
+  expect: clean
+  documents:
+    - id: a
+      text: The probation period is 6 months for all new starters.
+    - id: b
+      text: The notice period is 6 weeks for all new starters.
+  notes: Different units, different rules; a number alone is not a subject.
+
+- id: number-in-unrelated-context
+  expect: clean
+  documents:
+    - id: expenses
+      text: Expense claims must be submitted within 60 days of the date incurred.
+    - id: vpn
+      text: VPN access requests are approved within 2 business days by IT Operations.
+
+# ---------------------------------------------------------------- deontic ---
+
+- id: contractors-eligibility-flip
+  expect: conflict
+  kind: deontic
+  documents:
+    - id: leave-2025
+      text: Contractors are eligible for parental leave after 12 months of engagement.
+    - id: leave-2026
+      text: Contractors are excluded from parental leave regardless of tenure.
+  notes: >
+    The archetype. Nothing numeric moved, and an employee acting on the wrong
+    one has a real problem.
+
+- id: alcohol-reimbursement-flip
+  expect: conflict
+  kind: deontic
+  documents:
+    - id: expenses-2025
+      text: Alcohol is not reimbursable under any circumstances.
+    - id: expenses-2026
+      text: Alcohol may be reimbursed for client entertainment.
+
+- id: approval-becomes-optional
+  expect: conflict
+  kind: deontic
+  documents:
+    - id: travel-2025
+      text: Prior written approval must be obtained for all travel bookings.
+    - id: travel-2026
+      text: Prior written approval is not required for travel bookings.
+
+- id: personal-devices-flip
+  expect: conflict
+  kind: deontic
+  documents:
+    - id: it-2025
+      text: Personal laptops are not permitted on the corporate network.
+    - id: it-2026
+      text: Personal laptops may be used on the corporate network with IT registration.
+
+- id: bonus-eligibility-flip
+  expect: conflict
+  kind: deontic
+  documents:
+    - id: comp-2025
+      text: Interns are excluded from the annual bonus scheme.
+    - id: comp-2026
+      text: Interns are entitled to the annual bonus scheme after six months.
+
+- id: data-sharing-flip
+  expect: conflict
+  kind: deontic
+  documents:
+    - id: security-2025
+      text: Client data must not be shared with third parties.
+    - id: security-2026
+      text: Client data may be shared with approved third parties under a signed NDA.
+
+- id: rule-restated-same-force
+  expect: clean
+  documents:
+    - id: a
+      text: Alcohol is not reimbursable under any circumstances.
+    - id: b
+      text: Alcohol is not reimbursable, including during client entertainment.
+  notes: A restatement with more detail is agreement.
+
+- id: deadline-versus-channel
+  expect: clean
+  documents:
+    - id: a
+      text: Employees must submit expense claims within 60 days of the date incurred.
+    - id: b
+      text: Employees may submit expense claims online through the finance portal.
+  notes: >
+    Both true at once - one is a deadline, the other a channel. "Must" against
+    "may" is only a contradiction when they describe the identical action, which
+    is why that pair needs near-identical context before it is flagged.
+
+- id: obligation-versus-permission-different-subjects
+  expect: clean
+  documents:
+    - id: a
+      text: Leave requests must be submitted 30 days in advance through the HR portal.
+    - id: b
+      text: Leave requests may be cancelled at any time before the leave begins.
+
+- id: different-families-shared-words
+  expect: clean
+  documents:
+    - id: a
+      text: Contractors must have a sponsor in the engineering leadership team.
+    - id: b
+      text: Contractors may claim travel expenses with prior written approval.
+  notes: Same subject, unrelated kinds of rule.
+
+- id: unrelated-rules
+  expect: clean
+  documents:
+    - id: expenses
+      text: Alcohol is not reimbursable under any circumstances.
+    - id: vpn
+      text: VPN access requests must be approved by IT Operations.
+
+- id: negation-of-obligation-is-not-prohibition
+  expect: clean
+  documents:
+    - id: a
+      text: A receipt is not required for expenses below EUR 25.
+    - id: b
+      text: A receipt may be submitted for expenses below EUR 25.
+  notes: >
+    "Not required" means optional, not forbidden. Reading it as a prohibition
+    would invent a disagreement between two documents that agree.
+
+- id: conditions-narrow-rather-than-contradict
+  expect: clean
+  documents:
+    - id: a
+      text: Employees may work remotely up to two days per week.
+    - id: b
+      text: Employees must be present in the office for quarterly planning sessions.
+  notes: A carve-out is not a contradiction of the general rule.
+
+- id: single-document-with-many-rules
+  expect: clean
+  documents:
+    - id: handbook
+      text: >
+        Travel above EUR 500 requires approval. Meals are reimbursed up to
+        EUR 45 per day. Alcohol is not reimbursable. Claims may be submitted
+        online and must be filed within 60 days.
+  notes: >
+    One document stating several conditional rules is normal. Flagging it would
+    teach the admin to ignore the feature entirely.

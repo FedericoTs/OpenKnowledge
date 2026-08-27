@@ -23,7 +23,9 @@ from dataclasses import dataclass, field
 
 from ..providers.base import ChatProvider
 from ..retrieval.base import Document
+from ..retrieval.bm25 import BM25Retriever
 from .claims import find_conflicts
+from .crosscheck import crosscheck_answers
 from .generate import draft_from_document
 from .store import KnowledgeStore, Proposal
 
@@ -39,6 +41,8 @@ class IngestReport:
     changed: tuple[str, ...] = ()
     removed: tuple[str, ...] = ()
     conflicts_detected: int = 0
+    #: Stored answers a newly arrived document disagrees with. Found for free.
+    answers_contradicted: int = 0
     conflicts_open: int = 0
     conflicts_cleared: int = 0
     drafts_created: int = 0
@@ -58,6 +62,7 @@ class IngestReport:
             f"{self.documents} documents "
             f"({len(self.added)} new, {len(self.changed)} changed, {len(self.removed)} removed); "
             f"{self.drafts_created} answers drafted, {self.revisions_raised} revisions raised, "
+            f"{self.answers_contradicted} answers contradicted, "
             f"{self.conflicts_open} conflicts open; ${self.cost_usd:.4f} spent"
         )
 
@@ -66,7 +71,9 @@ def scan_documents(
     documents: list[Document],
     *,
     store: KnowledgeStore,
+    retriever: BM25Retriever | None = None,
     min_conflict_overlap: float = 0.34,
+    deontic_strictness: float = 1.0,
 ) -> IngestReport:
     """The free half of ingest: version tracking, conflicts, stale drafts.
 
@@ -86,9 +93,30 @@ def scan_documents(
     # re-running beats reasoning about which pairs might have been affected.
     present = frozenset(d.document_id for d in documents)
     report.conflicts_cleared = store.drop_conflicts_for_documents(present)
-    for conflict in find_conflicts(documents, min_overlap=min_conflict_overlap):
+    for conflict in find_conflicts(
+        documents,
+        min_overlap=min_conflict_overlap,
+        deontic_strictness=deontic_strictness,
+    ):
         store.record_conflict(conflict)
         report.conflicts_detected += 1
+
+    # A new document contradicting an existing *answer* is the case document
+    # pairing cannot see - no stored answer cites a file that did not exist. The
+    # FAQ already knows what the corpus claims, so checking against it is one
+    # lexical search plus regex: free, and it runs on every ingest.
+    if retriever is not None and (added or changed):
+        for finding in crosscheck_answers(
+            store=store,
+            retriever=retriever,
+            document_ids=added | changed,
+            deontic_strictness=deontic_strictness,
+        ):
+            report.answers_contradicted += 1
+            report.notes.append(f"answer contradicted - {finding.describe()}")
+            for conflict in finding.conflicts:
+                store.record_conflict(conflict)
+
     report.conflicts_open = len(store.open_conflicts())
 
     # Drafts built from text that has since moved were verified against

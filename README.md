@@ -102,11 +102,19 @@ that fails the grounding gate, and puts the rest to you ranked by what approving
 saves. Drafting 500 documents costs about **$6.06, once** — after which those questions are
 free for as long as the document stands.
 
-It also notices when documents contradict each other. Numeric disagreements — thresholds,
-deadlines, allowances — are found with no model at all, on every re-index, for free. Prose
-changes are caught by re-asking only the approved answers that *cite* the changed document:
-**$0.075 per upload instead of $5.00** for comparing it against the whole corpus, and it
-names the claim that moved rather than pointing at two files.
+It also notices when documents contradict each other, and three of the four passes are free:
+
+| Pass | Catches | Cost |
+|---|---|---|
+| Numeric claims | A moved figure — threshold, deadline, allowance | free |
+| Deontic claims | A changed permission — *eligible* → *excluded*, *required* → *optional* | free |
+| FAQ cross-check | A **new** document disagreeing with an existing answer | free |
+| Re-verification | The residue, on documents that changed | ~$0.075/upload |
+
+The free passes run on every re-index. The paid one costs $0.075 instead of the $5.00 that
+comparing an upload against a 500-document corpus would, because it re-asks only the approved
+answers that *cite* the changed document — and it names the claim that moved rather than
+pointing at two files.
 
 A contested question is refused rather than guessed:
 
@@ -128,6 +136,19 @@ The metric that governs everything else is **false answers**: questions the corp
 cover that got an answer anyway. It is scored separately, and any increase fails the run
 regardless of everything else. A bot that answers 95% of questions correctly and confidently
 invents the other 5% is unusable, because nobody can tell which kind they are reading.
+
+Contradiction detection carries its own numbers, because it fails in two directions:
+
+```
+openknowledge eval-conflicts
+  precision    100.0%  (of what it flagged, how much was real)
+  recall       100.0%  (of what was real, how much it flagged)
+```
+
+Recall protects the employee who would otherwise be told the superseded policy. Precision
+protects the feature — an admin who sees three bogus flags stops reading the fourth, and a
+detector at 100% recall and 40% precision is switched off within a week. This one needs no
+model, so unlike the golden set it runs as a real evaluation in CI.
 
 See [EVALUATION.md](docs/EVALUATION.md).
 

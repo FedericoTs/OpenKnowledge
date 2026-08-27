@@ -58,6 +58,7 @@ CREATE TABLE IF NOT EXISTS conflicts (
     right_raw       TEXT NOT NULL,
     right_sentence  TEXT NOT NULL,
     unit            TEXT NOT NULL DEFAULT '',
+    kind            TEXT NOT NULL DEFAULT 'numeric',
     overlap         REAL NOT NULL DEFAULT 0.0,
     context         TEXT NOT NULL DEFAULT '[]',
     status          TEXT NOT NULL DEFAULT 'open',
@@ -116,6 +117,7 @@ class StoredConflict:
     right_raw: str
     right_sentence: str
     unit: str
+    kind: str
     overlap: float
     context: frozenset[str]
     status: str
@@ -359,6 +361,10 @@ class KnowledgeStore:
             ).fetchall()
         return [self._row_to_proposal(r) for r in rows]
 
+    def all_proposals(self, status: ProposalStatus | None = None) -> list[Proposal]:
+        """Every proposal, optionally filtered by status."""
+        return self._all(status)
+
     def approved_citing(self, document_id: str) -> list[Proposal]:
         """Approved answers that cite a document - the ones to re-check when it changes.
 
@@ -398,8 +404,8 @@ class KnowledgeStore:
             self._conn.execute(
                 "INSERT INTO conflicts"
                 " (key, left_document, left_raw, left_sentence, right_document, right_raw,"
-                "  right_sentence, unit, overlap, context, status, detected_at)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?)",
+                "  right_sentence, unit, kind, overlap, context, status, detected_at)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?)",
                 (
                     conflict.key,
                     conflict.left.document_id,
@@ -409,6 +415,7 @@ class KnowledgeStore:
                     conflict.right.raw,
                     conflict.right.sentence,
                     conflict.left.unit,
+                    conflict.kind,
                     conflict.overlap,
                     json.dumps(shared),
                     now,
@@ -430,6 +437,7 @@ class KnowledgeStore:
             right_raw=row["right_raw"],
             right_sentence=row["right_sentence"],
             unit=row["unit"],
+            kind=row["kind"],
             overlap=row["overlap"],
             context=frozenset(json.loads(row["context"])),
             status=row["status"],

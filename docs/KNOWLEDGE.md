@@ -86,6 +86,18 @@ stops being read.
 
 Two passes, because they catch different things at very different prices.
 
+### Three passes, ordered by price
+
+| Pass | Catches | Cost |
+|---|---|---|
+| Numeric claims | A moved figure — threshold, deadline, allowance | free |
+| Deontic claims | A changed permission — eligible → excluded, required → optional | free |
+| FAQ cross-check | A **new** document disagreeing with an existing answer | free |
+| Re-verification | Anything the above miss, on documents that changed | ~$0.075/upload |
+
+The first three cost nothing and run on every `index`. Only the last one spends,
+and it only runs on `learn`.
+
 ### Numeric conflicts — free, every re-index
 
 Internal policy is mostly numbers, and when two documents disagree it is almost always about
@@ -105,6 +117,62 @@ $ openknowledge conflicts
 ```
 
 This runs on the whole corpus on every `index`, costs nothing, and is deterministic.
+
+### Prose conflicts — free, and the same shape
+
+Numeric detection is blind to the class that does the next most damage:
+
+    "Contractors are eligible for parental leave."
+    "Contractors are excluded from parental leave."
+
+Nothing numeric changed. An employee acting on the wrong one has a real problem.
+
+Catching it needs no model either, because **policy prose is deontic**: almost
+every internal rule says something *must*, *may*, or *must not* happen. That is a
+small closed vocabulary, so a rule extracts the same way a figure does — a
+marker, a force, and the words around it — and a contradiction becomes "the same
+subject under a different force".
+
+Two gates keep the precision up, and the second is the interesting one:
+
+**Predicate families.** A rule about reimbursement cannot contradict a rule about
+VPN access, however many words they share. Claims are only compared when they are
+about the same *kind* of rule.
+
+**Hard versus soft pairs.** FORBIDDEN against either other force is a logical
+contradiction — you cannot be both allowed and not allowed to do something —
+so recognisably the same subject is enough. MANDATORY against PERMITTED is not:
+
+    "Employees must submit expense claims within 60 days."
+    "Employees may submit expense claims online through the portal."
+
+Both true at once. One is a deadline, the other a channel. That pair only
+contradicts when it describes the identical action, so it needs near-identical
+context before anyone is interrupted. Without this rule, that example scores as a
+contradiction on word overlap alone.
+
+### Cross-checking answers against new documents — free
+
+Re-verification has a structural blind spot: it re-asks the approved answers that
+*cite* a changed document. It cannot see the most common way a contradiction
+arrives — somebody uploads a **new** document. No answer cites it, because it did
+not exist, so nothing is re-asked.
+
+Closing that at the document level means comparing the new file against every
+other file. Closing it at the FAQ level is free:
+
+1. BM25 already knows, at no cost, which questions a new document has an opinion
+   about — the ones it ranks highly for.
+2. A stored answer is short text with extractable claims.
+3. So it is claim-versus-claim: regex and set arithmetic.
+
+```
+'Can I expense alcohol for client entertainment?':
+  your approved answer says not allowed,
+  but [expenses-2026] says allowed
+```
+
+No model call anywhere in that path.
 
 ### Prose changes — anchored to answers, not documents
 
@@ -170,8 +238,54 @@ superseded text so retrieval stops seeing it.
 | `OK_BLOCK_ON_CONFLICT` | `true` | Refuse contested questions instead of guessing |
 | `OK_REVERIFY_ON_CHANGE` | `true` | Re-ask approved answers whose documents changed |
 | `OK_MAX_DOCUMENTS_PER_INGEST` | `200` | Cap per run, so a first import cannot spend without warning |
-| `OK_CONFLICT_MIN_OVERLAP` | `0.34` | Raise to flag fewer, lower to flag more |
+| `OK_CONFLICT_MIN_OVERLAP` | `0.34` | Numeric threshold: raise to flag fewer |
+| `OK_DEONTIC_STRICTNESS` | `1.0` | Prose thresholds: above 1.0 flags fewer |
 
 Drafting prefers the local model when one is configured. It reads every changed document in
 full, so it is the most token-hungry thing the system does — running it on a model with no
 per-token invoice is the difference between a one-off cost and a genuinely free one.
+
+
+## Measuring detection
+
+Detection is an accuracy component, so it carries its own numbers — and the two
+directions fail differently.
+
+**Recall protects the employee.** A missed contradiction means somebody is told
+the superseded policy, confidently, with a citation attached.
+
+**Precision protects the feature.** A false flag blocks a question that could have
+been answered, and an admin who sees three bogus flags stops reading the fourth —
+which costs every real flag after that. A detector at 100% recall and 40%
+precision gets switched off within a week, and then its recall is zero.
+
+```bash
+openknowledge eval-conflicts
+```
+
+```
+21 cases  (9 real contradictions, 12 that must stay quiet)
+
+Detection
+  precision    100.0%  (of what it flagged, how much was real)
+  recall       100.0%  (of what was real, how much it flagged)
+  F1           100.0%
+```
+
+The set in `evals/conflicts/` is deliberately more than half **near-misses** —
+restatements, carve-outs, deadline-versus-channel pairs, the same subject under
+unrelated kinds of rule. A labelled set of only real contradictions measures
+recall and cannot see a false positive, so the loader refuses to run without
+clean cases.
+
+This needs no model, so it runs in CI on every change. `--strictness` lets you
+see the trade directly: at 1.8 the shipped set holds 100% precision and drops to
+56% recall.
+
+### What it still does not catch
+
+Prose contradictions with no deontic marker — *"the policy was withdrawn in
+March"* against a document that still states the policy — and contradictions
+that need world knowledge to see. Those fall to re-verification, which covers
+questions somebody already approved, and ultimately to the golden set. Adding
+cases to `evals/conflicts/` is the cheapest way to find out what else is missing.

@@ -22,8 +22,12 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from ..retrieval.base import Document, tokenize
+
+if TYPE_CHECKING:  # pragma: no cover - import cycle at runtime
+    from .deontic import DeonticClaim
 
 #: Words that carry no topical signal, so they should not make two unrelated
 #: claims look similar. Scoring aid only - dropping them cannot change an
@@ -170,11 +174,18 @@ class Claim:
 
 @dataclass(frozen=True, slots=True)
 class Conflict:
-    """Two documents asserting different values for what looks like one thing."""
+    """Two documents asserting different things about what looks like one subject.
 
-    left: Claim
-    right: Claim
+    Holds either kind of claim. A numeric claim and a deontic one are never
+    paired - they carry different units, and a figure cannot contradict a
+    permission.
+    """
+
+    left: Claim | DeonticClaim
+    right: Claim | DeonticClaim
     overlap: float
+    #: "numeric" for a moved figure, "deontic" for a changed permission.
+    kind: str = "numeric"
 
     @property
     def key(self) -> str:
@@ -287,7 +298,7 @@ def _overlap(a: frozenset[str], b: frozenset[str]) -> float:
     return len(a & b) / len(a | b)
 
 
-def find_conflicts(
+def find_numeric_conflicts(
     documents: list[Document],
     *,
     min_overlap: float = 0.34,
@@ -323,11 +334,57 @@ def find_conflicts(
                     score = _overlap(left.context, right.context)
                     if score < min_overlap:
                         continue
-                    conflict = Conflict(left=left, right=right, overlap=round(score, 4))
+                    conflict = Conflict(
+                        left=left, right=right, overlap=round(score, 4), kind="numeric"
+                    )
                     if conflict.key in seen:
                         continue
                     seen.add(conflict.key)
                     conflicts.append(conflict)
+
+    conflicts.sort(key=lambda c: (-c.overlap, c.key))
+    return conflicts
+
+
+def find_conflicts(
+    documents: list[Document],
+    *,
+    min_overlap: float = 0.34,
+    min_shared_words: int = 3,
+    deontic_strictness: float = 1.0,
+) -> list[Conflict]:
+    """Every disagreement between documents that we can find without a model.
+
+    Two detectors with different failure modes. The numeric one catches a moved
+    figure - a threshold, a deadline, an allowance - and is nearly free of false
+    positives because a number anchors the claim. The deontic one catches a
+    changed permission - eligible becoming excluded, required becoming optional -
+    and needs more care, because prose has nothing to anchor on but its own
+    words.
+
+    Between them they cover the two classes that cause real harm. What they miss
+    goes to the FAQ cross-check, and then to re-verification.
+    """
+    from .deontic import conflicts_between, extract_deontic_claims
+
+    conflicts = find_numeric_conflicts(
+        documents, min_overlap=min_overlap, min_shared_words=min_shared_words
+    )
+
+    by_doc = {doc.document_id: extract_deontic_claims(doc) for doc in documents}
+    doc_ids = sorted(by_doc)
+    seen = {c.key for c in conflicts}
+
+    for i, left_id in enumerate(doc_ids):
+        for right_id in doc_ids[i + 1 :]:
+            for left, right, score in conflicts_between(
+                by_doc[left_id], by_doc[right_id], strictness=deontic_strictness
+            ):
+                conflict = Conflict(left=left, right=right, overlap=score, kind="deontic")
+                if conflict.key in seen:
+                    continue
+                seen.add(conflict.key)
+                conflicts.append(conflict)
 
     conflicts.sort(key=lambda c: (-c.overlap, c.key))
     return conflicts

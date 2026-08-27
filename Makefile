@@ -1,4 +1,4 @@
-.PHONY: help install test lint fmt typecheck check serve index costs learn review conflicts eval eval-safety docker clean
+.PHONY: help install test lint fmt typecheck check serve index costs learn review conflicts eval eval-conflicts eval-safety docker clean
 
 help:
 	@grep -E '^[a-z-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
@@ -33,6 +33,9 @@ conflicts:  ## documents that disagree with each other
 
 eval:  ## run the golden set (accuracy and cost)
 	uv run openknowledge eval
+
+eval-conflicts:  ## measure contradiction detection (no model needed)
+	uv run openknowledge eval-conflicts
 
 eval-safety:  ## run only the must-refuse cases
 	uv run openknowledge eval --only refusal

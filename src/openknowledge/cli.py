@@ -299,6 +299,31 @@ def _cmd_eval(args: argparse.Namespace) -> int:
     return 0 if report.passed else 1
 
 
+def _cmd_eval_conflicts(args: argparse.Namespace) -> int:
+    """Measure contradiction detection: precision and recall, no model needed."""
+    import json as _json
+
+    from .evaluation import (
+        ConflictSetError,
+        format_conflict_report,
+        load_conflict_cases,
+        run_conflict_eval,
+    )
+
+    try:
+        cases = load_conflict_cases(args.path)
+    except ConflictSetError as exc:
+        print(f"conflict set: {exc}", file=sys.stderr)
+        return 2
+
+    report = run_conflict_eval(cases, deontic_strictness=args.strictness)
+    if args.json:
+        print(_json.dumps(report.to_dict(), indent=2))
+    else:
+        print(format_conflict_report(report))
+    return 0 if report.passed else 1
+
+
 def _cmd_pricing(_: argparse.Namespace) -> int:
     print(f"{'model':<22}{'tier':<10}{'in $/M':>9}{'out $/M':>10}  verified")
     for price in load_price_table().values():
@@ -398,7 +423,7 @@ def main(argv: list[str] | None = None) -> int:
     p.set_defaults(func=_cmd_resolve)
 
     p = sub.add_parser("eval", help="run the golden set: accuracy and cost together")
-    p.add_argument("--path", default="evals", help="golden set file or directory")
+    p.add_argument("--path", default="evals/golden", help="golden set file or directory")
     p.add_argument("--json", action="store_true")
     p.add_argument("--verbose", action="store_true", help="show failing answers in full")
     p.add_argument(
@@ -416,6 +441,19 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--baseline", help="compare against a saved baseline and fail on regressions")
     p.add_argument("--save-baseline", help="write this run's metrics to a file")
     p.set_defaults(func=_cmd_eval)
+
+    p = sub.add_parser(
+        "eval-conflicts", help="measure contradiction detection (precision and recall)"
+    )
+    p.add_argument("--path", default="evals/conflicts", help="labelled set file or directory")
+    p.add_argument("--json", action="store_true")
+    p.add_argument(
+        "--strictness",
+        type=float,
+        default=1.0,
+        help="scale the prose thresholds; above 1.0 flags less",
+    )
+    p.set_defaults(func=_cmd_eval_conflicts)
 
     p = sub.add_parser("pricing", help="show the model price table")
     p.set_defaults(func=_cmd_pricing)
