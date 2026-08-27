@@ -59,6 +59,11 @@ Honest status. "Built" means implemented and covered by tests in this repository
 - **Standalone audit** — `openknowledge audit ./folder` reports where a folder's documents
   disagree with each other with no API key, no model, no database and nothing written. Exits
   non-zero on findings so it can gate CI.
+- **Configuration comparison** — `tools/compare_configs.py` runs one golden set against
+  every configuration in `evals/profiles.yaml` (self-hosted, open-weight, ladder, frontier)
+  and prints them side by side, each in its own data directory so a warm cache from one
+  cannot flatter the next. A profile whose keys are absent is skipped with a reason rather
+  than failing, so the same command works with no keys, one, or both.
 - **Test corpus and pre-flight** — eleven synthetic documents across Markdown, Word, Excel
   and PDF built around traps (conditions, negations, a live contradiction, a superseded
   copy, near-misses that must stay quiet), a 26-case golden set over them, and

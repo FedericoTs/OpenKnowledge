@@ -29,3 +29,16 @@ Because the documents and the questions were written together it measures
 whether the *pipeline* works, not how accurate the product is on real documents.
 Do not quote its numbers as the latter. See [corpus/README.md](corpus/README.md)
 and [docs/TEST-RUN.md](../docs/TEST-RUN.md).
+
+## `profiles.yaml` and `runs/`
+
+Configurations to measure the same golden set against, and where their metrics
+land. Profiles name environment variables rather than holding values, so nothing
+secret is committed:
+
+```bash
+uv run python tools/compare_configs.py
+```
+
+A profile whose keys are missing is skipped and said so, never failed. The
+interesting number is always a difference between two rows.

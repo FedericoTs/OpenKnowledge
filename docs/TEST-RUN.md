@@ -250,31 +250,62 @@ uv run openknowledge conflicts      # the disagreements it found
 
 ---
 
-## 8. Compare the three configurations
-
-Run the same set three times, changing only which rung answers:
+## 8. Compare the configurations — one command
 
 ```bash
-# self-hosted only
-OK_ESCALATION_ENABLED=false OK_LADDER='[]' \
-  uv run openknowledge eval --path evals/golden-aveline --save-baseline evals/run-local.json
-
-# open-weight only
-OK_ESCALATION_ENABLED=false \
-  uv run openknowledge eval --path evals/golden-aveline --save-baseline evals/run-openweight.json
-
-# the full ladder
-uv run openknowledge eval --path evals/golden-aveline --save-baseline evals/run-ladder.json
+export TOGETHER_API_KEY=...      # optional
+export ANTHROPIC_API_KEY=...     # optional
+uv run python tools/compare_configs.py
 ```
 
-Then compare any two:
+That runs the same golden set against every configuration in
+`evals/profiles.yaml` — self-hosted, open-weight, the full ladder, and the
+frontier as a control — and prints them side by side.
+
+**A profile whose keys are missing is skipped and said so, never failed.** The
+same command works with no keys, with one, or with both, so you can start with
+what you have:
+
+```
+skipping ladder: needs TOGETHER_API_KEY, ANTHROPIC_API_KEY
+
+configuration     accuracy  false   determ  $/question   free  minutes
+self-hosted          82.4%      0   100.0%     0.00000    35%     14.2
+frontier             94.1%      0   100.0%     0.03657    35%      1.8
+
+Which tier answered:
+  self-hosted     contested 1, exact 5, local 12, refused 8
+  frontier        contested 1, exact 5, frontier 12, refused 8
+
+Not run:
+  open-weight     needs TOGETHER_API_KEY
+  ladder          needs TOGETHER_API_KEY, ANTHROPIC_API_KEY
+```
+
+*(shape of the output, not real numbers)*
+
+Each profile gets its own data directory, because a cache warmed by the previous
+configuration would report the next one as almost entirely free — true, and
+meaningless.
+
+Useful flags:
 
 ```bash
-uv run openknowledge eval --path evals/golden-aveline --baseline evals/run-local.json
+--only self-hosted --only frontier    # just these two
+--no-determinism                      # skip the ask-twice check, roughly half the time
+--json                                # for a spreadsheet or a follow-up script
+```
+
+If your local server is not Ollama on 11434:
+
+```bash
+LOCAL_BASE_URL=http://127.0.0.1:8081/v1 LOCAL_MODEL=/path/to/model.gguf \
+  uv run python tools/compare_configs.py --only self-hosted
 ```
 
 The question this answers is the one the whole project rests on: **how much
 accuracy does the cheap tier actually cost, and does the ladder buy it back?**
+A single profile measures a configuration. Two measure a decision.
 
 ---
 
@@ -326,3 +357,38 @@ paraphrase checks is roughly 60 calls. Start with
 **Together returns 401.** The key goes in `OK_LOCAL_API_KEY` for the cheap rung
 and `OK_LADDER_API_KEY` for the ladder rungs. They are separate on purpose — the
 cheap rung is often a different provider from the ladder.
+
+---
+
+## Appendix: running the local tier with no Ollama
+
+`llama.cpp` serves an OpenAI-compatible endpoint, which is all this needs. Useful
+on a machine where installing Ollama is awkward, or in a container:
+
+```bash
+uv pip install llama-cpp-python sse-starlette starlette-context
+
+curl -sSL -o qwen3-4b-q4.gguf \
+  "https://huggingface.co/unsloth/Qwen3-4B-Instruct-2507-GGUF/resolve/main/Qwen3-4B-Instruct-2507-Q4_K_M.gguf"
+
+python -m llama_cpp.server --model qwen3-4b-q4.gguf \
+  --n_ctx 8192 --n_threads $(nproc) --host 127.0.0.1 --port 8081
+```
+
+Then:
+
+```bash
+export OK_LOCAL_BASE_URL=http://127.0.0.1:8081/v1
+export OK_LOCAL_MODEL=$PWD/qwen3-4b-q4.gguf
+export OK_MAX_ANSWER_TOKENS=350
+```
+
+The download is 2.4 GB and the build takes a few minutes. Measured on four
+2.1 GHz cores: **about 36 seconds per question** end to end, including retrieval,
+reranking and the grounding gate. Twenty-six cases with the determinism and
+paraphrase checks is roughly half an hour, so start it and go and do something
+else. `--no-determinism` roughly halves it.
+
+A 4B is a step below the 8B this guide recommends. Treat its numbers as a
+**floor**: what a 4B clears on four CPU cores, an 8B on real hardware clears more
+easily.

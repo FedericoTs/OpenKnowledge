@@ -31,3 +31,7 @@ node_modules/
 # container, and the container pins its own versions at build time. Committing a
 # lock generated on one contributor's machine would pin everyone else to it.
 uv.lock
+
+# Baselines written by tools/compare_configs.py. Metrics, not secrets, but
+# they are run output rather than source.
+evals/runs/

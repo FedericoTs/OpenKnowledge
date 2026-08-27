@@ -1,0 +1,76 @@
+# Configurations to measure the same golden set against.
+#
+#     uv run python tools/compare_configs.py
+#
+# One command, however many of these you can actually run. A profile whose keys
+# are missing is **skipped and said so**, not failed, so the same command works
+# for somebody with no keys at all and for somebody with both.
+#
+# `requires` names environment variables, never values. Put the keys in your
+# shell or in `.env`; nothing secret belongs in this file.
+#
+# A value of `$VAR` reads that variable; `$VAR:-fallback` reads it with a
+# default. That is how the local profile stays usable whichever local server you
+# happen to run.
+#
+# The point of running more than one is that the interesting numbers are
+# differences: how much accuracy the cheap tier costs, and whether the ladder
+# buys it back. A single profile measures a configuration; two measure a
+# decision.
+
+- name: self-hosted
+  description: A model on your own machine. Nothing leaves the box, no per-token bill.
+  requires: []
+  env:
+    OK_LOCAL_ENABLED: "true"
+    # Overridable without editing this file: Ollama listens on 11434, LM Studio
+    # on 1234, llama.cpp's server on whatever you told it.
+    OK_LOCAL_MODEL: $LOCAL_MODEL:-qwen3:8b
+    OK_LOCAL_BASE_URL: $LOCAL_BASE_URL:-http://localhost:11434/v1
+    OK_LADDER: "[]"
+    OK_ESCALATION_ENABLED: "false"
+
+- name: open-weight
+  description: gpt-oss-20b on Together. $0.000316 a question, 116x under the frontier.
+  requires: [TOGETHER_API_KEY]
+  env:
+    OK_LOCAL_ENABLED: "true"
+    OK_LOCAL_MODEL: openai/gpt-oss-20b
+    OK_LOCAL_BASE_URL: https://api.together.xyz/v1
+    OK_LOCAL_API_KEY: $TOGETHER_API_KEY
+    OK_LADDER: "[]"
+    OK_ESCALATION_ENABLED: "false"
+
+- name: ladder
+  description: >
+    gpt-oss-20b, escalating to gpt-oss-120b and then to the frontier. The only
+    profile that measures an escalation rate, which is what the cost model turns
+    on once the cheap tier is nearly free.
+  requires: [TOGETHER_API_KEY, ANTHROPIC_API_KEY]
+  env:
+    OK_LOCAL_ENABLED: "true"
+    OK_LOCAL_MODEL: openai/gpt-oss-20b
+    OK_LOCAL_BASE_URL: https://api.together.xyz/v1
+    OK_LOCAL_API_KEY: $TOGETHER_API_KEY
+    OK_LADDER: '["openai/gpt-oss-120b@https://api.together.xyz/v1"]'
+    OK_LADDER_API_KEY: $TOGETHER_API_KEY
+    OK_ESCALATION_ENABLED: "true"
+    OK_ESCALATION_PROVIDER: anthropic
+    OK_ESCALATION_MODEL: claude-opus-5
+    OK_ESCALATION_EFFORT: low
+    OK_ANTHROPIC_API_KEY: $ANTHROPIC_API_KEY
+
+- name: frontier
+  description: >
+    Everything answered by the frontier model. The control: it is what the
+    cheap tiers are being compared against, and the most expensive way to be
+    right.
+  requires: [ANTHROPIC_API_KEY]
+  env:
+    OK_LOCAL_ENABLED: "false"
+    OK_LADDER: "[]"
+    OK_ESCALATION_ENABLED: "true"
+    OK_ESCALATION_PROVIDER: anthropic
+    OK_ESCALATION_MODEL: claude-opus-5
+    OK_ESCALATION_EFFORT: low
+    OK_ANTHROPIC_API_KEY: $ANTHROPIC_API_KEY
