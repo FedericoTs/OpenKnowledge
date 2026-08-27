@@ -180,8 +180,8 @@ OK_LOCAL_CONTEXT_TOKENS=32768
 
 Those runtimes fix their window at launch, so `--context` cannot change it from
 here; the command tells you the flag to relaunch with (`--ctx-size` for
-llama.cpp, `--max-model-len` for vLLM) and records the number so the fit check
-still works.
+`llama-server`, `--n_ctx` for llama-cpp-python, `--max-model-len` for vLLM) and
+records the number so the fit check still works.
 
 ---
 

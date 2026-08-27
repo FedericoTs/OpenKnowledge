@@ -280,11 +280,13 @@ def switch(
             )
         result.context = context
         if context:
+            # Named precisely, because the two llama.cpp servers spell it
+            # differently and a flag that is nearly right fails at launch.
             result.notes.append(
                 f"{runtime.hostname} is not Ollama, so the window could not be set from "
-                f"here. Relaunch that server with the window it needs - llama.cpp: "
-                f"`--ctx-size {context}`, vLLM: `--max-model-len {context}` - and this "
-                f"setting will match it."
+                f"here. Relaunch that server with the window it needs - llama-server: "
+                f"`--ctx-size {context}`, llama-cpp-python: `--n_ctx {context}`, "
+                f"vLLM: `--max-model-len {context}` - and this setting will match it."
             )
         return result
 

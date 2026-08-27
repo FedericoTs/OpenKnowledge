@@ -202,8 +202,10 @@ def test_a_non_ollama_runtime_says_what_to_relaunch(base_url: str, state: _State
     state.is_ollama = False
     result = switch(probe(base_url), "qwen3:8b", context=65_536)
     assert result.context == 65_536
+    # All three spellings, because a flag that is nearly right fails at launch.
     assert any("--max-model-len 65536" in note for note in result.notes)
     assert any("--ctx-size 65536" in note for note in result.notes)
+    assert any("--n_ctx 65536" in note for note in result.notes)
 
 
 def test_derived_names_are_stable_and_legal() -> None:
