@@ -115,6 +115,20 @@ class Settings(BaseSettings):
     # -- generation ------------------------------------------------------
     max_answer_tokens: int = Field(default=1500, ge=64)
 
+    # -- website -----------------------------------------------------------
+    #: Serve the marketing page at /site and accept its contact form at
+    #: /api/contact. **Off by default**: a running answer engine has no business
+    #: accepting public writes unless somebody asked it to, and most deployments
+    #: serve the widget internally and never need this.
+    website_enabled: bool = False
+    #: Where submissions go. Its own file, not the answer store: one holds
+    #: questions employees asked and the other holds people who want an email,
+    #: and they have different retention rules and different readers.
+    contacts_db: str = "contacts.db"
+    #: Ceiling on submissions accepted per hour. A public write endpoint without
+    #: one is an invitation.
+    contact_max_per_hour: int = Field(default=60, ge=1)
+
     # -- admin -----------------------------------------------------------
     #: Custom text appended to the built-in system prompt. Appended, never
     #: substituted: the grounding rules are what make the cheap tiers safe, so

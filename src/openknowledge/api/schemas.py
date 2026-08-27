@@ -90,3 +90,24 @@ class ResolveRequest(BaseModel):
 
 class LearnRequest(BaseModel):
     max_documents: int | None = None
+
+
+class ContactRequest(BaseModel):
+    """A submission from the website's contact form.
+
+    Lengths are capped here as well as in `contacts.clean`, so an oversized body
+    is rejected before it is parsed rather than after.
+    """
+
+    name: str = Field(max_length=200)
+    email: str = Field(max_length=320)
+    organisation: str = Field(default="", max_length=200)
+    interest: str = Field(default="", max_length=60)
+    message: str = Field(default="", max_length=4000)
+    #: Honeypot. A human never sees this field, so anything in it is a bot -
+    #: which is answered with a success it will not benefit from.
+    website: str = ""
+
+
+class ContactResponse(BaseModel):
+    received: bool = True

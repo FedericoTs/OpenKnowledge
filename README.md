@@ -463,6 +463,7 @@ src/openknowledge/
 | [DETERMINISM.md](docs/DETERMINISM.md) | What we guarantee, and what we don't |
 | [DOCUMENTS.md](docs/DOCUMENTS.md) | What formats are read, and why tables get special care |
 | [TEST-RUN.md](docs/TEST-RUN.md) | Step by step to your first real run against a live model |
+| [web/site/](web/site/) | The public page, and how to serve it with or without a backend |
 | [COST-STRATEGIES.md](docs/COST-STRATEGIES.md) | Every cost lever, costed, and whether it hurts accuracy |
 | [KNOWLEDGE.md](docs/KNOWLEDGE.md) | Drafting at upload, review, and contradictions |
 | [EVALUATION.md](docs/EVALUATION.md) | How correctness is measured, and what fails a run |

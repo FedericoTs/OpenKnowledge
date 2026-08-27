@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import logging
 import secrets
+import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -28,10 +29,13 @@ from fastapi.responses import HTMLResponse
 from ..cache import citations_for
 from ..canonical import canonicalize_query
 from ..config import Settings, load_settings
+from ..contacts import ContactError, ContactStore, clean
 from .engine import Engine, build_engine
 from .schemas import (
     ChatRequest,
     ChatResponse,
+    ContactRequest,
+    ContactResponse,
     LearnRequest,
     PinRequest,
     ReindexResponse,
@@ -82,6 +86,25 @@ EngineDep = Annotated[Engine, Depends(get_engine)]
 AdminOnly = Depends(require_admin)
 
 
+def _find_site() -> Path | None:
+    for candidate in (
+        Path(__file__).resolve().parents[3] / "web" / "site" / "index.html",
+        Path("/app/web/site/index.html"),  # container image
+    ):
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def _contact_store(app: FastAPI, settings: Settings) -> ContactStore:
+    """One store per app, opened on first use rather than at import."""
+    store = getattr(app.state, "contacts", None)
+    if store is None:
+        store = ContactStore(Path(settings.data_dir) / settings.contacts_db)
+        app.state.contacts = store
+    return store
+
+
 def create_app(settings: Settings | None = None) -> FastAPI:
     resolved = settings or load_settings()
 
@@ -118,6 +141,39 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "corpus_version": engine.retriever.corpus_version,
             "escalation_enabled": engine.settings.escalation_enabled,
         }
+
+    if resolved.website_enabled:
+
+        @app.get("/site", response_class=HTMLResponse, include_in_schema=False)
+        async def site() -> str:
+            page = _find_site()
+            if page is None:  # pragma: no cover - packaging fallback
+                return "<h1>OpenKnowledge</h1><p>Site page not found.</p>"
+            return page.read_text(encoding="utf-8")
+
+        @app.post("/api/contact", response_model=ContactResponse, status_code=201)
+        async def contact(req: ContactRequest, request: Request) -> ContactResponse:
+            store = _contact_store(app, resolved)
+
+            # A bot that filled the hidden field gets a cheerful 201 and is
+            # dropped. Telling it what failed is how it learns to pass.
+            if req.website:
+                log.info("contact submission dropped: honeypot filled")
+                return ContactResponse(received=True)
+
+            if store.submissions_since(time.time() - 3600) >= resolved.contact_max_per_hour:
+                raise HTTPException(
+                    status_code=429,
+                    detail="too many submissions in the last hour; please try later",
+                )
+
+            try:
+                fields = clean(req.model_dump())
+            except ContactError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+            store.add(fields, source=request.headers.get("referer", "website")[:200])
+            return ContactResponse(received=True)
 
     @app.post("/chat", response_model=ChatResponse)
     async def chat(req: ChatRequest, engine: EngineDep) -> ChatResponse:

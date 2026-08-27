@@ -1,0 +1,403 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OpenKnowledge</title>
+<meta name="description" content="A private, deterministic answer engine for company documents. Start by finding where your own policies contradict each other — free, no API key, nothing leaves your machine.">
+<style>
+  /* Light is the base. Neutrals are warmed slightly toward the accent so they
+     read as chosen rather than inherited; the green is the product's own, so the
+     site and the chat widget look like one thing. */
+  :root {
+    --bg:#fbfbfa; --panel:#fff; --ink:#1a1a19; --muted:#6b6b66; --line:#e5e4e0;
+    --accent:#2f5d50; --accent-ink:#fbfbfa; --free:#2f5d50; --paid:#8a5a2b;
+    --code-bg:#f4f3f0; --radius:10px;
+  }
+  /* Three states, not two: an explicit choice stamps the root, and the common
+     "system" setting stamps nothing at all. Tokens are redefined in both places
+     so either direction wins; no component colour is declared inside a block. */
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg:#191917; --panel:#232320; --ink:#eceae4; --muted:#9a978e; --line:#35342f;
+      --accent:#7fb3a2; --accent-ink:#191917; --free:#7fb3a2; --paid:#d0a06a;
+      --code-bg:#1f1f1d;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg:#191917; --panel:#232320; --ink:#eceae4; --muted:#9a978e; --line:#35342f;
+    --accent:#7fb3a2; --accent-ink:#191917; --free:#7fb3a2; --paid:#d0a06a;
+    --code-bg:#1f1f1d;
+  }
+  * { box-sizing:border-box; }
+  html { scroll-behavior:smooth; }
+  body { margin:0; background:var(--bg); color:var(--ink);
+         font:16px/1.6 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+         -webkit-font-smoothing:antialiased; }
+  .wrap { max-width:760px; margin:0 auto; padding:0 20px; }
+  a { color:var(--accent); text-decoration-thickness:1px; text-underline-offset:2px; }
+  :focus-visible { outline:2px solid var(--accent); outline-offset:2px; border-radius:3px; }
+  @media (prefers-reduced-motion: reduce) { html { scroll-behavior:auto; } }
+
+  nav { border-bottom:1px solid var(--line); position:sticky; top:0; background:var(--bg);
+        z-index:10; }
+  nav .wrap { display:flex; align-items:center; gap:20px; height:56px; }
+  nav b { font-size:15px; letter-spacing:-.01em; }
+  nav .links { margin-left:auto; display:flex; gap:18px; font-size:14px; }
+  nav a { color:var(--muted); text-decoration:none; }
+  nav a:hover { color:var(--ink); }
+  @media (max-width:560px){ nav .links a.hide-sm { display:none; } }
+
+  header.hero { padding:64px 0 8px; }
+  h1 { font-size:clamp(28px,5vw,40px); line-height:1.12; letter-spacing:-.025em;
+       margin:0 0 16px; text-wrap:balance; max-width:18ch; }
+  .lede { font-size:18px; color:var(--muted); margin:0 0 28px; max-width:60ch; }
+  h2 { font-size:23px; letter-spacing:-.015em; margin:56px 0 12px; text-wrap:balance; }
+  h3 { font-size:16px; margin:28px 0 8px; }
+  p { max-width:66ch; }
+  .dim { color:var(--muted); }
+  .small { font-size:14px; }
+  .eyebrow { font-size:11.5px; text-transform:uppercase; letter-spacing:.09em;
+             color:var(--muted); font-weight:600; margin:56px 0 -4px; }
+  .eyebrow + h2 { margin-top:8px; }
+
+  pre { background:var(--code-bg); border:1px solid var(--line); border-radius:var(--radius);
+        padding:14px 16px; overflow-x:auto; font:13px/1.5 ui-monospace,SFMono-Regular,
+        "SF Mono",Menlo,Consolas,monospace; margin:16px 0; }
+  code { font:inherit; font-family:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+         background:var(--code-bg); padding:1px 5px; border-radius:4px; font-size:.92em; }
+  pre code { background:none; padding:0; }
+
+  .cta { display:inline-block; background:var(--accent); color:var(--accent-ink);
+         padding:11px 20px; border-radius:var(--radius); text-decoration:none;
+         font-weight:600; font-size:15px; }
+  .cta.ghost { background:transparent; color:var(--accent); border:1px solid var(--accent); }
+  .ctas { display:flex; gap:10px; flex-wrap:wrap; margin:24px 0 8px; }
+
+  table { border-collapse:collapse; width:100%; font-size:14.5px; margin:16px 0;
+          font-variant-numeric:tabular-nums; }
+  th,td { text-align:left; padding:8px 10px; border-bottom:1px solid var(--line);
+          vertical-align:top; }
+  th { font-size:12.5px; text-transform:uppercase; letter-spacing:.05em; color:var(--muted);
+       font-weight:600; }
+  td.num, th.num { text-align:right; font-variant-numeric:tabular-nums; }
+  .scroll { overflow-x:auto; }
+
+  .note { border-left:3px solid var(--accent); background:var(--panel); padding:14px 16px;
+          border-radius:0 var(--radius) var(--radius) 0; margin:20px 0; font-size:15px; }
+  .note b { display:block; margin-bottom:4px; }
+
+  ul.plain { list-style:none; padding:0; }
+  ul.plain li { padding:9px 0; border-bottom:1px solid var(--line); font-size:15px; }
+  ul.plain li b { font-weight:600; }
+
+  form.contact { background:var(--panel); border:1px solid var(--line);
+                 border-radius:var(--radius); padding:20px; margin:20px 0; }
+  .field { margin-bottom:14px; }
+  label { display:block; font-size:13px; font-weight:600; margin-bottom:5px; }
+  label .opt { font-weight:400; color:var(--muted); }
+  input,textarea,select { width:100%; padding:10px 12px; font:inherit; font-size:15px;
+    color:inherit; background:var(--bg); border:1px solid var(--line);
+    border-radius:8px; }
+  input:focus,textarea:focus,select:focus { outline:2px solid var(--accent); outline-offset:-1px; }
+  textarea { min-height:88px; resize:vertical; }
+  .hp { position:absolute; left:-9999px; width:1px; height:1px; overflow:hidden; }
+  button { padding:11px 20px; font:inherit; font-weight:600; font-size:15px;
+           color:var(--accent-ink); background:var(--accent); border:0;
+           border-radius:var(--radius); cursor:pointer; }
+  button:disabled { opacity:.55; cursor:default; }
+  #status { margin-top:12px; font-size:14.5px; min-height:1.4em; }
+  #status.ok { color:var(--free); } #status.bad { color:var(--paid); }
+
+  footer { border-top:1px solid var(--line); margin-top:72px; padding:28px 0 56px;
+           font-size:14px; color:var(--muted); }
+  footer a { color:var(--muted); }
+</style>
+</head>
+<body>
+
+<nav><div class="wrap">
+  <b>OpenKnowledge</b>
+  <span class="links">
+    <a href="#audit">Start here</a>
+    <a href="#measured" class="hide-sm">Measured</a>
+    <a href="#limits" class="hide-sm">Limits</a>
+    <a href="#download">Download</a>
+    <a href="#contact">Contact</a>
+  </span>
+</div></nav>
+
+<div class="wrap">
+
+<header class="hero">
+  <h1>Answers from your own documents, at a price you can check.</h1>
+  <p class="lede">
+    A company asked its chatbot a question and paid <b>ten cents</b>. Measured on a real
+    corpus, that is what sending 13,000 tokens to a frontier model on every call costs —
+    and almost none of it is buying anything.
+  </p>
+  <div class="ctas">
+    <a class="cta" href="#audit">Try it in 60 seconds</a>
+    <a class="cta ghost" href="https://github.com/FedericoTs/OpenKnowledge">Source on GitHub</a>
+  </div>
+  <p class="small dim">AGPL-3.0 · self-hosted · no telemetry, ever</p>
+</header>
+
+<p class="eyebrow">Start here</p>
+<h2 id="audit">Start with the free half</h2>
+<p>
+  Before any of the rest, point it at a folder. It reads your documents and tells you where
+  they contradict each other. <b>No API key, no model, no GPU, no database, nothing written,
+  and nothing leaves the machine.</b>
+</p>
+
+<pre><code>uv run openknowledge audit ./policies</code></pre>
+
+<pre><code>OpenKnowledge audit - /srv/policies
+11 document(s), 151 claim(s) checked, 0 model calls, $0.00
+
+2 contradiction(s), in 2 document pair(s):
+
+  1. expenses-policy vs travel-guidelines   (figure, 43% context match)
+     [expenses-policy] says EUR 500
+       "Any single item of travel expenditure above EUR 500 requires written approval..."
+     [travel-guidelines] says EUR 1,000
+       "Travel expenditure above EUR 1,000 requires written approval before booking."
+
+1 pair(s) look like duplicated documents:
+
+     expenses-policy-2023 and expenses-policy look like two versions of the same
+     document: 24 of the 24 figures they share disagree. Retire one rather than
+     reconciling them line by line.</code></pre>
+
+<p>
+  It exits non-zero on findings, so it also works as a CI step on the repository where your
+  policies live — a pull request that makes two documents disagree fails before anybody is
+  answered from either.
+</p>
+
+<h2>Then, if you want answers</h2>
+<p>
+  The same corpus becomes a question-answering service that will not guess. Every answer is
+  built only from retrieved passages, cites its sources, and is checked before you see it:
+  invented citations, unsupported figures and ungrounded prose are rejected, and the question
+  escalates to a better model rather than being answered badly.
+</p>
+
+<ul class="plain">
+  <li><b>Deterministic.</b> The same question returns the same answer, from a cache key over
+      the question, the corpus version, the prompt and the model route — not from a
+      temperature setting.</li>
+  <li><b>It refuses.</b> If your documents disagree, it says so and names both figures rather
+      than picking the one that sounds more current.</li>
+  <li><b>A ladder, not a cliff.</b> Self-hosted → open-weight → frontier, each answering from
+      the same passages under the same gate. Cheaper rungs lower the bill, never the standard.</li>
+  <li><b>A budget that limits escalation, not service.</b> A daily cap becomes a ceiling on
+      what one question may cost, recomputed from the ledger.</li>
+  <li><b>Access control that fails closed</b>, applied during retrieval and re-checked before
+      any cached answer is served.</li>
+</ul>
+
+<p class="eyebrow">Evidence</p>
+<h2 id="measured">Measured, not asserted</h2>
+<p class="small dim">
+  Every number here is produced by a script in the repository. Run them rather than trusting
+  this page.
+</p>
+
+<h3>What a question actually costs</h3>
+<div class="scroll"><table>
+  <tr><th>Retrieval discipline</th><th class="num">Input tokens</th><th class="num">$/question</th></tr>
+  <tr><td>Whole corpus in context</td><td class="num">126,234</td><td class="num">$0.65617</td></tr>
+  <tr><td>Top 40 chunks — <i>keep everything that scored</i></td><td class="num">13,097</td><td class="num">$0.09048</td></tr>
+  <tr><td>Top 6 chunks — the default here</td><td class="num">2,313</td><td class="num">$0.03657</td></tr>
+  <tr><td>…on an open-weight model instead</td><td class="num">2,313</td><td class="num">$0.00032</td></tr>
+</table></div>
+<p class="small dim">
+  Measured over 15 real vendor contracts by assembling the exact prompt the running system
+  would send and counting it. The second row is where ten cents a question comes from.
+</p>
+
+<h3>A live run of the whole thing</h3>
+<p>
+  A 4-bit 4B model on four CPU cores, over ten documents in Markdown, Word, Excel and PDF:
+</p>
+<div class="scroll"><table>
+  <tr><th>Metric</th><th class="num">Result</th></tr>
+  <tr><td>Accuracy (17 answerable cases)</td><td class="num">100.0%</td></tr>
+  <tr><td>False answers (9 must-refuse cases)</td><td class="num">0</td></tr>
+  <tr><td>Determinism — same question twice</td><td class="num">100.0%</td></tr>
+  <tr><td>Paraphrase consistency</td><td class="num">100.0%</td></tr>
+  <tr><td>Cost per question</td><td class="num">$0.00000</td></tr>
+</table></div>
+
+<div class="note">
+  <b>What that is and is not.</b>
+  The test corpus and the questions were written together, which is the circularity that
+  makes benchmarks flattering. It shows the pipeline behaves — retrieval finds the evidence,
+  conditions survive, negations do not invert, contradictions refuse. It is not evidence
+  about accuracy on <i>your</i> documents. The golden set is checked to be capable of
+  failing: every case is fed its own plausible wrong answer and must reject it.
+</div>
+
+<p class="eyebrow">Honestly</p>
+<h2 id="limits">What it does not do yet</h2>
+<p>
+  Landing pages usually leave this out. This one is the reason to trust the rest of the page.
+</p>
+<ul class="plain">
+  <li><b>No SharePoint or Teams connector.</b> It reads a local folder today. Microsoft Graph
+      is free to call and the design is written against it; the work is mapping item
+      permissions, not downloading files.</li>
+  <li><b>The paid tiers are unmeasured.</b> The self-hosted tier has been run end to end. The
+      open-weight and frontier rungs have not, so the escalation rate the cost model turns on
+      is still an assumption.</li>
+  <li><b>Contradiction detection is not ready for a mixed corpus.</b> On 15 real vendor
+      contracts it correctly identified six duplicated documents — and its six other findings
+      were all false. It has no notion of scope: contracts with different counterparties have
+      no business agreeing with each other, and nothing in it knows that. It works on one
+      organisation's own policies.</li>
+  <li><b>No OCR.</b> A scanned PDF is reported as unreadable rather than silently indexed as
+      nothing.</li>
+  <li><b>English only</b> for the rules that detect changed permissions.</li>
+  <li><b>A confidence score was built, measured and withdrawn.</b> It rose as retrieval was
+      degraded — 13 of 17 answers got more confident on less evidence — so it was removed
+      rather than shipped.</li>
+</ul>
+
+<p class="eyebrow">Install</p>
+<h2 id="download">Get it</h2>
+<p>Nothing to sign up for. It is a repository and a container.</p>
+
+<h3>Try the audit, no configuration</h3>
+<pre><code>git clone https://github.com/FedericoTs/OpenKnowledge
+cd OpenKnowledge
+uv venv &amp;&amp; uv pip install -e ".[dev]"
+uv run openknowledge audit ./your-policies</code></pre>
+
+<h3>Run the whole thing</h3>
+<pre><code>cp .env.example .env      # optional: add a key for the escalation tier
+docker compose up         # chat widget on http://localhost:8080</code></pre>
+
+<h3>Point it at a model</h3>
+<pre><code># free and private — a model on your own machine
+OK_LOCAL_MODEL=qwen3:8b
+OK_LOCAL_BASE_URL=http://localhost:11434/v1
+
+# or an open-weight endpoint: same adapter, ~$0.0003 a question
+OK_LOCAL_MODEL=openai/gpt-oss-20b
+OK_LOCAL_BASE_URL=https://api.together.xyz/v1</code></pre>
+
+<p class="small">
+  Step by step, including a first measured run:
+  <a href="https://github.com/FedericoTs/OpenKnowledge/blob/main/docs/TEST-RUN.md">TEST-RUN.md</a>.
+  Why it costs what it costs:
+  <a href="https://github.com/FedericoTs/OpenKnowledge/blob/main/docs/COST-MODEL.md">COST-MODEL.md</a>.
+</p>
+
+<p class="eyebrow">Get in touch</p>
+<h2 id="contact">Tell us you exist</h2>
+<p>
+  OpenKnowledge never phones home — no usage data leaves a deployment, by design. This form
+  is the one place anything is collected, it is entirely voluntary, and when this page is
+  served from your own container it is stored in <i>your</i> SQLite file and nowhere else.
+</p>
+
+<form class="contact" id="contact-form" method="post" action="/api/contact">
+  <div class="field">
+    <label for="name">Name</label>
+    <input id="name" name="name" required autocomplete="name">
+  </div>
+  <div class="field">
+    <label for="email">Email</label>
+    <input id="email" name="email" type="email" required autocomplete="email">
+  </div>
+  <div class="field">
+    <label for="organisation">Organisation <span class="opt">— optional</span></label>
+    <input id="organisation" name="organisation" autocomplete="organization">
+  </div>
+  <div class="field">
+    <label for="interest">What brought you here?</label>
+    <select id="interest" name="interest">
+      <option value="audit">Finding contradictions in our documents</option>
+      <option value="cost">Cutting what our chatbot costs</option>
+      <option value="private">Keeping documents off third-party infrastructure</option>
+      <option value="compliance">Traceability and record-keeping obligations</option>
+      <option value="other">Something else</option>
+    </select>
+  </div>
+  <div class="field">
+    <label for="message">Anything else <span class="opt">— optional</span></label>
+    <textarea id="message" name="message" placeholder="How many documents? Where do they live?"></textarea>
+  </div>
+  <div class="hp" aria-hidden="true">
+    <label for="website">Leave this empty</label>
+    <input id="website" name="website" tabindex="-1" autocomplete="off">
+  </div>
+  <button type="submit">Send</button>
+  <div id="status" role="status" aria-live="polite"></div>
+  <p class="small dim" style="margin-bottom:0">
+    Name and email only, kept to reply to you. No tracking, no analytics, no third party.
+  </p>
+</form>
+
+<footer><div>
+  <p>
+    <a href="https://github.com/FedericoTs/OpenKnowledge">Source</a> ·
+    <a href="https://github.com/FedericoTs/OpenKnowledge/blob/main/LICENSE">AGPL-3.0</a> ·
+    <a href="https://github.com/FedericoTs/OpenKnowledge/blob/main/docs/ROADMAP.md">Roadmap</a> ·
+    <a href="https://github.com/FedericoTs/OpenKnowledge/issues">Issues</a>
+  </p>
+  <p class="small">
+    This page loads no fonts, no scripts and no images from anywhere else, because a page
+    advertising that your documents stay put should not quietly call four other servers.
+  </p>
+</div></footer>
+
+</div>
+
+<script>
+(function () {
+  var form = document.getElementById('contact-form');
+  var status = document.getElementById('status');
+  var button = form.querySelector('button');
+
+  // Where the form posts. Same-origin by default, so a deployment serving this
+  // page from its own container keeps every submission in its own database. Set
+  // data-endpoint on the form to point somewhere else.
+  var endpoint = form.getAttribute('data-endpoint') || form.getAttribute('action');
+
+  function say(text, ok) { status.textContent = text; status.className = ok ? 'ok' : 'bad'; }
+
+  form.addEventListener('submit', function (event) {
+    event.preventDefault();
+    if (form.website.value) { return; }   // honeypot: a bot filled the hidden field
+    button.disabled = true;
+    say('Sending…', true);
+
+    var payload = {};
+    new FormData(form).forEach(function (value, key) { payload[key] = value; });
+
+    fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    }).then(function (response) {
+      if (!response.ok) { throw new Error('HTTP ' + response.status); }
+      form.reset();
+      say('Thank you — we will be in touch.', true);
+    }).catch(function () {
+      // A statically hosted copy has no endpoint behind it. Say so plainly and
+      // offer the route that always works rather than failing silently.
+      say('', true);
+      status.innerHTML =
+        'No contact endpoint is configured for this page. ' +
+        '<a href="https://github.com/FedericoTs/OpenKnowledge/issues/new">Open an issue</a> ' +
+        'instead — it reaches the same people.';
+      button.disabled = false;
+    });
+  });
+})();
+</script>
+</body>
+</html>

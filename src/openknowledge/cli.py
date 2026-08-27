@@ -9,8 +9,10 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import dataclasses
 import json
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -405,6 +407,46 @@ def _cmd_audit(args: argparse.Namespace) -> int:
     return 0 if args.exit_zero or report.clean else 1
 
 
+def _cmd_contacts(args: argparse.Namespace) -> int:
+    """People who filled in the form on the website.
+
+    Read from the deployment's own file. There is nowhere else they could be:
+    the form posts to the same container that served the page.
+    """
+    from pathlib import Path as _Path
+
+    from .contacts import ContactStore
+
+    settings = load_settings()
+    path = _Path(settings.data_dir) / settings.contacts_db
+    if not path.exists():
+        print(f"No contacts yet ({path} does not exist).")
+        print("The form is served only when OK_WEBSITE_ENABLED=true.")
+        return 0
+
+    store = ContactStore(path)
+    people = store.recent(args.limit)
+    if args.json:
+        print(json.dumps([dataclasses.asdict(c) for c in people], indent=2))
+        return 0
+
+    if not people:
+        print("No contacts yet.")
+        return 0
+
+    print(f"{len(people)} of {store.count()} contact(s), newest first\n")
+    for c in people:
+        when = time.strftime("%Y-%m-%d %H:%M", time.localtime(c.ts))
+        org = f" · {c.organisation}" if c.organisation else ""
+        print(f"  {when}  {c.name} <{c.email}>{org}")
+        if c.interest:
+            print(f"      interested in: {c.interest}")
+        if c.message:
+            print(f"      {c.message[:160]}")
+        print()
+    return 0
+
+
 def _cmd_pricing(_: argparse.Namespace) -> int:
     prices = list(load_price_table().values())
     width = max((len(p.model_id) for p in prices), default=20) + 2
@@ -562,6 +604,11 @@ def main(argv: list[str] | None = None) -> int:
         help="always exit 0; without it, findings exit 1 so this can gate CI",
     )
     p.set_defaults(func=_cmd_audit)
+
+    p = sub.add_parser("contacts", help="people who filled in the website contact form")
+    p.add_argument("--limit", type=int, default=50)
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=_cmd_contacts)
 
     p = sub.add_parser("pricing", help="show the model price table")
     p.set_defaults(func=_cmd_pricing)

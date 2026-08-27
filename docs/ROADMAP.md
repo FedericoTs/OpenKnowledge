@@ -59,6 +59,11 @@ Honest status. "Built" means implemented and covered by tests in this repository
 - **Standalone audit** — `openknowledge audit ./folder` reports where a folder's documents
   disagree with each other with no API key, no model, no database and nothing written. Exits
   non-zero on findings so it can gate CI.
+- **Website** — a single self-contained page (`web/site/`) leading with the free audit,
+  quoting only numbers this repository produces, and stating what the project cannot do yet.
+  It fetches nothing from any other host, asserted by a test. Its contact form posts to the
+  same container that served it, storing submissions in the operator's own SQLite file, read
+  with `openknowledge contacts`. Off by default.
 - **First live-model run** — the self-hosted tier measured end to end, not simulated.
   Qwen3-4B (Q4_K_M) on four CPU cores over 10 documents in Markdown, Word, Excel and PDF:
   **100% accuracy, 0 false answers, 100% determinism, 100% paraphrase consistency, $0.00000
