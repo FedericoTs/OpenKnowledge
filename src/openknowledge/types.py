@@ -40,6 +40,19 @@ class Tier(StrEnum):
             Tier.DRAFT,
         )
 
+    @property
+    def declined(self) -> bool:
+        """The question was not answered - by refusal or by contest.
+
+        Both are the system doing its job, and anything grading behaviour has to
+        treat them alike. A contested response is a *better* refusal than a plain
+        one: it declines and names the two documents that disagree, so the reader
+        knows what is in dispute. Scoring it as an answer, and therefore as a
+        possible fabrication, punishes the safest thing the cascade does - which
+        is exactly the pressure that gets a contradiction feature switched off.
+        """
+        return self in (Tier.REFUSED, Tier.CONTESTED)
+
 
 @dataclass(frozen=True, slots=True)
 class Citation:

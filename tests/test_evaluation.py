@@ -23,7 +23,8 @@ from openknowledge.evaluation import (
     parse_cases,
     run_eval,
 )
-from openknowledge.types import Tier
+from openknowledge.evaluation.runner import _score
+from openknowledge.types import Answer, Tier
 
 GOOD_LEAVE = (
     "Employees with 12 months of continuous service get 20 weeks of fully paid "
@@ -388,3 +389,91 @@ def test_both_detectors_are_represented_in_the_set() -> None:
     cases = load_conflict_cases(Path(__file__).resolve().parents[1] / "evals" / "conflicts")
     kinds = {c.kind for c in cases if c.kind}
     assert {"numeric", "deontic"} <= kinds
+
+
+# -- a contested response is a refusal --------------------------------------
+
+
+def test_a_contested_response_passes_a_refusal_case() -> None:
+    """Found by a live run, which scored the safest thing the cascade does as a
+    fabrication.
+
+    A contested response declines to answer and names the two documents that
+    disagree. It is a *better* refusal than a plain one, and counting it as a
+    false answer is the pressure that gets a contradiction feature switched off
+    for hurting the numbers.
+    """
+    case = parse_cases(
+        [{"id": "contested", "question": "What is the travel limit?", "kind": "refusal"}]
+    )[0]
+    answer = Answer(
+        text="Your documents disagree on this, so I won't guess:\n"
+        "  - [expenses-policy] says EUR 500, [travel-guidelines] says EUR 1,000",
+        tier=Tier.CONTESTED,
+        model_id="none",
+        cache_key="k",
+        grounded=True,
+    )
+
+    passed, failures, false_answer = _score(case, answer)
+
+    assert passed
+    assert not false_answer, "declining to answer is never a fabrication"
+    assert failures == ()
+
+
+def test_a_contested_answerable_case_says_so_instead_of_blaming_retrieval() -> None:
+    """The two need different fixes, so they need different messages.
+
+    Reported through the citation and content checks it read as "did not cite"
+    and "contains incorrect content", which sends the reader looking for a
+    retrieval bug that is not there. The documents disagree; somebody has to
+    decide.
+    """
+    case = parse_cases(
+        [
+            {
+                "id": "meals",
+                "question": "How much for meals?",
+                "must_cite": ["expenses-policy"],
+                "must_say": ["45"],
+            }
+        ]
+    )[0]
+    answer = Answer(
+        text="Your documents disagree on this, so I won't guess.",
+        tier=Tier.CONTESTED,
+        model_id="none",
+        cache_key="k",
+        grounded=True,
+        notes=("[expenses-policy] says EUR 45 but [archive-2023] says EUR 35",),
+    )
+
+    passed, failures, false_answer = _score(case, answer)
+
+    assert not passed and not false_answer
+    assert len(failures) == 1
+    assert "refused as contested" in failures[0]
+    assert "archive-2023" in failures[0]
+    assert not any("did not cite" in f for f in failures)
+
+
+def test_answering_a_refusal_case_is_still_a_false_answer() -> None:
+    """The point of widening the refusal check is not to make failures vanish."""
+    case = parse_cases([{"id": "sick", "question": "How many sick days?", "kind": "refusal"}])[0]
+    answer = Answer(
+        text="You get 25 sick days a year. [hr-handbook]",
+        tier=Tier.LOCAL,
+        model_id="m",
+        cache_key="k",
+        grounded=True,
+    )
+
+    passed, _failures, false_answer = _score(case, answer)
+    assert not passed and false_answer
+
+
+def test_the_tiers_that_decline_are_named_in_one_place() -> None:
+    assert Tier.REFUSED.declined and Tier.CONTESTED.declined
+    for tier in (Tier.PINNED, Tier.EXACT_CACHE, Tier.DRAFT, Tier.LOCAL, Tier.FRONTIER):
+        assert not tier.declined

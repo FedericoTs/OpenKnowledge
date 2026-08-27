@@ -147,13 +147,23 @@ def _score(case: Case, answer: Answer) -> tuple[bool, tuple[str, ...], bool]:
     failures: list[str] = []
 
     if case.kind == "refusal":
-        if answer.tier is Tier.REFUSED:
+        if answer.tier.declined:
             return True, (), False
         return (
             False,
             (f"answered a question the corpus does not cover: {answer.text[:120]!r}",),
             True,
         )
+
+    if answer.tier is Tier.CONTESTED:
+        # Distinguished from a plain refusal because the fix is different: the
+        # documents disagree and somebody has to decide, whereas a refusal
+        # usually means the fact was never retrieved. Reporting it as "did not
+        # cite" and "contains incorrect content" - which is what the checks below
+        # produce - sends the reader looking for a retrieval bug that is not
+        # there.
+        contested = ", ".join(answer.notes[:2]) or "sources disagree"
+        return False, (f"refused as contested: {contested}",), False
 
     if answer.tier is Tier.REFUSED:
         return False, ("refused a question the corpus does cover",), False
