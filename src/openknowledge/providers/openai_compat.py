@@ -62,15 +62,51 @@ class OpenAICompatProvider:
         tier: str = "local",
         self_hosted: bool | None = None,
         timeout: float = 120.0,
+        context_tokens: int = 0,
     ) -> None:
         self.model_id = model_id
         self.tier = tier
         self.base_url = base_url.rstrip("/")
+        #: The window this endpoint will run with, when it is known. Zero means
+        #: unknown and nothing is checked - see :meth:`_check_fit`.
+        self.context_tokens = context_tokens
         #: True when there is no per-token invoice behind this endpoint. Decides
         #: whether the cascade prices a call at zero or at this model's rate.
         self.self_hosted = is_self_hosted(base_url) if self_hosted is None else self_hosted
         self._api_key = api_key
         self._timeout = timeout
+
+    def _check_fit(self, prompt_chars: int, max_tokens: int) -> None:
+        """Refuse a prompt too large for the window, instead of having it truncated.
+
+        Local runtimes do not error on an over-long prompt: they drop tokens off
+        the front, which is where the system prompt's grounding rules live, and
+        answer from the remainder. The answer that comes back looks ordinary and
+        is ungrounded. Raising here is loud, and the cascade treats it as this
+        rung failing - so the question moves up a rung rather than being answered
+        badly and cached.
+
+        Only ever runs when the window is known, which is what `openknowledge
+        model use` records. Four characters per token is the same rough figure
+        the budget forecast uses; it is an estimate, so the check keeps a tenth
+        of the window in hand rather than cutting it fine.
+        """
+        if self.context_tokens <= 0:
+            return
+        estimate = prompt_chars // 4 + max_tokens
+        usable = int(self.context_tokens * 0.9)
+        if estimate <= usable:
+            return
+        # Round the suggestion up to the next power of two: the sizes runtimes
+        # are actually configured with, and it leaves headroom for the estimate.
+        suggested = 1 << max(estimate - 1, 1).bit_length()
+        raise ProviderError(
+            f"{self.model_id}: the prompt needs about {estimate:,} tokens and the window "
+            f"is {self.context_tokens:,}. The runtime would drop the start of it without "
+            f"saying so, so this was not sent. Either give the model a larger window "
+            f"(`openknowledge model use {self.model_id} --context {suggested}`) "
+            f"or lower OK_RETRIEVAL_K."
+        )
 
     async def complete(
         self,
@@ -81,6 +117,10 @@ class OpenAICompatProvider:
         history: tuple[Message, ...] = (),
         max_tokens: int = 1500,
     ) -> Completion:
+        self._check_fit(
+            len(system) + len(context) + len(question) + sum(len(m.content) for m in history),
+            max_tokens,
+        )
         messages: list[dict[str, str]] = [{"role": "system", "content": system}]
         messages.extend({"role": m.role, "content": m.content} for m in history)
         messages.append({"role": "user", "content": f"{context}\n\n---\n\nQuestion: {question}"})

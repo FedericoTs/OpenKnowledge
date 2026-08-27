@@ -152,6 +152,7 @@ def _build_local(settings: Settings) -> ChatProvider | None:
         base_url=settings.local_base_url,
         api_key=settings.local_api_key,
         tier="local",
+        context_tokens=settings.local_context_tokens,
     )
 
 

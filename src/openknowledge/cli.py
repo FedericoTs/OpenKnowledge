@@ -465,6 +465,101 @@ def _cmd_pricing(_: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_model(args: argparse.Namespace) -> int:
+    """Show, or change, which model answers on the cheap rung.
+
+    Everything printed here was asked of the runtime rather than looked up in a
+    table: which models exist, and what window each declares. A table would be
+    wrong within a release, and a wrong context window is the one setting that
+    fails quietly.
+    """
+    from . import models as local_models
+
+    settings = load_settings()
+    runtime = local_models.probe(settings.local_base_url)
+
+    if args.action == "list":
+        print(f"runtime: {runtime.kind} at {settings.local_base_url}", end="")
+        print(f" (v{runtime.version})" if runtime.version else "")
+        if not runtime.reachable:
+            print("\n  Nothing is answering there. Start it, or point OK_LOCAL_BASE_URL")
+            print("  at the machine that runs it.")
+        else:
+            have = local_models.installed(runtime)
+            if have:
+                print(f"\n{len(have)} model(s) installed:")
+                width = max(len(m.name) for m in have) + 2
+                for model in sorted(have, key=lambda m: m.name):
+                    window = local_models.context_window(runtime, model.name)
+                    shown = f"{window:,} tokens" if window else "window not reported"
+                    mark = " <- in use" if model.name == settings.local_model else ""
+                    print(f"  {model.name:<{width}}{model.size:>9}  {shown}{mark}")
+            else:
+                print("\n  No models installed yet.")
+        print("\nWorth trying:")
+        width = max(len(name) for name, _ in local_models.SUGGESTED) + 2
+        for name, note in local_models.SUGGESTED:
+            print(f"  {name:<{width}}{note}")
+        print("\n  openknowledge model use <name> [--context N]")
+        return 0
+
+    if args.action == "status":
+        window = settings.local_context_tokens
+        print(f"model:    {settings.local_model}")
+        print(f"runtime:  {runtime.kind} at {settings.local_base_url}")
+        print(f"window:   {window:,} tokens" if window else "window:   not recorded")
+        if not settings.local_enabled:
+            print("\n  The local tier is off (OK_LOCAL_ENABLED=false).")
+        if not runtime.reachable:
+            print("\n  Not reachable. `openknowledge ask` will refuse rather than answer.")
+            return 1
+        live = local_models.context_window(runtime, settings.local_model)
+        if live and window and live != window:
+            print(
+                f"\n  The runtime reports {live:,} tokens, not the {window:,} recorded here."
+                "\n  Re-run `openknowledge model use` to bring them back into line."
+            )
+            return 1
+        names = {m.name for m in local_models.installed(runtime)}
+        if names and settings.local_model not in names:
+            print(f"\n  {settings.local_model!r} is not installed on that runtime.")
+            return 1
+        return 0
+
+    # --- use ---------------------------------------------------------------
+    try:
+        result = local_models.switch(
+            runtime,
+            args.model,
+            context=args.context,
+            allow_download=not args.no_download,
+        )
+    except local_models.ModelError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+    values = {"OK_LOCAL_MODEL": result.model, "OK_LOCAL_ENABLED": "true"}
+    if result.context:
+        values["OK_LOCAL_CONTEXT_TOKENS"] = str(result.context)
+    env = Path(args.env_file)
+    written = local_models.write_env(env, values)
+
+    if result.pulled:
+        print(f"downloaded {args.model}")
+    if result.derived_from:
+        print(
+            f"built {result.model} from {result.derived_from} "
+            f"with a {result.context:,}-token window"
+        )
+    print(f"model:  {result.model}")
+    print(f"window: {result.context:,} tokens" if result.context else "window: not reported")
+    print(f"wrote:  {', '.join(written)} -> {env}")
+    for note in result.notes:
+        print(f"\n  note: {note}")
+    print("\n  Restart `openknowledge serve` for this to take effect.")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="openknowledge", description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -609,6 +704,35 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--limit", type=int, default=50)
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=_cmd_contacts)
+
+    p = sub.add_parser("model", help="which local model answers, and how big its window is")
+    model_sub = p.add_subparsers(dest="action", required=True)
+
+    q = model_sub.add_parser("list", help="models the runtime has, and their windows")
+    q.set_defaults(func=_cmd_model)
+
+    q = model_sub.add_parser("status", help="check the configured model against the runtime")
+    q.set_defaults(func=_cmd_model)
+
+    q = model_sub.add_parser("use", help="switch to a model, downloading it if needed")
+    q.add_argument("model", help="model name, e.g. qwen3:8b")
+    q.add_argument(
+        "--context",
+        type=int,
+        default=None,
+        metavar="N",
+        help=(
+            "run it with an N-token window. Ollama takes no per-call context "
+            "setting, so this builds a copy of the model carrying it."
+        ),
+    )
+    q.add_argument(
+        "--no-download",
+        action="store_true",
+        help="fail rather than fetching a model that is not installed",
+    )
+    q.add_argument("--env-file", default=".env", help="where to record it (default: .env)")
+    q.set_defaults(func=_cmd_model)
 
     p = sub.add_parser("pricing", help="show the model price table")
     p.set_defaults(func=_cmd_pricing)

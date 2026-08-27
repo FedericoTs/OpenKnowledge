@@ -196,13 +196,21 @@ def test_the_audit_output_on_the_page_is_what_the_command_prints(page: str) -> N
     corpus = Path(__file__).resolve().parent.parent / "evals" / "corpus" / "aveline"
     actual = render(audit_folder(corpus))
 
-    block = re.search(r"<pre><code>(OpenKnowledge audit.*?)</code></pre>", page, re.S)
-    assert block is not None, "the page no longer shows audit output"
-    shown = block.group(1).replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">")
+    blocks = [
+        body
+        for body in re.findall(r"<pre[^>]*>(.*?)</pre>", page, re.S)
+        if "OpenKnowledge audit" in body
+    ]
+    assert blocks, "the page no longer shows audit output"
 
-    # The path is the one line legitimately edited, to a plausible install path.
+    # The terminal is coloured with spans; strip them back to what it reads as.
+    shown = re.sub(r"</?span[^>]*>", "", blocks[0])
+    shown = shown.replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&")
+
+    # Two lines are legitimately edited: the shell prompt, and the path, which
+    # is shown as a plausible install path rather than this checkout.
     for line in (row.strip() for row in shown.splitlines()):
-        if not line or line.startswith("OpenKnowledge audit -"):
+        if not line or line.startswith(("$ ", "OpenKnowledge audit -")):
             continue
         assert line in actual, f"page shows a line the command never prints: {line!r}"
 
@@ -219,3 +227,36 @@ def test_the_page_quotes_the_live_run_numbers_it_recorded(page: str) -> None:
     assert f"{recorded['accuracy']:.1%}" in page
     assert f"{recorded['determinism']:.1%}" in page
     assert f"{recorded['paraphrase_consistency']:.1%}" in page
+
+
+def test_the_page_only_advertises_commands_that_exist(page: str) -> None:
+    """A landing page that shows a command the tool does not have is a lie.
+
+    An earlier draft of this page advertised `openknowledge model use` before it
+    was written, on the reasoning that it would exist shortly. This test is what
+    stops that reasoning being used again.
+    """
+    import re as _re
+
+    from openknowledge.cli import main
+
+    shown = set(_re.findall(r"\bopenknowledge ([a-z-]+(?: [a-z-]+)?)", page))
+    assert shown, "the page no longer shows any commands"
+
+    for invocation in sorted(shown):
+        with pytest.raises(SystemExit) as exited:
+            main([*invocation.split(), "--help"])
+        assert exited.value.code == 0, f"the page advertises `openknowledge {invocation}`"
+
+
+def test_the_page_offers_an_installer_that_is_there(page: str) -> None:
+    root = Path(__file__).resolve().parent.parent
+    script = root / "install.sh"
+    assert script.exists(), "the page's one-line install points at a file that is missing"
+    assert script.stat().st_mode & 0o111, "install.sh is not executable"
+
+    # The page tells the reader how long it is, so they know what they are
+    # piping into a shell. Keep that number honest.
+    claimed = re.search(r"the script is (\d+) lines", page)
+    assert claimed is not None
+    assert int(claimed.group(1)) == len(script.read_text().splitlines())

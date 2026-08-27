@@ -71,6 +71,15 @@ class Settings(BaseSettings):
     local_model: str = "qwen3:8b"
     local_base_url: str = "http://localhost:11434/v1"
     local_api_key: str | None = None
+    #: The context window the local runtime will actually run with, in tokens.
+    #:
+    #: Set by `openknowledge model use`, which reads it from the runtime rather
+    #: than guessing. It exists because a window that is too small does not fail:
+    #: the runtime drops tokens off the front of the prompt - where the grounding
+    #: rules are - and answers from what is left. Known, the provider refuses a
+    #: prompt that would not fit and the cascade moves up a rung. Zero means
+    #: unknown, and nothing is checked.
+    local_context_tokens: int = Field(default=0, ge=0)
 
     # -- escalation tier -------------------------------------------------
     #: Off by default. Nothing leaves the machine until an operator opts in.
