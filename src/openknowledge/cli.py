@@ -332,6 +332,37 @@ def _cmd_eval_conflicts(args: argparse.Namespace) -> int:
     return 0 if report.passed else 1
 
 
+def _cmd_audit(args: argparse.Namespace) -> int:
+    """Read a folder and report where its documents disagree. No key, no model.
+
+    Deliberately the one command that needs nothing configured: it builds no
+    store, touches no data directory, and calls no provider, so it can be run
+    against a folder of real policies by somebody who has not decided whether
+    they trust this project yet.
+    """
+    from .audit import audit_folder, render
+
+    settings = load_settings()
+    report = audit_folder(
+        args.path or settings.documents_dir,
+        min_overlap=settings.conflict_min_overlap,
+        deontic_strictness=args.strictness,
+        pdf_backend=args.pdf_backend or settings.pdf_backend,
+    )
+
+    if args.json:
+        print(json.dumps(report.as_dict(), indent=2))
+    else:
+        print(render(report))
+
+    if report.documents == 0:
+        print(f"\nNo readable documents in {report.root}.", file=sys.stderr)
+        return 2
+    # Non-zero on findings so this can be a CI step: a pull request that makes
+    # two policies disagree fails before anybody is answered from either.
+    return 0 if args.exit_zero or report.clean else 1
+
+
 def _cmd_pricing(_: argparse.Namespace) -> int:
     print(f"{'model':<22}{'tier':<10}{'in $/M':>9}{'out $/M':>10}  verified")
     for price in load_price_table().values():
@@ -462,6 +493,25 @@ def main(argv: list[str] | None = None) -> int:
         help="scale the prose thresholds; above 1.0 flags less",
     )
     p.set_defaults(func=_cmd_eval_conflicts)
+
+    p = sub.add_parser(
+        "audit", help="where a folder of documents disagrees with itself (free, no model)"
+    )
+    p.add_argument("path", nargs="?", help="folder to read; defaults to OK_DOCUMENTS_DIR")
+    p.add_argument("--json", action="store_true")
+    p.add_argument("--pdf-backend", choices=("auto", "opendataloader", "pdfplumber"))
+    p.add_argument(
+        "--strictness",
+        type=float,
+        default=1.0,
+        help="scale the prose thresholds; above 1.0 flags less",
+    )
+    p.add_argument(
+        "--exit-zero",
+        action="store_true",
+        help="always exit 0; without it, findings exit 1 so this can gate CI",
+    )
+    p.set_defaults(func=_cmd_audit)
 
     p = sub.add_parser("pricing", help="show the model price table")
     p.set_defaults(func=_cmd_pricing)

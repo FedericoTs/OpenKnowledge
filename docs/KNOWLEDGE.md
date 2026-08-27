@@ -282,6 +282,52 @@ This needs no model, so it runs in CI on every change. `--strictness` lets you
 see the trade directly: at 1.8 the shipped set holds 100% precision and drops to
 56% recall.
 
+### What a labelled set could not tell us
+
+The 21 cases are curated pairs of short policy documents. Run the same detector
+over **15 real vendor contracts** — around 100 pages, boilerplate-heavy, from
+different counterparties, including two parallel copies of seven documents — and
+it emitted **320 findings, none of them useful.** A set that measures 100/100 was
+not wrong; it was measuring a corpus shape that real folders do not have.
+
+Two separate failures, and neither is a threshold that needed tuning.
+
+**Boilerplate read as shared subject.** Contracts overlap enormously on
+*party*, *agreement*, *notice*, *written*, *service*. Counting shared words
+treats those as evidence that two sentences are about the same thing, which is
+how *"Buyer and Licensor may be referred to collectively as the Parties"* scored
+75% against *"Both parties shall be referred to as the Parties"*. The fix is to
+weight each shared word by how rare it is across the corpus's own claims
+(`salience.py`) — ordinary inverse document frequency, normalised so the mean
+weight is one word, so the thresholds keep their meaning. The count of shared
+words stays unweighted: whether there is anything to compare is a different
+question from what the comparison is worth.
+
+**Duplicates read as contradictions.** Two copies of one register disagreeing on
+ninety-eight figures is not ninety-eight contradictions. No per-claim threshold
+can see this, because each individual finding is identical in both cases — what
+differs is the shape of the pair. The separator is **how much subject matter the
+two documents share**: on that corpus, duplicate pairs compared 46 to 189 figures
+each and every genuinely distinct pair compared nine or fewer. The disagreement
+*ratio* was tried first and fails — duplicates ran 0.27–0.64, distinct pairs
+0.22–0.67, straight through each other — so it is reported and not used to
+classify. See `variants.py`.
+
+Together, on the same corpus:
+
+| | findings listed | duplicate pairs named |
+|---|---:|---:|
+| Before | 320 | — |
+| Salience weighting | 287 | — |
+| \+ pair grouping | **6** | **6** |
+
+The six named duplicate pairs are the corpus's real problem, and they are the
+finding a human can act on. The six remaining listed findings are all still false
+positives — different SLA components compared against each other — so precision
+on that corpus is not yet a number worth quoting. What changed is that the output
+is now short enough for somebody to look at, which is the precondition for
+improving it.
+
 ### What it still does not catch
 
 Prose contradictions with no deontic marker — *"the policy was withdrawn in
@@ -289,3 +335,9 @@ March"* against a document that still states the policy — and contradictions
 that need world knowledge to see. Those fall to re-verification, which covers
 questions somebody already approved, and ultimately to the golden set. Adding
 cases to `evals/conflicts/` is the cheapest way to find out what else is missing.
+
+Above all: **a per-entity corpus.** Fifteen contracts with fifteen different
+counterparties have no business agreeing with each other, and nothing in the
+detector knows that. A folder of one company's own policies is the case this
+works on; a folder of per-vendor or per-country documents needs a notion of scope
+that does not exist yet.

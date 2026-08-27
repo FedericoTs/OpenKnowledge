@@ -134,6 +134,39 @@ because it is equivalent.
 
 See [DOCUMENTS.md](docs/DOCUMENTS.md).
 
+### Try it before you configure anything
+
+The cheapest useful thing here needs no API key, no model, no GPU and no database:
+
+```bash
+openknowledge audit ./policies
+```
+
+It reads the folder, extracts every figure and every stated rule, and tells you where your
+own documents disagree with each other — quoting both sentences, so the finding is checkable
+without opening either file. Nothing is written, nothing leaves the machine, and it exits
+non-zero on findings, so it also works as a CI step on the repository where your policies
+live.
+
+```
+OpenKnowledge audit - /srv/policies
+23 document(s), 991 claim(s) checked, 0 model calls, $0.00
+
+2 contradiction(s), in 1 document pair(s):
+
+  1. expenses-policy vs travel-guidelines   (figure, 71% context match)
+     [expenses-policy] says EUR 500
+       "Travel above EUR 500 requires prior approval from a line manager."
+     [travel-guidelines] says EUR 1,000
+       "Travel above EUR 1,000 requires prior approval from a line manager."
+
+1 pair(s) look like duplicated documents:
+
+     register-2024 and register-2025 look like two versions of the same document:
+     98 of the 154 figures they share disagree. Retire one rather than reconciling
+     them line by line.
+```
+
 ### Maintenance is a one-off at upload
 
 When a document arrives or changes, OpenKnowledge drafts the FAQ from it, discards anything
@@ -189,6 +222,15 @@ protects the feature — an admin who sees three bogus flags stops reading the f
 detector at 100% recall and 40% precision is switched off within a week. This one needs no
 model, so unlike the golden set it runs as a real evaluation in CI.
 
+**And then it was run on 100 pages of real contracts, where it produced 320 findings and
+nothing useful.** A curated set of short policy pairs cannot see what a real folder does to
+a detector: dense boilerplate reads as shared subject matter, and two copies of one document
+read as ninety-eight separate contradictions. Weighting shared words by how rare they are,
+and grouping findings by document pair, took that to six findings and six correctly named
+duplicate pairs — on the same corpus, with the labelled set still at 100/100. The numbers,
+what did not work, and what is still broken are in
+[KNOWLEDGE.md](docs/KNOWLEDGE.md#what-a-labelled-set-could-not-tell-us).
+
 See [EVALUATION.md](docs/EVALUATION.md).
 
 ## Determinism
@@ -238,6 +280,7 @@ Then open <http://localhost:8080> for the chat widget.
 Pin the questions people actually ask — those become free and identical forever:
 
 ```bash
+openknowledge audit ./policies        # free: where your documents disagree, no model
 openknowledge learn                   # draft answers from your documents
 openknowledge review                  # approve them, most valuable first
 openknowledge conflicts               # documents that disagree with each other

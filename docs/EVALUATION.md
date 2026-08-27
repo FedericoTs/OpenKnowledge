@@ -16,6 +16,7 @@ openknowledge eval --only refusal       # just the safety set
 openknowledge eval --tag finance        # one area
 openknowledge eval --json               # machine-readable
 openknowledge eval-conflicts            # contradiction precision and recall
+openknowledge audit ./policies          # the same detectors on a real folder, free
 ```
 
 ## What it measures
@@ -97,6 +98,21 @@ without clean cases.
 
 It needs no model, so unlike the golden set it is a real evaluation in CI rather
 than a smoke test. See [KNOWLEDGE.md](KNOWLEDGE.md) for what the detectors do.
+
+### And its limits, which are severe
+
+This set has scored 100% precision and 100% recall throughout the project's life,
+including at the point where the same detector produced **320 findings and no
+useful ones** on 15 real vendor contracts. That is not a contradiction: the set
+measures what it contains, which is curated pairs of short single-authority
+policy documents, and real folders are not that shape.
+
+A green `eval-conflicts` therefore means "no regression against the cases we
+wrote down". It does not mean the detector works on your documents. The way to
+find out is `openknowledge audit ./your-folder`, which is free, and the way to
+turn the answer into a number is to label what it finds and add the cases here.
+See [KNOWLEDGE.md](KNOWLEDGE.md#what-a-labelled-set-could-not-tell-us) for the
+full account of what that run exposed and what it cost to fix.
 
 ## Catching regressions in CI
 

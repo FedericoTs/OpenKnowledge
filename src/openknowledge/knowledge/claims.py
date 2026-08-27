@@ -25,6 +25,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from ..retrieval.base import Document, tokenize
+from .salience import salience_from
 
 if TYPE_CHECKING:  # pragma: no cover - import cycle at runtime
     from .deontic import DeonticClaim
@@ -291,20 +292,19 @@ def extract_claims(doc: Document) -> list[Claim]:
     return claims
 
 
-def _overlap(a: frozenset[str], b: frozenset[str]) -> float:
-    """Jaccard similarity of two context windows."""
-    if not a or not b:
-        return 0.0
-    return len(a & b) / len(a | b)
-
-
-def find_numeric_conflicts(
+def compare_numeric_claims(
     documents: list[Document],
     *,
     min_overlap: float = 0.34,
     min_shared_words: int = 3,
-) -> list[Conflict]:
-    """Find pairs of claims that look like the same fact with different numbers.
+) -> tuple[list[Conflict], dict[tuple[str, str], int]]:
+    """Compare every pair of documents on the figures they both assert.
+
+    Returns the disagreements and, per document pair, how many figures they
+    agreed on. The agreements are not noise to be discarded: they are what
+    distinguishes two documents that contradict each other from two documents
+    that are variants of one another, which is a distinction no per-claim
+    threshold can make. See `variants.py`.
 
     Only compares claims from *different* documents. A single document giving
     two figures is usually a rule with a condition ("EUR 500 for travel, EUR 45
@@ -312,27 +312,41 @@ def find_numeric_conflicts(
     to dismiss the whole feature.
 
     ``min_shared_words`` guards against short contexts scoring a high Jaccard on
-    one incidental word - a real match should share several topic words.
+    one incidental word - a real match should share several topic words. It stays
+    a plain count: how *much* each shared word is worth is what the score
+    measures, and applying the weighting twice punished a small corpus where a
+    single genuinely shared subject word is all there is to go on.
     """
     by_doc: dict[str, list[Claim]] = {}
     for doc in documents:
         by_doc.setdefault(doc.document_id, []).extend(extract_claims(doc))
 
+    weights = salience_from(claim.context for claims in by_doc.values() for claim in claims)
+
     conflicts: list[Conflict] = []
     seen: set[str] = set()
     doc_ids = sorted(by_doc)
+
+    agreements: dict[tuple[str, str], int] = {}
 
     for i, left_id in enumerate(doc_ids):
         for right_id in doc_ids[i + 1 :]:
             for left in by_doc[left_id]:
                 for right in by_doc[right_id]:
-                    if left.unit != right.unit or left.value == right.value:
+                    if left.unit != right.unit:
                         continue
-                    shared = left.context & right.context
-                    if len(shared) < min_shared_words:
+                    if len(left.context & right.context) < min_shared_words:
                         continue
-                    score = _overlap(left.context, right.context)
+                    score = weights.jaccard(left.context, right.context)
                     if score < min_overlap:
+                        continue
+                    if left.value == right.value:
+                        # Same subject, same figure. Worth counting: a pair of
+                        # documents that agrees forty times and differs twice is
+                        # telling a very different story from one that differs
+                        # forty times, and only the second reading is available
+                        # if agreements are discarded here. See `variants.py`.
+                        agreements[left_id, right_id] = agreements.get((left_id, right_id), 0) + 1
                         continue
                     conflict = Conflict(
                         left=left, right=right, overlap=round(score, 4), kind="numeric"
@@ -343,16 +357,29 @@ def find_numeric_conflicts(
                     conflicts.append(conflict)
 
     conflicts.sort(key=lambda c: (-c.overlap, c.key))
+    return conflicts, agreements
+
+
+def find_numeric_conflicts(
+    documents: list[Document],
+    *,
+    min_overlap: float = 0.34,
+    min_shared_words: int = 3,
+) -> list[Conflict]:
+    """Just the disagreements, for callers that do not need the agreement counts."""
+    conflicts, _ = compare_numeric_claims(
+        documents, min_overlap=min_overlap, min_shared_words=min_shared_words
+    )
     return conflicts
 
 
-def find_conflicts(
+def compare_documents(
     documents: list[Document],
     *,
     min_overlap: float = 0.34,
     min_shared_words: int = 3,
     deontic_strictness: float = 1.0,
-) -> list[Conflict]:
+) -> tuple[list[Conflict], dict[tuple[str, str], int]]:
     """Every disagreement between documents that we can find without a model.
 
     Two detectors with different failure modes. The numeric one catches a moved
@@ -367,7 +394,7 @@ def find_conflicts(
     """
     from .deontic import conflicts_between, extract_deontic_claims
 
-    conflicts = find_numeric_conflicts(
+    conflicts, agreements = compare_numeric_claims(
         documents, min_overlap=min_overlap, min_shared_words=min_shared_words
     )
 
@@ -375,10 +402,18 @@ def find_conflicts(
     doc_ids = sorted(by_doc)
     seen = {c.key for c in conflicts}
 
+    # Built once over the whole corpus, not per pair: how ordinary a word is is a
+    # property of the folder, and computing it from two documents at a time would
+    # make a claim's weight depend on which pair it happened to be scored in.
+    weights = salience_from(claim.context for claims in by_doc.values() for claim in claims)
+
     for i, left_id in enumerate(doc_ids):
         for right_id in doc_ids[i + 1 :]:
             for left, right, score in conflicts_between(
-                by_doc[left_id], by_doc[right_id], strictness=deontic_strictness
+                by_doc[left_id],
+                by_doc[right_id],
+                strictness=deontic_strictness,
+                weights=weights,
             ):
                 conflict = Conflict(left=left, right=right, overlap=score, kind="deontic")
                 if conflict.key in seen:
@@ -387,4 +422,21 @@ def find_conflicts(
                 conflicts.append(conflict)
 
     conflicts.sort(key=lambda c: (-c.overlap, c.key))
+    return conflicts, agreements
+
+
+def find_conflicts(
+    documents: list[Document],
+    *,
+    min_overlap: float = 0.34,
+    min_shared_words: int = 3,
+    deontic_strictness: float = 1.0,
+) -> list[Conflict]:
+    """Just the disagreements, for callers that do not group them by document pair."""
+    conflicts, _ = compare_documents(
+        documents,
+        min_overlap=min_overlap,
+        min_shared_words=min_shared_words,
+        deontic_strictness=deontic_strictness,
+    )
     return conflicts

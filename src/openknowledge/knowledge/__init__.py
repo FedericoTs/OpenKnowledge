@@ -1,6 +1,14 @@
 """Knowledge lifecycle: draft at ingest, review once, flag contradictions."""
 
-from .claims import Claim, Conflict, extract_claims, find_conflicts, find_numeric_conflicts
+from .claims import (
+    Claim,
+    Conflict,
+    compare_documents,
+    compare_numeric_claims,
+    extract_claims,
+    find_conflicts,
+    find_numeric_conflicts,
+)
 from .crosscheck import CrossCheckFinding, crosscheck_answers
 from .deontic import DeonticClaim, Force, conflicts_between, extract_deontic_claims
 from .generate import DraftedAnswer, DraftResult, draft_from_document
@@ -12,6 +20,7 @@ from .pipeline import (
     scan_documents,
 )
 from .reverify import Revision, figure_changes, reverify_changed_documents
+from .salience import Salience, salience_from
 from .store import (
     KnowledgeStore,
     Proposal,
@@ -19,6 +28,7 @@ from .store import (
     StoredConflict,
     proposal_id,
 )
+from .variants import DocumentPair, group_by_document_pair
 
 __all__ = [
     "Claim",
@@ -31,8 +41,12 @@ __all__ = [
     "KnowledgeStore",
     "Proposal",
     "ProposalStatus",
+    "DocumentPair",
     "Revision",
+    "Salience",
     "StoredConflict",
+    "compare_documents",
+    "compare_numeric_claims",
     "draft_for_documents",
     "draft_from_document",
     "extract_claims",
@@ -43,9 +57,11 @@ __all__ = [
     "extract_deontic_claims",
     "find_conflicts",
     "find_numeric_conflicts",
+    "group_by_document_pair",
     "ingest_documents",
     "proposal_id",
     "rank_by_demand",
     "scan_documents",
     "reverify_changed_documents",
+    "salience_from",
 ]

@@ -36,6 +36,7 @@ from enum import StrEnum
 
 from ..retrieval.base import Document, tokenize
 from .claims import _SENTENCE_SPLIT, _STOPWORDS
+from .salience import UNIFORM, Salience
 
 #: Content words either side of a marker that form its context. Wider than the
 #: numeric window: a number is its own anchor, a modal verb is not.
@@ -209,12 +210,6 @@ def extract_deontic_claims(doc: Document) -> list[DeonticClaim]:
     return claims
 
 
-def _overlap_coefficient(a: frozenset[str], b: frozenset[str]) -> float:
-    if not a or not b:
-        return 0.0
-    return len(a & b) / min(len(a), len(b))
-
-
 #: Not every pair of differing forces is a contradiction, and the difference is
 #: deontic rather than statistical.
 #:
@@ -246,6 +241,7 @@ def conflicts_between(
     right: list[DeonticClaim],
     *,
     strictness: float = 1.0,
+    weights: Salience = UNIFORM,
 ) -> list[tuple[DeonticClaim, DeonticClaim, float]]:
     """Pairs of rules about the same subject that assert different forces.
 
@@ -260,6 +256,14 @@ def conflicts_between(
     the soft-pair threshold is what finally rejects them.
 
     ``strictness`` scales both thresholds for tuning; above 1.0 flags less.
+
+    ``weights`` decides how much evidence a shared word is. Legal and procedural
+    prose shares a large boilerplate vocabulary, and two unrelated contracts
+    overlap heavily on it - "party", "agreement", "notice", "written". Weighting
+    the *score* by how rare each shared word is across the corpus is what keeps
+    that from reading as a shared subject. The shared-word count above stays
+    unweighted: it asks whether there is anything to compare, which is a
+    different question from how much the comparison is worth.
     """
     found: list[tuple[DeonticClaim, DeonticClaim, float]] = []
     for a in left:
@@ -281,7 +285,7 @@ def conflicts_between(
 
             if len(a.context & b.context) < min_shared:
                 continue
-            score = _overlap_coefficient(a.context, b.context)
+            score = weights.coefficient(a.context, b.context)
             if score < min_overlap:
                 continue
             found.append((a, b, round(score, 4)))
