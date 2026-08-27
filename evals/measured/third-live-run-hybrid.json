@@ -1,0 +1,29 @@
+{
+  "cases": 26,
+  "accuracy": 1.0,
+  "false_answers": 0,
+  "false_answer_rate": 0.0,
+  "determinism": 1.0,
+  "paraphrase_consistency": 1.0,
+  "cost_per_question_usd": 0.0,
+  "total_cost_usd": 0.0,
+  "free_share": 0.0,
+  "support_separation": null,
+  "tiers": {
+    "local": 17,
+    "refused": 8,
+    "contested": 1
+  },
+  "provenance": {
+    "what": "Third live run: the full golden set with hybrid retrieval (BM25 + dense, interleaved) enabled.",
+    "models": "Chat: Qwen3-4B-Instruct-2507 Q4_K_M via llama-cpp-python, 8,192-token window. Embeddings: nomic-embed-text v1.5 Q4_K_M, 768 dims, task prefixes applied.",
+    "corpus": "evals/corpus/aveline minus archive/ - 10 documents across Markdown, Word, Excel and PDF",
+    "golden_set": "evals/golden-aveline - 26 cases, 17 answerable, 9 must-refuse, 37 wrong-answer guards",
+    "compared_against": "second-live-run.json via eval --baseline; every field matched",
+    "what_it_caught_first": "The first hybrid run scored 23.5%: interleaving kept each retriever's own score, and the structural reranker re-sorted the fused list by a mixture of BM25 (2-15) and cosine (0.5-0.8) scales, burying the right chunks. Thirteen answerable questions refused. Fixed by making the fused score 1/position; this run is the same set after the fix.",
+    "retrieval_gain": "Separately measured recall@3 on 19 casual/exact/literal questions: BM25 alone 15/19, hybrid interleaved 18/19. Recall is not accuracy; only this golden-set run gates the change.",
+    "added_latency": "69 ms to embed the question; one-time 3.5 s to embed the 59-chunk corpus (cached in vectors.db).",
+    "not_evidence_of": "accuracy on real documents - the corpus and questions were written together. It shows the pipeline behaves identically with the dense half on, and better on phrasings BM25 misses.",
+    "reproduce": "docs/TEST-RUN.md; serve nomic-embed via llama-cpp-python with --embedding true and set OK_EMBEDDING_*."
+  }
+}
