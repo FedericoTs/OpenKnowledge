@@ -132,9 +132,9 @@
 <header class="hero">
   <h1>Answers from your own documents, at a price you can check.</h1>
   <p class="lede">
-    A company asked its chatbot a question and paid <b>ten cents</b>. Measured on a real
-    corpus, that is what sending 13,000 tokens to a frontier model on every call costs —
-    and almost none of it is buying anything.
+    A company reported paying <b>ten cents</b> a question to ask its own documents. Sending
+    13,097 tokens to a frontier model costs $0.090, measured over a real corpus — so the
+    figure holds up, and almost none of it is buying anything.
   </p>
   <div class="ctas">
     <a class="cta" href="#audit">Try it in 60 seconds</a>
@@ -158,17 +158,24 @@
 
 2 contradiction(s), in 2 document pair(s):
 
-  1. expenses-policy vs travel-guidelines   (figure, 43% context match)
-     [expenses-policy] says EUR 500
-       "Any single item of travel expenditure above EUR 500 requires written approval..."
-     [travel-guidelines] says EUR 1,000
-       "Travel expenditure above EUR 1,000 requires written approval before booking."
+  1. archive-expenses-policy-2023 vs hr-travel-guidelines   (figure, 43% context match)
+     [archive-expenses-policy-2023] says EUR 300
+       "Approval &gt; 2.1 Prior approval threshold: Any single item of travel expenditure above **EUR 300*…"
+     [hr-travel-guidelines] says EUR 1,000
+       "Approval Travel Guidelines &gt; Approval: Travel expenditure above **EUR 1,000** requires written…"
+
+  2. hr-expenses-policy vs hr-travel-guidelines   (figure, 43% context match)
+     [hr-expenses-policy] says EUR 500
+       "Approval &gt; 2.1 Prior approval threshold: Any single item of travel expenditure above **EUR 500*…"
+     [hr-travel-guidelines] says EUR 1,000
+       "Approval Travel Guidelines &gt; Approval: Travel expenditure above **EUR 1,000** requires written…"
 
 1 pair(s) look like duplicated documents:
 
-     expenses-policy-2023 and expenses-policy look like two versions of the same
-     document: 24 of the 24 figures they share disagree. Retire one rather than
-     reconciling them line by line.</code></pre>
+     archive-expenses-policy-2023 and hr-expenses-policy look like two versions of the same document: 24 of the 24 figures they share disagree. Retire one rather than reconciling them line by line.
+
+     Listed separately because reconciling them one figure at a time is
+     the wrong job - the right one is deciding which copy stands.</code></pre>
 
 <p>
   It exits non-zero on findings, so it also works as a CI step on the repository where your
@@ -180,8 +187,9 @@
 <p>
   The same corpus becomes a question-answering service that will not guess. Every answer is
   built only from retrieved passages, cites its sources, and is checked before you see it:
-  invented citations, unsupported figures and ungrounded prose are rejected, and the question
-  escalates to a better model rather than being answered badly.
+  invented citations, unsupported figures and ungrounded prose are rejected. The question then
+  goes to a better model if you have configured one, and is refused if you have not — never
+  answered badly.
 </p>
 
 <ul class="plain">
@@ -247,14 +255,14 @@
 </p>
 <ul class="plain">
   <li><b>No SharePoint or Teams connector.</b> It reads a local folder today. Microsoft Graph
-      is free to call and the design is written against it; the work is mapping item
-      permissions, not downloading files.</li>
+      is free to call and its delta queries suit the design, but none of it is built — and the
+      real work there is mapping item permissions, not downloading files.</li>
   <li><b>The paid tiers are unmeasured.</b> The self-hosted tier has been run end to end. The
       open-weight and frontier rungs have not, so the escalation rate the cost model turns on
       is still an assumption.</li>
   <li><b>Contradiction detection is not ready for a mixed corpus.</b> On 15 real vendor
-      contracts it correctly identified six duplicated documents — and its six other findings
-      were all false. It has no notion of scope: contracts with different counterparties have
+      contracts it correctly identified six pairs of duplicated documents — and every one of
+      its six other findings was false. It has no notion of scope: contracts with different counterparties have
       no business agreeing with each other, and nothing in it knows that. It works on one
       organisation's own policies.</li>
   <li><b>No OCR.</b> A scanned PDF is reported as unreadable rather than silently indexed as
@@ -272,7 +280,7 @@
 <h3>Try the audit, no configuration</h3>
 <pre><code>git clone https://github.com/FedericoTs/OpenKnowledge
 cd OpenKnowledge
-uv venv &amp;&amp; uv pip install -e ".[dev]"
+uv venv &amp;&amp; uv pip install -e .
 uv run openknowledge audit ./your-policies</code></pre>
 
 <h3>Run the whole thing</h3>

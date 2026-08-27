@@ -181,3 +181,41 @@ def test_the_site_is_served_when_enabled(client: TestClient) -> None:
     response = client.get("/site")
     assert response.status_code == 200
     assert "OpenKnowledge" in response.text
+
+
+def test_the_audit_output_on_the_page_is_what_the_command_prints(page: str) -> None:
+    """The terminal block must be real output, not a tidied-up version of it.
+
+    A first draft simplified the document ids and showed one contradiction where
+    the command reports two. On a page whose whole argument is that its numbers
+    come from something you can run, an invented terminal block is the worst
+    thing it could contain - so this pins it to the command.
+    """
+    from openknowledge.audit import audit_folder, render
+
+    corpus = Path(__file__).resolve().parent.parent / "evals" / "corpus" / "aveline"
+    actual = render(audit_folder(corpus))
+
+    block = re.search(r"<pre><code>(OpenKnowledge audit.*?)</code></pre>", page, re.S)
+    assert block is not None, "the page no longer shows audit output"
+    shown = block.group(1).replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">")
+
+    # The path is the one line legitimately edited, to a plausible install path.
+    for line in (row.strip() for row in shown.splitlines()):
+        if not line or line.startswith("OpenKnowledge audit -"):
+            continue
+        assert line in actual, f"page shows a line the command never prints: {line!r}"
+
+
+def test_the_page_quotes_the_live_run_numbers_it_recorded(page: str) -> None:
+    """Same rule for the results table: the figures must match the run."""
+    import json
+
+    recorded = json.loads(
+        (
+            Path(__file__).resolve().parent.parent / "evals" / "measured" / "first-live-run.json"
+        ).read_text()
+    )
+    assert f"{recorded['accuracy']:.1%}" in page
+    assert f"{recorded['determinism']:.1%}" in page
+    assert f"{recorded['paraphrase_consistency']:.1%}" in page
