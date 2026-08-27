@@ -126,3 +126,23 @@ def test_the_setup_guide_points_at_the_installer_that_exists() -> None:
 
     for forbidden in ("sudo", "apt-get", "brew install", ".bashrc", ".zshrc", "/usr/local"):
         assert forbidden not in executed, f"install.sh reaches outside its folder: {forbidden}"
+
+
+def test_the_cli_can_say_which_commit_it_is_running() -> None:
+    """Three times in one support thread the question was "which version is
+    this?", and the answer had to be inferred from behaviour - a user ran a
+    command, got the old output, and neither of us could tell whether the pull
+    had landed. The checkout knows; it just was not being asked."""
+    import pytest
+
+    from openknowledge.cli import _version, main
+
+    reported = _version()
+    assert reported.startswith("openknowledge ")
+    # A checkout must name its commit; a wheel install legitimately cannot.
+    if (ROOT / ".git").exists():
+        assert re.search(r"\([0-9a-f]{7} on \S+\)", reported), reported
+
+    with pytest.raises(SystemExit) as exited:
+        main(["--version"])
+    assert exited.value.code == 0

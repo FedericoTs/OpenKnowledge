@@ -626,6 +626,36 @@ def _cmd_model(args: argparse.Namespace) -> int:
     return 0
 
 
+def _version() -> str:
+    """What is actually running, package and commit.
+
+    Three times in one support thread the question was "which version is this?"
+    and the answer had to be inferred from behaviour. A checkout's HEAD is two
+    files away and settles it; read rather than shelled out, so this works
+    without git on PATH.
+    """
+    from importlib.metadata import PackageNotFoundError, version
+
+    try:
+        installed = version("openknowledge")
+    except PackageNotFoundError:  # pragma: no cover - running from source
+        installed = "unknown"
+
+    commit = ""
+    git_dir = Path(__file__).resolve().parents[2] / ".git"
+    try:
+        head = (git_dir / "HEAD").read_text().strip()
+        if head.startswith("ref: "):
+            ref = head[5:]
+            sha = (git_dir / ref).read_text().strip()
+            commit = f" ({sha[:7]} on {ref.rsplit('/', 1)[-1]})"
+        elif head:
+            commit = f" ({head[:7]}, detached)"
+    except OSError:
+        pass  # installed from a wheel, or no checkout - the version is enough
+    return f"openknowledge {installed}{commit}"
+
+
 def build_parser() -> argparse.ArgumentParser:
     """The whole command surface, as an object rather than a side effect.
 
@@ -634,6 +664,12 @@ def build_parser() -> argparse.ArgumentParser:
     tree, which is cheaper and more exact than running each one.
     """
     parser = argparse.ArgumentParser(prog="openknowledge", description=__doc__)
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=_version(),
+        help="package version, and the commit if this is a checkout",
+    )
     sub = parser.add_subparsers(dest="command", required=True)
 
     p = sub.add_parser("serve", help="run the HTTP server and chat widget")
