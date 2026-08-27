@@ -14,6 +14,10 @@ class FakeProvider:
 
     model_id: str = "fake"
     tier: str = "local"
+    #: Mirrors the real provider: a self-hosted endpoint has no per-token
+    #: invoice, a hosted one does. Cascade tests that assert on cost depend on
+    #: this being the same distinction the router prices by.
+    self_hosted: bool = True
     replies: list[str] = field(default_factory=list)
     fail: bool = False
     calls: list[str] = field(default_factory=list)

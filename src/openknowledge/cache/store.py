@@ -325,6 +325,25 @@ class AnswerStore:
             )
             self._conn.commit()
 
+    @staticmethod
+    def now() -> float:
+        """Wall clock, in one place so tests can move it."""
+        return time.time()
+
+    def spend_since(self, since: float) -> tuple[float, int]:
+        """Dollars spent and questions answered since ``since``.
+
+        One indexed aggregate, called on every question that reaches a model, so
+        it has to stay a single row read rather than a scan. Counts free answers
+        in the question total on purpose: the budget governor is pacing spend
+        across expected *traffic*, and cache hits are traffic.
+        """
+        row = self._conn.execute(
+            "SELECT COALESCE(SUM(cost_usd), 0.0) AS spend, COUNT(*) AS n FROM ledger WHERE ts >= ?",
+            (since,),
+        ).fetchone()
+        return float(row["spend"] or 0.0), int(row["n"] or 0)
+
     def cost_report(self, since: float | None = None) -> dict[str, object]:
         """Blended cost per question, broken down by tier."""
         where, params = ("WHERE ts >= ?", (since,)) if since is not None else ("", ())
@@ -345,6 +364,23 @@ class AnswerStore:
             if total_questions
             else 0.0,
             "by_tier": by_tier,
+            "by_model": self._spend_by_model(where, params),
+        }
+
+    def _spend_by_model(self, where: str, params: tuple[float, ...]) -> dict[str, object]:
+        """Per-model breakdown, which is how an escalation ladder is read.
+
+        Tiers answer "was it free"; models answer "which rung answered, and what
+        did that rung cost" - the question a ladder exists to let you tune.
+        """
+        rows = self._conn.execute(
+            f"SELECT model_id, COUNT(*) AS n, SUM(cost_usd) AS spend FROM ledger {where} "
+            "GROUP BY model_id ORDER BY spend DESC",
+            params,
+        ).fetchall()
+        return {
+            r["model_id"]: {"questions": r["n"], "spend_usd": round(r["spend"] or 0.0, 6)}
+            for r in rows
         }
 
     def recent_questions(self, limit: int = 50) -> list[LedgerEntry]:

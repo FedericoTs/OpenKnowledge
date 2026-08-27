@@ -125,6 +125,57 @@ escalation ladder make answers **more accurate and cheaper at the same time**.
 
 The whole menu, costed and sourced: **[COST-STRATEGIES.md](docs/COST-STRATEGIES.md)**.
 
+### So the cascade is a ladder, and it has a budget
+
+`OK_LADDER` puts as many rungs as you like between the cheap tier and the frontier:
+
+```
+self-hosted → gpt-oss-20b → gpt-oss-120b → claude-opus-5
+```
+
+Every rung answers from the same passages under the same system prompt and is graded by the
+same grounding gate. That invariant is why climbing is safe rather than a quality gamble: a
+rung's answer either passes the gate or nobody sees it, so a cheaper rung can lower the bill
+but cannot lower the standard.
+
+| what happened | answered by | cost |
+|---|---|---:|
+| cheap rung grounds it | gpt-oss-20b | $0.00019 |
+| cheap fails, middle catches it | gpt-oss-120b | $0.00076 |
+| both fail, frontier catches it | claude-opus-5 | $0.02076 |
+
+`OK_BUDGET_DAILY_USD` then turns a declared cap into a ceiling on what one question may
+cost — *budget remaining ÷ questions still expected today*, recomputed from the ledger on
+every question. Spend ahead of pace and the expensive rungs stop being tried; spend behind it
+and they come back. It limits **escalation, never service**: the cheapest rung is always
+tried, and a question the ceiling blocks is refused *naming the model it could not afford*
+rather than answered from an attempt the gate rejected.
+
+```
+claude-opus-5 not tried: forecast $0.04052 exceeds the $0.00020 budget ceiling
+the rungs that might have grounded this were withheld by the budget ceiling; it
+recovers as spending falls back on pace, and this refusal is not cached
+```
+
+### Retrieval that stops wasting slots
+
+BM25 scores every chunk on its own, so its top 6 can be six views of one paragraph. That is a
+recall failure, and a recall failure becomes a gate failure, which escalates — the expensive
+thing. Reranking is on by default, free, deterministic and model-less:
+
+| | distinct docs in top 6 | slots taken by dominant doc | near-duplicate pairs |
+|---|---:|---:|---:|
+| BM25 top-6 | 3.83 | 2.75 | 0.08 |
+| \+ structural rerank | **4.42** | **1.92** | **0.00** |
+
+*(15 real contracts, 476 chunks — `tools/measure_retrieval.py`)*
+
+It caps how many slots one document may take, drops windows that restate a neighbour, and
+lets a matching heading trail count for more than an incidental mention — using the structure
+[ADR 0007](docs/adr/0007-document-parsing.md) already extracts. It is **not** a cross-encoder
+and claims none of a cross-encoder's gains. And these are *coverage* numbers: they show the
+reranker does what it claims, not that answers improved. That needs a live model.
+
 ### Where self-hosting actually helps — and where it doesn't
 
 A local model has no per-token bill, but it does have a GPU behind it, and that cost is

@@ -64,14 +64,20 @@ def test_documents_that_agree_produce_nothing(tmp_path: Path) -> None:
     assert "No contradictions found" in render(report)
 
 
-def test_it_writes_nothing_and_needs_no_configuration(tmp_path: Path) -> None:
+def test_it_writes_nothing_and_needs_no_configuration(tmp_path: Path, monkeypatch) -> None:
     root = write(tmp_path / "docs", expenses=POLICY, travel=CONTRADICTING)
     before = sorted(p.name for p in root.rglob("*"))
+
+    # Run from an empty directory so "created nothing" is about the audit rather
+    # than about whatever else has touched the repository working tree.
+    workdir = tmp_path / "cwd"
+    workdir.mkdir()
+    monkeypatch.chdir(workdir)
 
     audit_folder(root)
 
     assert sorted(p.name for p in root.rglob("*")) == before
-    assert not (Path.cwd() / "data").exists()
+    assert list(workdir.iterdir()) == [], "the audit must build no store and no data directory"
 
 
 def test_the_same_folder_produces_the_same_report_twice(tmp_path: Path) -> None:

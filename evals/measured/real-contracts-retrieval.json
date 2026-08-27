@@ -1,0 +1,25 @@
+{
+  "documents": 23,
+  "chunks": 476,
+  "questions": 12,
+  "k": 6,
+  "candidates": 30,
+  "max_per_document": 2,
+  "bm25": {
+    "distinct_documents": 3.8333333333333335,
+    "dominant_document_slots": 2.75,
+    "near_duplicate_pairs": 0.08333333333333333
+  },
+  "reranked": {
+    "distinct_documents": 4.416666666666667,
+    "dominant_document_slots": 1.9166666666666667,
+    "near_duplicate_pairs": 0.0
+  },
+  "provenance": {
+    "corpus": "15 real third-party vendor contracts, SLAs, DPAs and registers (~100 pages), plus a parallel copy of seven of them",
+    "not_redistributed": "the documents are third-party and are not in this repository",
+    "produced_by": "uv run python tools/measure_retrieval.py --corpus <folder> --questions <file> --json",
+    "measures": "coverage of the retrieved context, not answer accuracy",
+    "does_not_measure": "whether answers improved - that needs a labelled set and a live model"
+  }
+}

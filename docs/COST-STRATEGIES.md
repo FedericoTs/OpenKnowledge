@@ -232,17 +232,83 @@ current SDK, not the tutorials.
 
 ---
 
-## What this changes, in order
+## Built since this was written
 
-1. **Escalation ladder** — insert a middle rung so a gate failure costs $0.0009,
-   not $0.037. Largest single saving, and an accuracy gain.
-2. **Reranking** — free on CPU, the biggest measured accuracy lever available,
-   and it lowers escalation.
-3. **Open-weight cheap tier as the documented default** — 116× cheaper than
+**The escalation ladder.** `OK_LADDER` puts rungs wherever an operator wants:
+
+```
+self-hosted → gpt-oss-20b → gpt-oss-120b → claude-opus-5
+```
+
+Every rung answers from the same passages under the same system prompt and is
+graded by the same grounding gate — the invariant that makes climbing safe. A
+rung's answer either passes the gate or nobody sees it, so adding a cheap rung
+can lower the bill but cannot lower the standard. End to end on a scripted run:
+
+| what happened | answered by | cost |
+|---|---|---:|
+| cheap rung grounds it | gpt-oss-20b | $0.00019 |
+| cheap fails, middle catches it | gpt-oss-120b | $0.00076 |
+| both fail, frontier catches it | claude-opus-5 | $0.02076 |
+
+The middle rung is the point: a grounding failure that used to cost $0.021 now
+costs $0.0008, and it is an accuracy gain over the rung below it rather than a
+compromise.
+
+**The budget governor.** `OK_BUDGET_DAILY_USD` turns a declared cap into a
+ceiling on what one question may cost, recomputed from the ledger every time:
+
+```
+ceiling = budget remaining today ÷ questions still expected today
+```
+
+Spend ahead of pace and the ceiling drops, so expensive rungs stop being tried.
+Spend behind it and it rises again. Nothing is scheduled and the arithmetic is
+one division an operator can check. Three properties it deliberately has:
+
+- **The first rung is never withheld.** A budget limits escalation, not service.
+  A deployment that stops answering because it is 3% over pace has turned a cost
+  control into an outage.
+- **Refusal, never a guess.** When the ceiling blocks the rungs that could have
+  grounded an answer, the question is refused *and says which model it could not
+  afford*. Serving the cheap rung's rejected attempt is the one thing this
+  project will not do.
+- **Budget refusals are not cached**, so the question is retried freshly once the
+  ceiling recovers. Answers that were *served* are unaffected — they are cached
+  under a key that does not include spend.
+
+**Reranking.** Free, deterministic, no model, on by default. It fixes three BM25
+failures that are all recall failures — and a recall failure becomes a gate
+failure, which escalates:
+
+| | distinct docs in top 6 | slots taken by the dominant doc | near-duplicate pairs |
+|---|---:|---:|---:|
+| BM25 top-6 | 3.83 | 2.75 | 0.08 |
+| \+ structural rerank | **4.42** | **1.92** | **0.00** |
+
+*(15 real contracts, 476 chunks, 12 questions —
+`tools/measure_retrieval.py`, recorded in `evals/measured/`)*
+
+It uses the heading trails ADR 0007 already extracts, caps how many slots one
+document may take, and drops windows that restate a neighbour. It is **not** a
+cross-encoder and claims none of a cross-encoder's gains; the `Reranker`
+protocol is what one would plug into. And these are **coverage** numbers, not
+accuracy: they show the reranker does what it claims, not that answers improved.
+That still needs a labelled set and a live model.
+
+## What is next, in order
+
+1. **A live run.** Every one of these levers is now measurable and none of the
+   answer-side ones have been measured, because no model has been called. This
+   is the only thing standing between "designed correctly" and "shown to work".
+2. **Open-weight cheap tier as the documented default** — 116× cheaper than
    frontier, no new code, 1.7 points behind on faithfulness before the gate.
-4. **Synchronously verified semantic cache** — reuse the grounding gate rather
+   Needs the live run to confirm the gate pass rate holds.
+3. **Synchronously verified semantic cache** — reuse the grounding gate rather
    than the literature's async design.
-5. **Hybrid retrieval + contextual chunks** — 49% fewer retrieval failures.
+4. **Hybrid retrieval + contextual chunks** — 49% fewer retrieval failures.
+5. **A cross-encoder reranker** behind the existing protocol, for deployments
+   willing to carry the dependency.
 6. **SharePoint connector on Graph delta + `Sites.Selected`** — free, and the
    thing that makes any of it reachable.
 

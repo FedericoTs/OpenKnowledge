@@ -82,6 +82,36 @@ class Settings(BaseSettings):
     anthropic_api_key: str | None = None
     openai_api_key: str | None = None
 
+    # -- reranking --------------------------------------------------------
+    #: Retrieve this many candidates, then rerank down to `retrieval_k`. Free and
+    #: model-less: it fixes one document taking every slot, near-duplicate
+    #: windows wasting slots, and heading matches scored as ordinary text. Set to
+    #: 0 to send BM25's own top-k straight through.
+    rerank_candidates: int = Field(default=30, ge=0, le=200)
+    rerank_max_per_document: int = Field(default=2, ge=1)
+
+    # -- escalation ladder ------------------------------------------------
+    #: Rungs between the cheap tier and the frontier, cheapest first, as
+    #: `model_id@base_url` or just `model_id` to reuse `escalation_base_url`.
+    #: A gate failure that a mid-size open-weight model can ground costs about
+    #: $0.0009 there against $0.037 at the frontier, and escalation is where
+    #: almost all of a tuned deployment's remaining spend goes.
+    #:
+    #:     OK_LADDER='gpt-oss-120b@https://api.together.xyz/v1'
+    ladder: list[str] = Field(default_factory=list)
+    #: API key for the ladder rungs, when they need one distinct from the others.
+    ladder_api_key: str | None = None
+
+    # -- budget -----------------------------------------------------------
+    #: Cap on spending over a rolling 24 hours. Unset means no governor.
+    #: It limits *escalation*, never service: the cheapest rung is always tried,
+    #: and a question the ceiling blocks is refused with the reason rather than
+    #: answered from an ungrounded attempt.
+    budget_daily_usd: float | None = Field(default=None, ge=0.0)
+    #: Only sets the pace for spreading the cap across the day. It does not have
+    #: to be accurate - the ceiling self-corrects as real traffic arrives.
+    budget_expected_questions_per_day: int = Field(default=2_000, ge=1)
+
     # -- generation ------------------------------------------------------
     max_answer_tokens: int = Field(default=1500, ge=64)
 

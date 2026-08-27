@@ -7,6 +7,8 @@ from dataclasses import dataclass, field
 
 from ..cache import AnswerStore
 from ..cascade import Cascade
+from ..cascade.budget import Budget
+from ..cascade.ladder import Ladder, Rung
 from ..config import Settings
 from ..connectors import LocalFilesConnector
 from ..knowledge import IngestReport, KnowledgeStore, draft_for_documents, scan_documents
@@ -16,6 +18,7 @@ from ..providers.base import ChatProvider
 from ..providers.openai_compat import OpenAICompatProvider
 from ..retrieval import BM25Retriever
 from ..retrieval.base import Document
+from ..types import Tier
 
 log = logging.getLogger(__name__)
 
@@ -178,6 +181,44 @@ def _build_frontier(settings: Settings) -> ChatProvider | None:
     )
 
 
+def _build_ladder(settings: Settings, local: ChatProvider | None) -> Ladder:
+    """Assemble the rungs, cheapest first.
+
+    The cheap rung is whatever `local_*` points at - a box you own or an
+    open-weight endpoint, the adapter is the same. Above it come the `ladder`
+    rungs in the order given, and the frontier last. Every rung answers from the
+    same passages under the same prompt and is graded by the same gate, so the
+    only thing a rung changes is the price of trying again.
+    """
+    rungs: list[Rung] = []
+    if local is not None:
+        rungs.append(Rung(name=settings.local_model, provider=local, tier=Tier.LOCAL))
+
+    for spec in settings.ladder:
+        model_id, _, base_url = spec.partition("@")
+        model_id = model_id.strip()
+        if not model_id:
+            log.warning("ignoring empty ladder entry %r", spec)
+            continue
+        rungs.append(
+            Rung(
+                name=model_id,
+                provider=OpenAICompatProvider(
+                    model_id=model_id,
+                    base_url=base_url.strip() or settings.escalation_base_url,
+                    api_key=settings.ladder_api_key or settings.openai_api_key,
+                    tier="frontier",
+                ),
+                tier=Tier.FRONTIER,
+            )
+        )
+
+    frontier = _build_frontier(settings)
+    if frontier is not None:
+        rungs.append(Rung(name=settings.escalation_model, provider=frontier, tier=Tier.FRONTIER))
+    return Ladder(tuple(rungs))
+
+
 def build_engine(settings: Settings) -> Engine:
     store = AnswerStore(settings.db_path)
     knowledge = KnowledgeStore(settings.knowledge_db_path)
@@ -187,7 +228,9 @@ def build_engine(settings: Settings) -> Engine:
     )
     connector = LocalFilesConnector(settings.documents_dir, pdf_backend=settings.pdf_backend)
     local = _build_local(settings)
-    frontier = _build_frontier(settings)
+    ladder = _build_ladder(settings, local)
+    frontier = ladder.rungs[-1].provider if len(ladder) > 1 else None
+    log.info("escalation ladder: %s", ladder.describe())
     engine = Engine(
         settings=settings,
         store=store,
@@ -199,6 +242,11 @@ def build_engine(settings: Settings) -> Engine:
             local=local,
             frontier=frontier,
             knowledge=knowledge,
+            ladder=ladder,
+            budget=Budget(
+                daily_usd=settings.budget_daily_usd,
+                expected_questions_per_day=settings.budget_expected_questions_per_day,
+            ),
         ),
         connector=connector,
         knowledge=knowledge,

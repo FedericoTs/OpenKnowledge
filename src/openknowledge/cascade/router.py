@@ -25,7 +25,10 @@ from ..providers.base import ChatProvider, ProviderError
 from ..retrieval.base import Chunk
 from ..retrieval.bm25 import BM25Retriever
 from ..retrieval.grounding import check_grounding
+from ..retrieval.rerank import Reranker, StructuralReranker
 from ..types import Answer, Citation, Tier
+from .budget import Budget, BudgetGovernor
+from .ladder import Ladder, Rung
 
 log = logging.getLogger(__name__)
 
@@ -49,6 +52,13 @@ class _Attempt:
 _SNIPPET_CHARS = 280
 
 
+def _default_reranker(settings: Settings) -> Reranker | None:
+    """On unless an operator turns it off. It is free and it lowers escalation."""
+    if settings.rerank_candidates <= 0:
+        return None
+    return StructuralReranker(max_per_document=settings.rerank_max_per_document)
+
+
 class Cascade:
     """Routes one question through the tiers, cheapest first."""
 
@@ -61,6 +71,9 @@ class Cascade:
         local: ChatProvider | None = None,
         frontier: ChatProvider | None = None,
         knowledge: KnowledgeStore | None = None,
+        ladder: Ladder | None = None,
+        budget: Budget | None = None,
+        reranker: Reranker | None = None,
     ) -> None:
         self.store = store
         self.retriever = retriever
@@ -68,6 +81,20 @@ class Cascade:
         self.local = local
         self.frontier = frontier
         self.knowledge = knowledge
+        # `local` and `frontier` remain the two-rung shorthand, because most
+        # deployments have exactly those and should not have to build a ladder
+        # to say so. An explicit ladder replaces them entirely.
+        self.ladder = ladder if ladder is not None else self._default_ladder()
+        self.governor = BudgetGovernor(store=store, budget=budget or Budget())
+        self.reranker = reranker if reranker is not None else _default_reranker(settings)
+
+    def _default_ladder(self) -> Ladder:
+        rungs: list[Rung] = []
+        if self.settings.local_enabled and self.local is not None:
+            rungs.append(Rung(name="local", provider=self.local, tier=Tier.LOCAL))
+        if self.settings.escalation_enabled and self.frontier is not None:
+            rungs.append(Rung(name="frontier", provider=self.frontier, tier=Tier.FRONTIER))
+        return Ladder(tuple(rungs))
 
     # -- keying -----------------------------------------------------------
     @property
@@ -81,9 +108,8 @@ class Cascade:
         fixes both - any model change invalidates, and the tier that happened to
         answer does not affect the key.
         """
-        local = getattr(self.local, "model_id", "-")
-        frontier = getattr(self.frontier, "model_id", "-")
-        raw = f"{local}|{frontier}|{self.settings.escalation_effort}"
+        rungs = "|".join(f"{r.name}:{r.model_id}:{r.k or '-'}" for r in self.ladder)
+        raw = f"{rungs}|{self.settings.escalation_effort}"
         return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:12]
 
     def _key_context(self) -> KeyContext:
@@ -94,6 +120,8 @@ class Cascade:
                 f"k{self.settings.retrieval_k}"
                 f":s{self.settings.min_support_ratio}"
                 f":c{int(self.settings.require_citations)}"
+                f":r{self.settings.rerank_candidates}"
+                f":d{self.settings.rerank_max_per_document}"
             ),
             model_id=self.route_id,
         )
@@ -210,8 +238,19 @@ class Cascade:
 
         # The semantic cache tier is not implemented yet - see ROADMAP.
 
-        # Retrieve once; every model tier below answers from this same evidence.
-        hits = self.retriever.search(question, k=self.settings.retrieval_k, principals=principals)
+        # Retrieve once, wide enough for the widest rung; every rung reads a
+        # prefix of the same ranked list. Searching per rung would let two rungs
+        # answer from different evidence, which is the property that makes
+        # climbing the ladder safe rather than a quality gamble.
+        wanted = self.ladder.widest_k(self.settings.retrieval_k)
+        # Retrieve wider than needed when a reranker can use the slack. BM25
+        # ranks chunks independently, so its top-k can be six views of one
+        # paragraph; the extra candidates cost nothing and are what the reranker
+        # picks from.
+        candidates = max(wanted, self.settings.rerank_candidates) if self.reranker else wanted
+        hits = self.retriever.search(question, k=candidates, principals=principals)
+        if self.reranker is not None:
+            hits = self.reranker.rerank(question, hits, k=wanted)
         chunks = [h.chunk for h in hits]
         if not chunks:
             return Answer(
@@ -222,53 +261,75 @@ class Cascade:
                 notes=("no documents matched this question",),
             )
 
-        context = format_context(chunks)
         system = self._system_prompt()
         notes: list[str] = []
-        # Spend that has already happened on this question, whatever tier
+        # Spend that has already happened on this question, whatever rung
         # eventually answers it - or none.
         spent_usd = 0.0
         spent_usage = Usage()
 
-        # L3 - the local model. No per-token invoice.
-        if self.settings.local_enabled and self.local is not None:
+        affordable, budget_state, withheld = self.governor.allowed(
+            self.ladder,
+            prompt_chars=len(system) + sum(len(c.text) for c in chunks) + len(question),
+            max_tokens=self.settings.max_answer_tokens,
+        )
+        notes.extend(withheld)
+
+        climbed_from: Tier | None = None
+        for rung in affordable:
+            rung_chunks = chunks[: rung.k] if rung.k is not None else chunks
             attempt = await self._try_provider(
-                self.local, Tier.LOCAL, system, context, question, chunks, key
+                rung.provider,
+                rung.tier,
+                system,
+                format_context(rung_chunks),
+                question,
+                rung_chunks,
+                key,
+                max_tokens=rung.max_tokens or self.settings.max_answer_tokens,
             )
             spent_usd += attempt.cost_usd
             spent_usage += attempt.usage
             notes.extend(attempt.notes)
-            if attempt.answer is not None:
-                answer = attempt.answer
-                self.store.put(key, canonical, answer, self.retriever.corpus_version)
-                return answer
 
-        # L4 - the paid tier, reached only because the cheap one could not be verified.
-        if self.settings.escalation_enabled and self.frontier is not None:
-            attempt = await self._try_provider(
-                self.frontier, Tier.FRONTIER, system, context, question, chunks, key
-            )
-            spent_usage += attempt.usage
             if attempt.answer is not None:
-                # Bill the escalated answer for the failed cheap attempt too, so
-                # the ledger reflects what the question really cost.
+                # Bill the answer for every failed attempt below it too, so the
+                # ledger reflects what the question really cost rather than what
+                # the winning call cost.
                 answer = replace(
                     attempt.answer,
-                    cost_usd=attempt.cost_usd + spent_usd,
+                    cost_usd=spent_usd,
                     usage=spent_usage,
-                    escalated_from=Tier.LOCAL if self.local is not None else None,
+                    escalated_from=climbed_from,
                     notes=(*notes, *attempt.answer.notes),
                 )
                 self.store.put(key, canonical, answer, self.retriever.corpus_version)
                 return answer
-            spent_usd += attempt.cost_usd
-            notes.extend(attempt.notes)
-        elif notes:
-            notes.append("escalation is disabled, so there was nowhere cheaper to fall back to")
+            climbed_from = rung.tier
+
+        if not self.ladder:
+            notes.append("no model is configured, so nothing could be answered from the documents")
+        elif len(self.ladder) == 1 and not self.settings.escalation_enabled:
+            # Worth naming: the single most common reason a deployment refuses
+            # more than it should is that nobody turned escalation on.
+            notes.append(
+                "escalation is disabled, so there was no rung above "
+                f"{self.ladder.rungs[0].name!r} to fall back to"
+            )
+        elif not affordable:
+            notes.append("every rung was withheld by the budget ceiling")
+        elif len(affordable) < len(self.ladder):
+            notes.append(
+                "the rungs that might have grounded this were withheld by the budget ceiling; "
+                "it recovers as spending falls back on pace, and this refusal is not cached"
+            )
+        elif budget_state.enabled:
+            notes.append(f"budget: {budget_state.describe()}")
 
         # Nothing could be grounded. Say so rather than passing along a guess -
-        # and do not cache it, so a later corpus update gets a fresh attempt.
-        # The cost is still reported: rejected answers are not free.
+        # and do not cache it, so a later corpus update, or a recovered budget,
+        # gets a fresh attempt. The cost is still reported: rejected answers are
+        # not free.
         return Answer(
             text=REFUSAL_TEXT,
             tier=Tier.REFUSED,
@@ -278,7 +339,7 @@ class Cascade:
             usage=spent_usage,
             cost_usd=spent_usd,
             grounded=False,
-            notes=tuple(notes) or ("no tier produced a grounded answer",),
+            notes=tuple(notes) or ("no rung produced a grounded answer",),
         )
 
     async def _try_provider(
@@ -290,6 +351,7 @@ class Cascade:
         question: str,
         chunks: list[Chunk],
         key: str,
+        max_tokens: int | None = None,
     ) -> _Attempt:
         """Call one provider, returning its answer only if it passes the gate."""
         try:
@@ -297,7 +359,7 @@ class Cascade:
                 system=system,
                 context=context,
                 question=question,
-                max_tokens=self.settings.max_answer_tokens,
+                max_tokens=max_tokens or self.settings.max_answer_tokens,
             )
         except ProviderError as exc:
             log.warning("%s tier failed: %s", tier.value, exc)

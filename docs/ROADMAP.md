@@ -6,6 +6,18 @@ Honest status. "Built" means implemented and covered by tests in this repository
 
 - **Cost accounting** — per-call token accounting, rates with verification dates, an
   unpriced model raises rather than reporting $0, ledger and blended cost report.
+- **Escalation ladder** — `OK_LADDER` puts as many rungs as you like between the cheap tier
+  and the frontier, cheapest first, each answering from the same passages under the same
+  gate. A grounding failure a mid-size open-weight model can fix costs $0.0008 instead of
+  $0.021. See [COST-STRATEGIES.md](COST-STRATEGIES.md).
+- **Budget governor** — a declared daily cap becomes a ceiling on what one question may
+  cost, recomputed from the ledger: budget remaining ÷ questions still expected. It limits
+  escalation, never service; the cheapest rung is always tried; a blocked question is
+  refused with the model it could not afford, and that refusal is not cached.
+- **Reranking** — free, deterministic, no model, on by default. Caps how many slots one
+  document takes, drops near-duplicate windows, and counts a matching heading trail for more
+  than an incidental mention. Measured on 15 real contracts: distinct documents in the
+  context 3.83 → 4.42, dominant-document slots 2.75 → 1.92, near-duplicates eliminated.
 - **Open-weight cheap tier** — verified serverless rates in `pricing.yaml`, reached through
   the existing OpenAI-compatible adapter, at $0.000316 per measured question (116× cheaper
   than the frontier tier). The cascade prices by whether the endpoint bills rather than by
@@ -53,17 +65,16 @@ Honest status. "Built" means implemented and covered by tests in this repository
 
 ## Next — makes it useful in a real company
 
-1. **An escalation ladder.** Today the cascade goes local → frontier, which makes every
-   gate failure cost $0.037. A middle rung (a bigger open-weight model) makes it $0.0009,
-   and is an accuracy gain over the small tier rather than a compromise. With an
-   open-weight cheap tier, escalation is ~95% of the remaining bill: cutting it from 10%
-   to 5% saves fourteen times what raising the free share from 45% to 85% saves. See
-   [COST-STRATEGIES.md](COST-STRATEGIES.md).
-2. **Reranking.** A cross-encoder over the top ~40 BM25 hits, keeping 6. Free on CPU
-   (`bge-reranker-v2-m3`, Apache-2.0, 80–200 ms for 100 documents), typically 5–15 NDCG@10
-   points. It lowers the escalation rate by making the cheap tier's answer right more
-   often, so it is a cost lever and an accuracy lever at once — the only kind worth
-   prioritising.
+1. **A real run.** Every cost lever is now built and measured; not one *answer-side* number
+   is, because no model has been called. Draft yield, gate pass rate, the escalation rate
+   the whole cost model now turns on, and whether an open-weight rung actually grounds
+   answers are all assumed. Point it at a folder with a model configured and the assumptions
+   become measurements. **This now outranks everything below it, by a distance.**
+2. **A cross-encoder reranker** behind the `Reranker` protocol that already exists. The
+   shipped one is free and model-less and fixes three specific BM25 failures; a real
+   cross-encoder (`bge-reranker-v2-m3`, Apache-2.0, 80–200 ms for 100 documents on CPU)
+   typically adds 5–15 NDCG@10 points on top. Worth the dependency only once a live run
+   shows what the free one leaves on the table.
 3. **A labelled real corpus for contradictions.** The contract run gave the audit an
    output somebody can read; it did not give it a precision figure, because that corpus
    has no true contradictions in it. What is needed is one company's own policy folder
@@ -73,14 +84,10 @@ Honest status. "Built" means implemented and covered by tests in this repository
 4. **Scope.** Per-vendor and per-country documents are not contradicting each other, and
    the detector cannot tell. Two candidate signals, both free: the named counterparty in
    each document, and the folder a document sits in. Neither is built.
-5. **A real run.** Nothing here has been executed against a live model: every answer-side
-   quality number is measured with scripted providers, and the draft yield, gate pass rate
-   and local-tier competence are all assumed. Point it at a folder of real policies with a
-   model configured and the assumptions become measurements.
-6. **Grow the golden set.** The harness is built; the shipped set covers the sample
+5. **Grow the golden set.** The harness is built; the shipped set covers the sample
    documents only. Real corpus, real questions, and above all more safety cases — they
    are the cheapest insurance in the project.
-7. **Semantic cache.** Local embeddings over canonical questions, similarity threshold,
+6. **Semantic cache.** Local embeddings over canonical questions, similarity threshold,
    and — the part the literature gets wrong for this use case — a **synchronous** check
    before serving. Published designs verify asynchronously: serve now, verify later, demote
    if wrong. A wrong policy answer served now has already been acted on. We can verify
@@ -88,20 +95,20 @@ Honest status. "Built" means implemented and covered by tests in this repository
    grounding gate on the *cached* answer against those fresh chunks. Production hit rates
    are 20–45%, not 95%; ~0.92 similarity is the usual balance point, and the golden set's
    paraphrase pairs are already the labelled data needed to calibrate it.
-8. **Hybrid retrieval + contextual chunks.** BM25 fused with local dense retrieval, plus
+7. **Hybrid retrieval + contextual chunks.** BM25 fused with local dense retrieval, plus
    Anthropic's contextual-retrieval trick of prepending each chunk's place in its document
    before embedding — measured at 49% fewer retrieval failures, 67% with reranking. Our
    chunker already carries a heading trail on every chunk, which is most of that idea built
    for a different reason. Local embeddings are effectively free: `nomic-embed-text` does
    ~580 chunks/sec on a laptop CPU, and no vector database is needed at corpus scale.
-9. **SharePoint connector.** Microsoft Graph enumeration via `delta` (changes only, never
+8. **SharePoint connector.** Microsoft Graph enumeration via `delta` (changes only, never
    a full rescan), `Sites.Selected` for least privilege, text extraction, and — the real
    work — mapping item permissions, including group expansion and inheritance, onto
    `allowed_principals`. Graph itself is free to call; the cost is the M365 licences the
    company already has.
-10. **Google Drive connector.** Same shape: service account with domain-wide delegation,
+9. **Google Drive connector.** Same shape: service account with domain-wide delegation,
    `files.list`, and permission mapping including inherited folder ACLs.
-11. **Teams channel.** Written against the **Microsoft 365 Agents SDK** — the Bot Framework
+10. **Teams channel.** Written against the **Microsoft 365 Agents SDK** — the Bot Framework
    SDK is archived — with the asker's tenant groups supplying `principals` so access control
    works from the identity Teams already has. Teams is a standard channel, so messages are
    free and unmetered.
@@ -148,6 +155,7 @@ Worth stating plainly, and the first one is the largest thing wrong with this pr
 - Slack channel adapter
 - Per-document prompt caching for hot documents — the only caching lever that pays here,
   since the system prompt is measured at 476 tokens and cannot cache at all
+- Per-rung retrieval width, for a rung whose context window cannot take the full set
 - Incremental re-indexing (today's full rebuild is correct but O(corpus))
 - Postgres + pgvector backend for multi-instance deployments
 - Batch pre-warming: answer the top questions overnight at the 50% batch rate

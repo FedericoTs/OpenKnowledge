@@ -20,6 +20,19 @@ both are answered from the same sources under the same rules. Closing that gap i
 semantic cache tier (L2), which needs a similarity threshold *and* a citation check — a
 hash cannot safely decide that two sentences mean the same thing.
 
+**That a budget-limited deployment answers everything it could afford yesterday.** When a
+budget ceiling is configured, a question that needs an expensive rung is *refused* rather
+than answered from a rung whose attempt failed the grounding gate. That is a real change in
+behaviour over time, and it is the honest one: the alternative is serving a guess because
+the good answer was over budget.
+
+Three things bound it. The ceiling only ever withholds *escalation* — the cheapest rung is
+always tried. Budget-driven refusals are **not cached**, so the question is retried freshly
+once spending falls back on pace. And answers that were **served** are unaffected: they are
+cached under a key that does not include spend, so an identical question keeps returning the
+identical answer regardless of what the budget is doing. See
+[COST-STRATEGIES.md](COST-STRATEGIES.md).
+
 **That the underlying model is deterministic.** It isn't. Temperature 0 is necessary and
 insufficient: batching and floating-point non-determinism mean even greedy decoding can vary
 between runs. This is precisely why determinism here comes from the cache rather than from
