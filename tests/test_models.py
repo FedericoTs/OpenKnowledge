@@ -69,8 +69,16 @@ def base_url(state: _State) -> Iterator[str]:
                 return self._send(
                     200,
                     {
+                        # Ollama reports an untagged model as `name:latest`.
+                        # The stub used to hide that by echoing names back
+                        # exactly - which is precisely how `model use` could
+                        # build a model that `model status` then called missing.
                         "models": [
-                            {"model": name, "size": 5_200_000_000} for name in sorted(state.models)
+                            {
+                                "model": name if ":" in name else f"{name}:latest",
+                                "size": 5_200_000_000,
+                            }
+                            for name in sorted(state.models)
                         ]
                     },
                 )
@@ -83,7 +91,12 @@ def base_url(state: _State) -> Iterator[str]:
             if self.path == "/api/show":
                 name = body.get("model", "")
                 if name not in state.models:
-                    return self._send(404, {"error": "model not found"})
+                    # Either form resolves, as it does in Ollama.
+                    bare = name.removesuffix(":latest")
+                    if bare in state.models:
+                        name = bare
+                    else:
+                        return self._send(404, {"error": "model not found"})
                 return self._send(
                     200,
                     {
@@ -454,3 +467,42 @@ def test_interrupting_a_download_says_what_survives_it(
     assert "stopped" in message
     assert "resumes rather than starting over" in message
     assert not (tmp_path / ".env").exists(), "an interrupted switch must record nothing"
+
+
+def test_a_model_it_just_built_is_not_then_reported_missing(
+    base_url: str,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Reported from a real install, one command after the other:
+
+        $ openknowledge model use qwen3:8b
+        built qwen3-8b-ok8192 from qwen3:8b with a 8,192-token window
+        $ openknowledge model status
+          'qwen3-8b-ok8192' is not installed on that runtime.
+
+    Ollama stores an untagged name with an implicit `:latest` and reports it
+    that way from /api/tags, while accepting either form everywhere else. The
+    comparison was exact, so the two never matched.
+
+    This drives both commands the way a person does, because neither one is
+    wrong on its own - only the pair is.
+    """
+    from openknowledge.cli import main
+
+    monkeypatch.setenv("OK_LOCAL_BASE_URL", base_url)
+    monkeypatch.setenv("OK_DATA_DIR", str(tmp_path))
+    env = tmp_path / ".env"
+
+    assert main(["model", "use", "qwen3:8b", "--env-file", str(env)]) == 0
+    built = dict(line.split("=", 1) for line in env.read_text().splitlines() if "=" in line)[
+        "OK_LOCAL_MODEL"
+    ]
+
+    monkeypatch.setenv("OK_LOCAL_MODEL", built)
+    monkeypatch.setenv("OK_LOCAL_CONTEXT_TOKENS", "8192")
+    capsys.readouterr()
+
+    assert main(["model", "status"]) == 0, capsys.readouterr().out
+    assert "not installed" not in capsys.readouterr().out

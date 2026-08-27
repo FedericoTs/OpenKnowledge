@@ -265,6 +265,20 @@ def pull(
         raise ModelError(f"could not download {model!r}: {exc}") from exc
 
 
+def tagged(name: str) -> str:
+    """``qwen3-8b-ok8192`` and ``qwen3-8b-ok8192:latest`` are the same model.
+
+    Ollama stores an untagged name with the implicit ``:latest`` and reports it
+    that way from ``/api/tags``, while accepting either form everywhere else.
+    Comparing the two strings exactly is how ``model use`` could build a model
+    and ``model status`` then report it missing, in the same minute.
+
+    The tag is whatever follows a colon in the last path segment, so a registry
+    path like ``hf.co/user/repo`` is still untagged.
+    """
+    return name if ":" in name.rsplit("/", 1)[-1] else f"{name}:latest"
+
+
 def derived_name(model: str, context: int) -> str:
     """A stable, legal tag for the resized copy.
 
@@ -333,8 +347,8 @@ def switch(
     if not runtime.is_ollama:
         # vLLM, llama.cpp, LM Studio: the window is fixed when the server is
         # launched, so the honest thing is to record it and say what to relaunch.
-        have = {m.name for m in installed(runtime)}
-        if have and model not in have:
+        have = {tagged(m.name) for m in installed(runtime)}
+        if have and tagged(model) not in have:
             result.notes.append(
                 f"{runtime.hostname} does not list {model!r} "
                 f"(it offers: {', '.join(sorted(have)[:6])})"
@@ -351,8 +365,8 @@ def switch(
             )
         return result
 
-    have = {m.name for m in installed(runtime)}
-    if model not in have:
+    have = {tagged(m.name) for m in installed(runtime)}
+    if tagged(model) not in have:
         if not allow_download:
             raise ModelError(
                 f"{model!r} is not installed. Run it without --no-download, or "

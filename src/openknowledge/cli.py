@@ -501,7 +501,10 @@ def _cmd_model(args: argparse.Namespace) -> int:
                         shown = f"{window.declared:,} declared, not pinned"
                     else:
                         shown = "window not reported"
-                    mark = " <- in use" if model.name == settings.local_model else ""
+                    in_use = local_models.tagged(model.name) == local_models.tagged(
+                        settings.local_model
+                    )
+                    mark = " <- in use" if in_use else ""
                     print(f"  {model.name:<{width}}{model.size:>9}  {shown}{mark}")
             else:
                 print("\n  No models installed yet.")
@@ -540,8 +543,8 @@ def _cmd_model(args: argparse.Namespace) -> int:
                 f"      openknowledge model use {settings.local_model} --context 8192"
             )
             return 1
-        names = {m.name for m in local_models.installed(runtime)}
-        if names and settings.local_model not in names:
+        names = {local_models.tagged(m.name) for m in local_models.installed(runtime)}
+        if names and local_models.tagged(settings.local_model) not in names:
             print(f"\n  {settings.local_model!r} is not installed on that runtime.")
             return 1
         return 0
