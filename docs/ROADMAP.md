@@ -69,8 +69,10 @@ Honest status. "Built" means implemented and covered by tests in this repository
   that styles headings at body size reads as one flat section. OpenDataLoader reports
   levels explicitly and does not have this limitation.
 - **Borderless tables are missed by both PDF backends**, so a purely visual table with no
-  ruling lines reads as prose.
-- **Unruled tables need a numeric column**, so a purely textual table reads as prose.
+  ruling lines reads as prose. A text-alignment fallback was built and removed: on 15 real
+  contracts it found no genuine borderless table and fabricated 2,983 rows out of prose.
+  OpenDataLoader's `--hybrid` backend would close this, but it needs a running Docling or
+  Hancom server, which breaks the no-external-calls promise.
 - **Spreadsheet formulas are read as last-saved values**, which can be stale.
 
 ### Known gaps in contradiction detection

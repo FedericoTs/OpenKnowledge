@@ -413,3 +413,75 @@ def test_both_backends_agree_on_the_facts(corpus: Path) -> None:
 def test_a_corrupt_pdf_is_survivable_on_the_java_backend(tmp_path: Path) -> None:
     doc = parse_pdf(b"%PDF-1.4 not really a pdf", backend="opendataloader")
     assert doc.is_empty
+
+
+# -- the fabrication regression -------------------------------------------
+
+
+@pytest.fixture
+def prose_pdf(tmp_path: Path) -> Path:
+    """A prose-heavy contract page: no tables, justified multi-line paragraphs.
+
+    This is the shape that broke the old text-alignment table fallback.
+    """
+    from reportlab.lib.enums import TA_JUSTIFY
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+    from reportlab.platypus import Paragraph, SimpleDocTemplate
+
+    styles = getSampleStyleSheet()
+    justified = ParagraphStyle("j", parent=styles["Normal"], alignment=TA_JUSTIFY)
+    body = (
+        "The purpose of this Service Level Agreement (hereinafter the SLA) is to "
+        "define the reference parameters for the provision of the services, the "
+        "availability undertakings applicable to them, and the remedies available "
+        "to the Customer where those undertakings are not met by the Supplier."
+    )
+    path = tmp_path / "sla.pdf"
+    SimpleDocTemplate(str(path), pagesize=A4).build(
+        [Paragraph("SERVICE LEVEL AGREEMENT", styles["Heading1"])]
+        + [Paragraph(f"{i}. {body}", justified) for i in range(1, 12)]
+    )
+    return path
+
+
+def test_prose_is_never_read_as_a_table(prose_pdf: Path) -> None:
+    """The regression that removing the text-alignment fallback fixed.
+
+    Measured on fifteen real contracts, that fallback found no genuine
+    borderless table and produced 2,983 fabricated rows - shredded prose with
+    words split mid-token, emitted as labelled claims:
+
+        A) For the: Services are provide | resources thro: d:
+
+    A missed table costs recall. A fabricated labelled claim corrupts the
+    numeric claim extractor, contradiction detection and the grounding gate at
+    once, because it looks like a fact with a subject attached.
+    """
+    doc = parse_pdf_pdfplumber(prose_pdf.read_bytes())
+    rows = [b for b in doc.blocks if b.kind is BlockKind.TABLE_ROW]
+    assert rows == [], (
+        f"prose was read as {len(rows)} table rows: {[r.text[:60] for r in rows[:3]]}"
+    )
+
+
+def test_prose_still_produces_readable_paragraphs(prose_pdf: Path) -> None:
+    """Suppressing fake tables must not suppress the actual text."""
+    doc = parse_pdf_pdfplumber(prose_pdf.read_bytes())
+    text = doc.text
+    assert "Service Level Agreement" in text
+    assert "availability undertakings" in text
+
+
+@needs_java
+def test_the_java_backend_agrees_that_prose_is_prose(prose_pdf: Path) -> None:
+    doc = parse_pdf(prose_pdf.read_bytes(), backend="opendataloader")
+    assert [b for b in doc.blocks if b.kind is BlockKind.TABLE_ROW] == []
+
+
+def test_a_ruled_table_is_still_found(corpus: Path) -> None:
+    """The counterpart: removing the fallback must not cost real tables."""
+    doc = parse_pdf_pdfplumber((corpus / "policy.pdf").read_bytes())
+    rows = [b for b in doc.blocks if b.kind is BlockKind.TABLE_ROW]
+    assert len(rows) == 2
+    assert all("Grade:" in r.text for r in rows)

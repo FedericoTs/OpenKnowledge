@@ -30,6 +30,24 @@ is that heading levels and table cells are read rather than guessed, and that
 a tagged PDF - which a good share of enterprise compliance documents are - stops
 being inference altogether.
 
+### Measured afterwards, on fifteen real contracts
+
+The table above came from a synthetic fixture, which turned out to flatter
+pdfplumber. Re-run against 15 real contracts and DPAs (204 pages):
+
+| | OpenDataLoader | pdfplumber |
+|---|---:|---:|
+| Table rows | 813 | 798 |
+| Documents with tables the other missed | 4 | 2 |
+| Headings, uniformly-styled contract | 10 | 1 |
+| Headings, bold-heavy DPA | 23 | 59 (over-detects) |
+
+Two things this changed. First, the recommendation hardened: pdfplumber's
+heading detection is wrong in both directions, so the backends are not peers and
+the docs now say so. Second, it exposed a defect in ADR 0007's own PDF code -
+the text-alignment table fallback fabricated 2,983 table rows across the corpus,
+which is recorded below.
+
 ## Decision
 
 **Keep both, choose at runtime.** `pdf_backend` is `auto` (default),
@@ -66,6 +84,25 @@ key is for - but moving a deployment between a machine with Java and one without
 invalidates every cached answer, and the first day back is expensive. Deployments
 that care should pin `OK_PDF_BACKEND` rather than leaving it on `auto`.
 
+## What the measurement caught
+
+ADR 0007 shipped a text-alignment fallback for borderless tables, guarded by a
+numeric-column check. On real documents that guard was worthless: the fallback
+found no genuine borderless table and turned prose into 2,983 fabricated rows -
+151 of them from one three-page SLA - with words split mid-token and emitted as
+labelled claims.
+
+That is worse than the gap it was meant to close. A missed table costs recall; a
+fabricated labelled claim corrupts the numeric claim extractor, contradiction
+detection and the grounding gate simultaneously, because each one presents as a
+fact with a subject attached. The fallback is removed, borderless tables are a
+documented gap in both backends, and a regression test now generates a
+prose-heavy PDF and asserts no table rows come back.
+
+The general lesson is worth recording: the synthetic fixture said the fallback
+was reasonable, and fifteen real documents said it was a liability. Parser
+heuristics cannot be validated on documents you generated yourself.
+
 ## Alternatives considered
 
 - **Replace pdfplumber entirely.** Simpler: one path, no divergence. Rejected
@@ -78,5 +115,9 @@ that care should pin `OK_PDF_BACKEND` rather than leaving it on `auto`.
   it shells out to the same JAR from Node, and adding Node to a Python container
   buys nothing. The Python wrapper ships the same CLI.
 - **Keep geometry-only** (ADR 0007 as written). Still the fallback, and still
-  correct. Rejected as the *preference* because inferring what a document states
-  outright is work done twice, badly.
+  usable. Rejected as the *preference* because inferring what a document states
+  outright is work done twice, badly - and on real documents, done wrong.
+- **`table_method=cluster`, `use_struct_tree`, `reading_order`.** All tested for
+  the borderless case; none found it. `--hybrid` would, but it requires a running
+  Docling or Hancom server, which breaks the promise that nothing leaves the
+  machine. Not worth it for a gap both backends share.

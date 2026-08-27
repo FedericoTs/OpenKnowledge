@@ -12,11 +12,11 @@ set materially larger, and short, are headings. This is what gives every block a
 heading path, which is the difference between indexing "above EUR 500" and
 "Expenses Policy > Approval thresholds: above EUR 500".
 
-**Tables, ruled or not.** Most policy PDFs rule their tables and pdfplumber
-finds those reliably. Plenty do not, and a threshold table that dissolves into
-loose numbers is exactly the input that makes the numeric claim extractor
-produce nonsense. So there is a text-alignment fallback - guarded, because on
-prose it invents structure that is not there.
+**Tables, from ruling lines.** Most policy PDFs rule their tables and those come
+back reliably. Borderless ones are missed, which is a known gap: a text-alignment
+fallback was tried and removed, because on fifteen real contracts it found no
+genuine table and shredded prose into hundreds of fabricated labelled rows. A
+missed table costs recall; a fabricated claim corrupts every check downstream.
 
 **Reading order, from vertical position.** Tables and prose are found by
 separate passes, so they arrive in two unrelated sequences. Sorting everything
@@ -64,10 +64,6 @@ _HEADING_SIZE_RATIO = 1.15
 
 #: Headings are short. A long line set large is a pull quote or a cover blurb.
 _MAX_HEADING_CHARS = 90
-
-#: Fraction of a column's cells that must contain a digit for it to count as a
-#: value column.
-_NUMERIC_COLUMN_RATIO = 0.6
 
 
 def parse_pdf(data: bytes, *, title: str | None = None, backend: str = "auto") -> ParsedDocument:
@@ -200,27 +196,11 @@ def _is_heading(text: str, size: float, bold: bool, body_size: float) -> bool:
 # -- tables -----------------------------------------------------------------
 
 
-def _numeric_columns(rows: list[list[str]]) -> set[int]:
-    """Column indices whose cells mostly contain digits."""
-    width = max((len(r) for r in rows), default=0)
-    numeric: set[int] = set()
-    for column in range(width):
-        cells = [r[column] for r in rows if column < len(r) and r[column].strip()]
-        if not cells:
-            continue
-        with_digits = sum(1 for c in cells if any(ch.isdigit() for ch in c))
-        if with_digits / len(cells) >= _NUMERIC_COLUMN_RATIO:
-            numeric.add(column)
-    return numeric
-
-
-def _clean_rows(raw: list[list[Any]], *, strict: bool) -> list[list[str]]:
+def _clean_rows(raw: list[list[Any]]) -> list[list[str]]:
     """Normalise a detected table, dropping rows that are really prose.
 
-    ``strict`` is for the text-alignment pass, which will happily carve a
-    paragraph into a grid. The guard is that a genuine policy table has at least
-    one consistently numeric column - a threshold, a duration, an amount - and
-    any row whose value cell holds no digit is a sentence that wandered in.
+    Even a ruled table picks up the odd caption or footnote inside its border,
+    and a cell holding a whole sentence is one of those rather than a field.
     """
     rows = [[normalise("" if c is None else str(c)) for c in row] for row in raw or []]
     rows = [r for r in rows if any(cell for cell in r)]
@@ -230,21 +210,7 @@ def _clean_rows(raw: list[list[Any]], *, strict: bool) -> list[list[str]]:
     cells = [c for row in rows for c in row if c]
     if not cells or sum(1 for c in cells if len(c) <= 40) / len(cells) < 0.8:
         return []
-
-    if not strict:
-        return rows
-
-    numeric = _numeric_columns([r for r in rows if not looks_like_header_row(r)])
-    if not numeric:
-        return []  # no value column: this is not a table, it is a paragraph
-    return [
-        row
-        for row in rows
-        if looks_like_header_row(row)
-        or all(
-            any(ch.isdigit() for ch in row[c]) for c in numeric if c < len(row) and row[c].strip()
-        )
-    ]
+    return rows
 
 
 @dataclass(frozen=True, slots=True)
@@ -269,27 +235,32 @@ class _FoundTable:
 
 
 def _find_tables(page: Any) -> list[_FoundTable]:
-    """Tables on a page, ruled lines first and text alignment as a fallback."""
-    ruled: list[_FoundTable] = []
-    try:
-        for table in page.find_tables():
-            rows = _clean_rows(table.extract(), strict=False)
-            if rows:
-                ruled.append(_FoundTable(float(table.bbox[1]), float(table.bbox[3]), rows, True))
-    except Exception:  # noqa: BLE001 - detection is best effort
-        ruled = []
-    if ruled:
-        return ruled
+    """Tables on a page, from ruling lines only.
 
+    There used to be a text-alignment fallback here for borderless tables,
+    guarded by a numeric-column check. Measured against fifteen real contracts
+    and DPAs it did not find a single genuine borderless table, and on
+    prose-heavy pages it shredded paragraphs into hundreds of fabricated rows -
+    words split mid-token, columns interleaved, then emitted as labelled claims:
+
+        A) For the: Services are provide | resources thro: d:
+        1. Subject and | purpose of th | e docum | ent
+
+    A missed table costs recall. Fabricated labelled claims corrupt the numeric
+    claim extractor, contradiction detection and the grounding gate at once,
+    because each one looks like a fact with a subject attached. That is a much
+    worse trade, so the fallback is gone rather than tuned: the guard that was
+    meant to prevent this let 151 such rows through on a three-page SLA.
+
+    Borderless tables are a known gap in both backends. See docs/DOCUMENTS.md.
+    """
     try:
-        settings = {"vertical_strategy": "text", "horizontal_strategy": "text"}
-        loose: list[_FoundTable] = []
-        for table in page.find_tables(settings):
-            rows = _clean_rows(table.extract(), strict=True)
-            if rows:
-                loose.append(_FoundTable(float(table.bbox[1]), float(table.bbox[3]), rows, False))
-        return loose
-    except Exception:  # noqa: BLE001
+        return [
+            _FoundTable(float(t.bbox[1]), float(t.bbox[3]), rows, True)
+            for t in page.find_tables()
+            if (rows := _clean_rows(t.extract()))
+        ]
+    except Exception:  # noqa: BLE001 - detection is best effort
         return []
 
 

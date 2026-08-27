@@ -79,8 +79,28 @@ PDFs get two parsers, chosen at runtime by `OK_PDF_BACKEND` (`auto` by default).
 
 | | | |
 |---|---|---|
-| **OpenDataLoader** | Apache 2.0, Java | Preferred. Reports structure. |
-| **pdfplumber** | MIT, pure Python | Always available. Infers structure. |
+| **OpenDataLoader** | Apache 2.0, Java | Reports structure. Use this where you can. |
+| **pdfplumber** | MIT, pure Python | Infers structure. A degraded fallback. |
+
+### Measured on fifteen real contracts and DPAs
+
+Not a synthetic benchmark — Microsoft, AWS, Aruba, Contentsquare and a set of
+DORA registers, 15 documents and 204 pages:
+
+| | OpenDataLoader | pdfplumber |
+|---|---:|---:|
+| Table rows found | **813** | 798 |
+| Documents where it found tables the other missed | **4** | 2 |
+| Headings on a uniformly-styled contract | **10** | 1 |
+| Headings on a bold-heavy DPA | **23** | 59 (over-detects) |
+
+pdfplumber's heading detection is wrong in *both* directions: it under-detects
+when a document does not vary type size — one heading for the whole Microsoft
+Cloud Agreement — and over-detects on bold inline text, reading definition items
+like `(g) "GDPR"` as section headings. OpenDataLoader was right on both.
+
+**Use OpenDataLoader if you can.** The pure-Python path exists so a `pip install`
+works and so nothing breaks without a JVM, not because the two are equivalent.
 
 OpenDataLoader reports what pdfplumber has to guess: heading levels are stated
 rather than inferred from type size, tables arrive as cells with row and column
@@ -136,13 +156,21 @@ Three things are recovered from geometry:
 lines set materially larger are headings. This is what gives PDF blocks a
 heading path at all.
 
-**Tables, ruled or not.** Most policy PDFs rule their tables and those are found
-reliably. Plenty do not, so there is a text-alignment fallback — guarded,
-because on prose that strategy invents structure. The guard is that a genuine
-policy table has at least one consistently numeric column; a row whose value
-cell holds no digit is a sentence that wandered in. Without it, "Any single
-expense above EUR 500 requires prior written approval" gets carved into a table
-row reading `0 require | s prior written | approval.`
+**Tables, from ruling lines only.** A text-alignment fallback for borderless
+tables was built, measured, and removed. Across those fifteen real documents it
+found **not one** genuine borderless table, and on prose-heavy pages it shredded
+paragraphs into **2,983 fabricated rows** — words split mid-token, columns
+interleaved, then emitted as labelled claims:
+
+```
+A) For the: Services are provide | resources thro: d:
+1. Subject and | purpose of th | e docum | ent
+```
+
+151 of those came from a single three-page SLA. A missed table costs recall; a
+fabricated labelled claim corrupts the numeric claim extractor, contradiction
+detection and the grounding gate at once, because it looks like a fact with a
+subject attached. `tests/test_documents.py` guards the regression.
 
 **Reading order, from vertical position.** Tables and prose are found by
 separate passes and arrive in unrelated sequences. Sorting by position on the
@@ -182,8 +210,8 @@ convenience.
 - **Headings in PDFs are inferred.** A document that sets its headings at body
   size with no bold gets one flat section. The blocks are still correct; they
   just carry a thinner heading trail.
-- **Unruled table detection is conservative.** It requires a numeric column, so
-  a purely textual table — a RACI matrix, say — is read as prose.
+- **Borderless tables are missed by both backends.** A table drawn with whitespace
+  rather than ruling lines reads as prose. Tried and rejected: see above.
 - **Spreadsheet formulas are read as their last computed value**, which comes
   from whatever the file last saved. An employee asking about the travel cap
   wants `EUR 500`, not `=B2*1.1`, but a workbook saved without recalculating
