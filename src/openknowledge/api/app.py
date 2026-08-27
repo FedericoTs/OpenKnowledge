@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import Annotated, Any
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, Response
 
 from ..cache import citations_for
 from ..canonical import canonicalize_query
@@ -106,6 +106,17 @@ def _contact_store(app: FastAPI, settings: Settings) -> ContactStore:
     return store
 
 
+#: The brand mark from the site, as a tab icon: a ticked box.
+_FAVICON = (
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16">'
+    '<rect x="1" y="1" width="14" height="14" rx="3" fill="none" '
+    'stroke="currentColor" stroke-width="1.4"/>'
+    '<path d="M4.6 8.2l2.2 2.2 4.6-4.8" fill="none" stroke="currentColor" '
+    'stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>'
+    "</svg>"
+)
+
+
 def _warn_if_the_model_is_unreachable(settings: Settings) -> None:
     """Say at startup that the local endpoint is down, not one question later.
 
@@ -160,6 +171,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if widget_path is None:  # pragma: no cover - packaging fallback
             return "<h1>OpenKnowledge</h1><p>Chat widget not found. POST to /chat.</p>"
         return widget_path.read_text(encoding="utf-8")
+
+    @app.get("/favicon.ico", include_in_schema=False)
+    async def favicon() -> Response:
+        """The site's own mark, so the widget stops logging a 404 for it.
+
+        SVG rather than an .ico: every browser that can run the widget renders
+        it, and it means no binary asset in the repository. `currentColor` picks
+        up the tab's own foreground, so it reads in either theme.
+        """
+        return Response(content=_FAVICON, media_type="image/svg+xml")
 
     @app.get("/healthz")
     async def healthz(engine: EngineDep) -> dict[str, Any]:

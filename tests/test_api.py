@@ -216,3 +216,17 @@ def test_listed_pins_show_their_sources(client: TestClient) -> None:
         json={"question": "q?", "answer": "a", "cite": ["leave"]},
     )
     assert client.get("/admin/pins", headers=AUTH).json()[0]["cited"] == ["leave"]
+
+
+def test_the_widget_has_a_tab_icon() -> None:
+    """It was logging a 404 for this on every page load."""
+    from fastapi.testclient import TestClient
+
+    from openknowledge.api.app import create_app
+    from openknowledge.config import Settings
+
+    with TestClient(create_app(Settings(data_dir="./data-favicon-test"))) as client:
+        response = client.get("/favicon.ico")
+        assert response.status_code == 200
+        assert response.headers["content-type"].startswith("image/svg+xml")
+        assert response.text.startswith("<svg")
