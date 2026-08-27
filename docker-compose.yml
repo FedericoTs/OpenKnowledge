@@ -1,7 +1,9 @@
 # OpenKnowledge, self-hosted.
 #
-#   docker compose up                      chat widget on http://localhost:8080
-#   docker compose --profile local-llm up   also starts Ollama for the free tier
+#   docker compose up                       chat widget on http://localhost:8080
+#   docker compose --profile local-llm up    also starts Ollama for the free tier
+#   OK_WEBSITE_ENABLED=true docker compose up
+#                                           also serves the public page at /site
 #
 # Everything stays on this machine. The app makes no outbound calls unless you
 # set OK_ESCALATION_ENABLED=true and supply an API key.
@@ -18,6 +20,13 @@ services:
     environment:
       # Reach the Ollama service by name when the local-llm profile is running.
       OK_LOCAL_BASE_URL: ${OK_LOCAL_BASE_URL:-http://ollama:11434/v1}
+      # Compose passes only the variables it declares, so anything you expect to
+      # set from the shell has to be listed here or it never reaches the
+      # container. Each keeps its own default.
+      OK_WEBSITE_ENABLED: ${OK_WEBSITE_ENABLED:-false}
+      OK_DOCUMENTS_DIR: ${OK_DOCUMENTS_DIR:-./documents}
+      OK_LOCAL_MODEL: ${OK_LOCAL_MODEL:-qwen3:8b}
+      OK_ESCALATION_ENABLED: ${OK_ESCALATION_ENABLED:-false}
     volumes:
       # Your documents. Read-only: OpenKnowledge indexes, it never writes back.
       - ./documents:/app/documents:ro

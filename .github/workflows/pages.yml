@@ -1,0 +1,52 @@
+# Publish web/site to GitHub Pages.
+#
+# The page is one self-contained file, so there is nothing to build - this
+# copies it and nothing else. Enable it once in Settings → Pages → Source →
+# GitHub Actions, then every push to the default branch republishes.
+#
+# What you get is the page exactly as it renders, with one difference: a static
+# host has no endpoint behind the contact form, so submitting it says so and
+# points at the issue tracker. That is the intended static behaviour, not a
+# failure - see web/site/README.md.
+name: Publish the site
+
+on:
+  push:
+    branches: [main]
+    paths: ["web/site/**", ".github/workflows/pages.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check the page fetches nothing from anywhere else
+        # The page's own argument is that your documents stay put. Publishing a
+        # version that quietly calls a CDN would undo it, so this fails the
+        # deploy rather than shipping it.
+        run: |
+          if grep -Eq '<script src|<iframe|fonts\.googleapis|googletagmanager' web/site/index.html; then
+            echo "::error::the page loads a third-party resource"; exit 1
+          fi
+          echo "clean: no third-party requests"
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: web/site
+      - id: deploy
+        uses: actions/deploy-pages@v4

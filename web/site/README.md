@@ -23,11 +23,13 @@ openknowledge contacts            # newest first
 openknowledge contacts --json     # to pipe somewhere
 ```
 
-**Statically**, on GitHub Pages or any file host:
+**Statically**, on GitHub Pages: enable it once in **Settings → Pages → Source →
+GitHub Actions**. `.github/workflows/pages.yml` publishes this folder on every
+push to the default branch, and fails the deploy if the page has picked up a
+third-party request — a page arguing your documents stay put should not ship a
+version that calls a CDN.
 
-```bash
-# in repository settings, publish from a branch, folder /web/site
-```
+Any other file host works too; it is one file with no build step.
 
 The page works fully, with one difference: there is no endpoint behind the form,
 so submitting it says so and points at the issue tracker rather than failing
