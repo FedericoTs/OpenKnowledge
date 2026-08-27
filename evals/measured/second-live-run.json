@@ -1,0 +1,29 @@
+{
+  "cases": 26,
+  "accuracy": 1.0,
+  "false_answers": 0,
+  "false_answer_rate": 0.0,
+  "determinism": 1.0,
+  "paraphrase_consistency": 1.0,
+  "cost_per_question_usd": 0.0,
+  "total_cost_usd": 0.0,
+  "free_share": 0.0,
+  "support_separation": null,
+  "tiers": {
+    "local": 17,
+    "refused": 8,
+    "contested": 1
+  },
+  "provenance": {
+    "what": "Independent reproduction of first-live-run.json, from an empty data directory.",
+    "why": "The site quotes those figures. A number nobody has reproduced is a number nobody has checked.",
+    "model": "Qwen3-4B-Instruct-2507, Q4_K_M, via llama-cpp-python 0.3.35 on 4 CPU cores, 8192-token window",
+    "corpus": "evals/corpus/aveline minus archive/ - 10 documents across Markdown, Word, Excel and PDF",
+    "golden_set": "evals/golden-aveline - 26 cases, 17 answerable, 9 must-refuse, 37 wrong-answer guards",
+    "differences_from_the_first_run": "Fresh data directory, so no pin and no cached answer could carry a case; drafting at ingest disabled, so every answerable case went to the model.",
+    "result": "Every field identical to first-live-run.json, including the tier split.",
+    "throughput": "About 57 prompt tokens/s and 6 generated tokens/s; 15-22s per answered question.",
+    "not_evidence_of": "accuracy on real documents. The corpus and the questions were written together, which is the circularity that makes a benchmark flattering. It shows the pipeline behaves, and now that it behaves the same way twice.",
+    "reproduce": "docs/TEST-RUN.md, appendix: running the local tier with no Ollama"
+  }
+}

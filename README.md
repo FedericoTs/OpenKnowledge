@@ -407,7 +407,7 @@ telemetry.
 ## Quick start
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/FedericoTs/OpenKnowledge/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/FedericoTs/OpenKnowledge/HEAD/install.sh | sh
 ```
 
 Clones into `~/Documents/Projects/OpenKnowledge`, builds a virtualenv inside that folder,

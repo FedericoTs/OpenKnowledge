@@ -25,7 +25,7 @@ needs neither Ollama nor Java. It needs no model, no API key and no GPU.
 ## 1. Install (2 minutes)
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/FedericoTs/OpenKnowledge/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/FedericoTs/OpenKnowledge/HEAD/install.sh | sh
 ```
 
 That clones into `~/Documents/Projects/OpenKnowledge`, builds a virtualenv
@@ -155,11 +155,13 @@ Two things to know:
   says so when you ask for more than the model declares. Run `openknowledge eval`
   before trusting a stretched window.
 * **The window is recorded, and enforced.** `OK_LOCAL_CONTEXT_TOKENS` goes into
-  `.env`, and a prompt that would not fit is refused rather than sent. This
-  matters more than it sounds: a runtime given an over-long prompt does not
-  error, it silently drops tokens off the *front* — which is where the grounding
-  rules are — and answers from what is left. That answer looks completely normal
-  and is ungrounded.
+  `.env`, and a prompt that would not fit is refused before it is sent. Runtimes
+  disagree about what an over-long prompt means and the API does not say which
+  you have: llama-cpp-python, measured, returns `context_length_exceeded` and
+  answers nothing — but a runtime that trims the prompt to fit instead takes it
+  off the *front*, where the grounding rules are, and returns an answer that
+  looks completely normal and is ungrounded. Checking here makes both cases end
+  the same way.
 
 Check the two agree at any time:
 

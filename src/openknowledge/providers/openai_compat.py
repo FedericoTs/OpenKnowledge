@@ -77,14 +77,23 @@ class OpenAICompatProvider:
         self._timeout = timeout
 
     def _check_fit(self, prompt_chars: int, max_tokens: int) -> None:
-        """Refuse a prompt too large for the window, instead of having it truncated.
+        """Decide locally whether the prompt fits, rather than finding out remotely.
 
-        Local runtimes do not error on an over-long prompt: they drop tokens off
-        the front, which is where the system prompt's grounding rules live, and
-        answer from the remainder. The answer that comes back looks ordinary and
-        is ungrounded. Raising here is loud, and the cascade treats it as this
-        rung failing - so the question moves up a rung rather than being answered
-        badly and cached.
+        Runtimes disagree about what an over-long prompt means, and nothing in
+        the OpenAI-compatible API says which kind you have. Measured against
+        llama-cpp-python 0.3.35 at an 8,192-token window: 7,916 prompt tokens
+        answered normally, and past the window it returned HTTP 400
+        ``context_length_exceeded`` and answered nothing. That is the good case.
+        The bad case is a runtime that trims the prompt to fit instead, because
+        trimming takes tokens off the *front* - where the system prompt's
+        grounding rules are - and the answer that comes back looks completely
+        ordinary and is ungrounded.
+
+        This check does not assume either behaviour. It makes the outcome the
+        same on both: the rung fails, the cascade moves up or refuses, and no
+        ungrounded answer is written to the cache. Where the runtime would have
+        rejected it anyway, the cost is one saved round trip and an error naming
+        the window and the next size up instead of a vendor string.
 
         Only ever runs when the window is known, which is what `openknowledge
         model use` records. Four characters per token is the same rough figure
@@ -102,8 +111,9 @@ class OpenAICompatProvider:
         suggested = 1 << max(estimate - 1, 1).bit_length()
         raise ProviderError(
             f"{self.model_id}: the prompt needs about {estimate:,} tokens and the window "
-            f"is {self.context_tokens:,}. The runtime would drop the start of it without "
-            f"saying so, so this was not sent. Either give the model a larger window "
+            f"is {self.context_tokens:,}, so it was not sent - a runtime that trims rather "
+            f"than rejects would have answered from a prompt with its start missing. "
+            f"Either give the model a larger window "
             f"(`openknowledge model use {self.model_id} --context {suggested}`) "
             f"or lower OK_RETRIEVAL_K."
         )

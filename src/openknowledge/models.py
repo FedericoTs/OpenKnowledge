@@ -2,10 +2,9 @@
 
 The cheapest rung of the cascade is a model on a machine you own, and the one
 thing that decides whether a given model can do the job is its context window.
-A window too small does not fail loudly: the runtime drops tokens off the front
-of the prompt, which is exactly where the grounding rules live, and the model
-then answers ungrounded from whatever survived. That is the failure this whole
-project is built to avoid, so switching models has to move the window with it.
+Runtimes disagree about what an over-long prompt means, and the
+OpenAI-compatible API does not report which kind you are talking to - so
+switching models has to carry the window with it.
 
 Two things follow from that, and they are the reason this module exists rather
 than a line in the README:
@@ -16,8 +15,10 @@ than a line in the README:
   running: `/api/tags` for what is installed, `/api/show` for the window the
   weights declare.
 * **The window is recorded, not assumed.** ``model use`` writes
-  ``OK_LOCAL_CONTEXT_TOKENS`` alongside the model name, and the provider
-  refuses a prompt that would not fit rather than letting it be truncated.
+  ``OK_LOCAL_CONTEXT_TOKENS`` alongside the model name, and the provider checks
+  the fit before sending - see
+  :meth:`~openknowledge.providers.openai_compat.OpenAICompatProvider._check_fit`
+  for what that is worth and what it is not.
 
 Ollama's OpenAI-compatible endpoint takes no context-length parameter, so a
 larger window cannot be requested per call. The documented route is a derived

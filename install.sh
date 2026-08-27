@@ -1,7 +1,7 @@
 #!/bin/sh
 # OpenKnowledge installer.
 #
-#   curl -fsSL https://raw.githubusercontent.com/FedericoTs/OpenKnowledge/main/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/FedericoTs/OpenKnowledge/HEAD/install.sh | sh
 #
 # What it does, in order: check for git and a Python 3.11+, clone (or update)
 # the repository into ~/Documents/Projects/OpenKnowledge, build a virtualenv
@@ -19,7 +19,10 @@ set -eu
 
 REPO="${OK_REPO:-https://github.com/FedericoTs/OpenKnowledge.git}"
 DIR="${OK_DIR:-$HOME/Documents/Projects/OpenKnowledge}"
-BRANCH="${OK_BRANCH:-main}"
+# Empty means "whatever the remote calls its default branch". Naming one here
+# is how the published install command 404'd: it said main, and there is no
+# main - the repository's default is the branch it was created with.
+BRANCH="${OK_BRANCH:-}"
 
 say()  { printf '\033[36m==>\033[0m %s\n' "$1"; }
 warn() { printf '\033[33m !\033[0m %s\n' "$1" >&2; }
@@ -48,15 +51,20 @@ if [ -d "$DIR/.git" ]; then
     if [ -n "$(git -C "$DIR" status --porcelain)" ]; then
         warn "$DIR has uncommitted changes; leaving the code as it is"
     else
-        git -C "$DIR" fetch --quiet origin "$BRANCH"
-        git -C "$DIR" checkout --quiet "$BRANCH"
-        git -C "$DIR" merge --quiet --ff-only "origin/$BRANCH" \
-            || warn "could not fast-forward $BRANCH; leaving the code as it is"
+        here="${BRANCH:-$(git -C "$DIR" rev-parse --abbrev-ref HEAD)}"
+        git -C "$DIR" fetch --quiet origin "$here"
+        git -C "$DIR" checkout --quiet "$here"
+        git -C "$DIR" merge --quiet --ff-only "origin/$here" \
+            || warn "could not fast-forward $here; leaving the code as it is"
     fi
 else
     say "cloning into $DIR"
     mkdir -p "$(dirname "$DIR")"
-    git clone --quiet --branch "$BRANCH" "$REPO" "$DIR"
+    if [ -n "$BRANCH" ]; then
+        git clone --quiet --branch "$BRANCH" "$REPO" "$DIR"
+    else
+        git clone --quiet "$REPO" "$DIR"
+    fi
 fi
 
 cd "$DIR"
@@ -65,8 +73,16 @@ cd "$DIR"
 
 say "building the environment (a minute or two the first time)"
 [ -d .venv ] || "$PY" -m venv .venv
-.venv/bin/python -m pip install --quiet --upgrade pip
-.venv/bin/python -m pip install --quiet -e .
+
+# Windows venvs put the interpreter in Scripts/, POSIX ones in bin/. Git Bash
+# runs this script happily and then finds neither, if you only look in one.
+if   [ -x .venv/bin/python ];        then BIN=".venv/bin"
+elif [ -x .venv/Scripts/python.exe ]; then BIN=".venv/Scripts"
+else die "the virtualenv has no interpreter in .venv/bin or .venv/Scripts"
+fi
+
+"$BIN/python" -m pip install --quiet --upgrade pip
+"$BIN/python" -m pip install --quiet -e .
 
 [ -f .env ] || { cp .env.example .env; say "wrote .env - every setting in it is optional"; }
 mkdir -p documents data
@@ -74,7 +90,7 @@ mkdir -p documents data
 # --- prove it works ----------------------------------------------------------
 
 say "checking it works"
-.venv/bin/openknowledge audit evals/corpus/aveline --exit-zero >/dev/null \
+"$BIN/python" -m openknowledge.cli audit evals/corpus/aveline --exit-zero >/dev/null \
     || die "the install completed but the audit command failed. Please open an issue."
 
 cat <<EOF
@@ -82,7 +98,7 @@ cat <<EOF
 OpenKnowledge is installed in $DIR
 
   Put it on your PATH for this shell:
-      export PATH="$DIR/.venv/bin:\$PATH"
+      export PATH="$DIR/$BIN:\$PATH"
 
   Then, in order:
       openknowledge audit ~/policies     # free, offline, writes nothing
