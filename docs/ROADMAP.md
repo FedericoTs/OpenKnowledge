@@ -6,6 +6,10 @@ Honest status. "Built" means implemented and covered by tests in this repository
 
 - **Cost accounting** — per-call token accounting, rates with verification dates, an
   unpriced model raises rather than reporting $0, ledger and blended cost report.
+- **Open-weight cheap tier** — verified serverless rates in `pricing.yaml`, reached through
+  the existing OpenAI-compatible adapter, at $0.000316 per measured question (116× cheaper
+  than the frontier tier). The cascade prices by whether the endpoint bills rather than by
+  tier name, so a hosted open-weight model can no longer be silently recorded as free.
 - **Measured cost model** — `tools/measure_prompts.py` assembles the exact prompt the
   running system would send over a real corpus and counts it, so the cost tables are fed by
   measurement rather than assumption. It found that the static system prompt is under the
@@ -49,36 +53,58 @@ Honest status. "Built" means implemented and covered by tests in this repository
 
 ## Next — makes it useful in a real company
 
-1. **A labelled real corpus for contradictions.** The contract run gave the audit an
+1. **An escalation ladder.** Today the cascade goes local → frontier, which makes every
+   gate failure cost $0.037. A middle rung (a bigger open-weight model) makes it $0.0009,
+   and is an accuracy gain over the small tier rather than a compromise. With an
+   open-weight cheap tier, escalation is ~95% of the remaining bill: cutting it from 10%
+   to 5% saves fourteen times what raising the free share from 45% to 85% saves. See
+   [COST-STRATEGIES.md](COST-STRATEGIES.md).
+2. **Reranking.** A cross-encoder over the top ~40 BM25 hits, keeping 6. Free on CPU
+   (`bge-reranker-v2-m3`, Apache-2.0, 80–200 ms for 100 documents), typically 5–15 NDCG@10
+   points. It lowers the escalation rate by making the cheap tier's answer right more
+   often, so it is a cost lever and an accuracy lever at once — the only kind worth
+   prioritising.
+3. **A labelled real corpus for contradictions.** The contract run gave the audit an
    output somebody can read; it did not give it a precision figure, because that corpus
    has no true contradictions in it. What is needed is one company's own policy folder
    with the real disagreements marked. Until that exists, every claim about detection
    accuracy rests on 21 curated cases, and the contract run is the proof that this is
    not enough. **This now outranks everything below it.**
-2. **Scope.** Per-vendor and per-country documents are not contradicting each other, and
+4. **Scope.** Per-vendor and per-country documents are not contradicting each other, and
    the detector cannot tell. Two candidate signals, both free: the named counterparty in
    each document, and the folder a document sits in. Neither is built.
-3. **A real run.** Nothing here has been executed against a live model: every answer-side
+5. **A real run.** Nothing here has been executed against a live model: every answer-side
    quality number is measured with scripted providers, and the draft yield, gate pass rate
    and local-tier competence are all assumed. Point it at a folder of real policies with a
    model configured and the assumptions become measurements.
-4. **Grow the golden set.** The harness is built; the shipped set covers the sample
+6. **Grow the golden set.** The harness is built; the shipped set covers the sample
    documents only. Real corpus, real questions, and above all more safety cases — they
    are the cheapest insurance in the project.
-5. **Semantic cache.** Local embeddings over canonical questions, similarity
-   threshold, and a citation check before serving a near-match. This is where the free share
-   grows, and it needs to be careful: a hash cannot decide two sentences mean the same thing,
-   so a bad match must be catchable.
-6. **Hybrid retrieval + reranking.** BM25 fused with local dense retrieval, then a
-   cross-encoder rerank. The biggest single cost lever is sending fewer, better chunks — this
-   is cheaper *and* more accurate, which is a rare combination.
-7. **SharePoint connector.** Microsoft Graph enumeration, text extraction, and — the real
+7. **Semantic cache.** Local embeddings over canonical questions, similarity threshold,
+   and — the part the literature gets wrong for this use case — a **synchronous** check
+   before serving. Published designs verify asynchronously: serve now, verify later, demote
+   if wrong. A wrong policy answer served now has already been acted on. We can verify
+   synchronously for free by retrieving for the *new* question and running the existing
+   grounding gate on the *cached* answer against those fresh chunks. Production hit rates
+   are 20–45%, not 95%; ~0.92 similarity is the usual balance point, and the golden set's
+   paraphrase pairs are already the labelled data needed to calibrate it.
+8. **Hybrid retrieval + contextual chunks.** BM25 fused with local dense retrieval, plus
+   Anthropic's contextual-retrieval trick of prepending each chunk's place in its document
+   before embedding — measured at 49% fewer retrieval failures, 67% with reranking. Our
+   chunker already carries a heading trail on every chunk, which is most of that idea built
+   for a different reason. Local embeddings are effectively free: `nomic-embed-text` does
+   ~580 chunks/sec on a laptop CPU, and no vector database is needed at corpus scale.
+9. **SharePoint connector.** Microsoft Graph enumeration via `delta` (changes only, never
+   a full rescan), `Sites.Selected` for least privilege, text extraction, and — the real
    work — mapping item permissions, including group expansion and inheritance, onto
-   `allowed_principals`.
-8. **Google Drive connector.** Same shape: service account with domain-wide delegation,
+   `allowed_principals`. Graph itself is free to call; the cost is the M365 licences the
+   company already has.
+10. **Google Drive connector.** Same shape: service account with domain-wide delegation,
    `files.list`, and permission mapping including inherited folder ACLs.
-9. **Teams channel.** Bot Framework adapter, with the asker's tenant groups supplying
-   `principals` so access control works from the identity Teams already has.
+11. **Teams channel.** Written against the **Microsoft 365 Agents SDK** — the Bot Framework
+   SDK is archived — with the asker's tenant groups supplying `principals` so access control
+   works from the identity Teams already has. Teams is a standard channel, so messages are
+   free and unmetered.
 
 ### Known gaps in document parsing
 

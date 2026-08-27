@@ -364,16 +364,19 @@ def _cmd_audit(args: argparse.Namespace) -> int:
 
 
 def _cmd_pricing(_: argparse.Namespace) -> int:
-    print(f"{'model':<22}{'tier':<10}{'in $/M':>9}{'out $/M':>10}  verified")
-    for price in load_price_table().values():
+    prices = list(load_price_table().values())
+    width = max((len(p.model_id) for p in prices), default=20) + 2
+    print(f"{'model':<{width}}{'tier':<10}{'in $/M':>9}{'out $/M':>10}  verified")
+    for price in prices:
         if price.is_priced:
             print(
-                f"{price.model_id:<22}{price.tier:<10}{price.input_per_mtok:>9.2f}"
+                f"{price.model_id:<{width}}{price.tier:<10}{price.input_per_mtok:>9.2f}"
                 f"{price.output_per_mtok:>10.2f}  {price.verified}"
             )
         else:
             print(
-                f"{price.model_id:<22}{price.tier:<10}{'-':>9}{'-':>10}  not set (see pricing.yaml)"
+                f"{price.model_id:<{width}}{price.tier:<10}{'-':>9}{'-':>10}  "
+                "not set (see pricing.yaml)"
             )
     return 0
 

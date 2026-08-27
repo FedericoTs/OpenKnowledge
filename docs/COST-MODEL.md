@@ -133,7 +133,20 @@ is built to support both shapes rather than assuming one.
 - **Don't run it 24/7.** Internal question traffic is bursty and office-hours shaped. An
   instance that sleeps outside working hours cuts the fixed cost directly.
 - **Raise the free share.** Every point of pin or cache hit rate lowers both paths, and pins
-  cost nothing but an admin's attention.
+  cost nothing but an admin's attention. Worth much less than it sounds once the cheap tier
+  is an open-weight model — see [COST-STRATEGIES.md](COST-STRATEGIES.md), where raising the
+  free share 45% → 85% saves $63/year and cutting escalation 10% → 5% saves $906.
+
+## The cheap tier changes which lever matters
+
+Everything above prices the paid tier as a frontier or mid-tier model. An open-weight model
+on a serverless provider costs **$0.000316** for the same measured prompt — 116× less than
+Opus 5 — through the same OpenAI-compatible adapter, with no new code.
+
+At that price the arithmetic inverts: the free share stops being the dominant term and
+**escalation becomes the entire remaining bill**. The full menu of strategies, what each is
+worth, and the third-party accuracy numbers that decide whether a cheap tier is safe, are in
+[COST-STRATEGIES.md](COST-STRATEGIES.md).
 
 ## Measure, don't estimate
 

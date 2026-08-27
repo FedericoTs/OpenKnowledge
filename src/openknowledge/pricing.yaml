@@ -64,6 +64,69 @@ models:
     output_per_mtok: null
     context_tokens: null
 
+  # --- Open-weight, served ------------------------------------------------
+  # The cheapest way to answer a grounded question when the documents are
+  # allowed to leave the building. These reach OpenKnowledge through the same
+  # OpenAI-compatible adapter as a self-hosted model - point `local_base_url` at
+  # the vendor and set `local_model` - so no new code is involved.
+  #
+  # They are NOT free. A call here is billed per token, which is why the cascade
+  # prices by endpoint rather than by tier name. Verified against
+  # https://www.together.ai/pricing on the date below.
+  #
+  # Other providers of the same weights (Groq, DeepInfra, Novita, Fireworks)
+  # price differently; add them here with your own verified date rather than
+  # assuming these numbers carry over.
+  - model_id: gpt-oss-20b
+    provider: together
+    tier: small
+    input_per_mtok: 0.05
+    output_per_mtok: 0.20
+    context_tokens: 131072
+    cache_read_multiplier: 1.0
+    cache_write_multiplier: 1.0
+    verified: 2026-08-27
+
+  - model_id: gpt-oss-120b
+    provider: together
+    tier: mid
+    input_per_mtok: 0.15
+    output_per_mtok: 0.60
+    context_tokens: 131072
+    cache_read_multiplier: 1.0
+    cache_write_multiplier: 1.0
+    verified: 2026-08-27
+
+  - model_id: qwen3.5-9b
+    provider: together
+    tier: small
+    input_per_mtok: 0.17
+    output_per_mtok: 0.25
+    context_tokens: 131072
+    cache_read_multiplier: 1.0
+    cache_write_multiplier: 1.0
+    verified: 2026-08-27
+
+  - model_id: llama-3-8b-instruct-lite
+    provider: together
+    tier: small
+    input_per_mtok: 0.14
+    output_per_mtok: 0.14
+    context_tokens: 8192
+    cache_read_multiplier: 1.0
+    cache_write_multiplier: 1.0
+    verified: 2026-08-27
+
+  - model_id: deepseek-v4-flash
+    provider: together
+    tier: mid
+    input_per_mtok: 0.14
+    output_per_mtok: 0.28
+    context_tokens: 131072
+    cache_read_multiplier: 1.0
+    cache_write_multiplier: 1.0
+    verified: 2026-08-27
+
   # --- Self-hosted ---------------------------------------------------------
   # A model you run yourself has no per-token invoice. It is not free: it costs
   # hardware and electricity, which is a *fixed* cost that does not grow with

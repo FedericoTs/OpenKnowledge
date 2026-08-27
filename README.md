@@ -100,6 +100,31 @@ part.** At 6 chunks on a frontier model, context costs $0.0116 and the answer co
 Caching the input cannot fix that, and that is exactly why the architecture is a cascade —
 the levers that work are a smaller model and not calling one at all.
 
+### And a smaller model is very small indeed
+
+The same measured prompt, priced across the tier the cascade can actually use:
+
+| model | per call | vs frontier |
+|---|---:|---|
+| Opus 5 | $0.036565 | 1× |
+| Sonnet 5 | $0.014626 | 2× |
+| Haiku 4.5 | $0.007313 | 5× |
+| **gpt-oss-20b** (Together) | **$0.000316** | **116×** |
+| Self-hosted | $0 / token | hardware is separate |
+
+Open-weight models on serverless providers speak `/v1/chat/completions`, so they reach
+OpenKnowledge through the same adapter as a self-hosted model — configuration, not code. On
+Vectara's hallucination leaderboard a good small open model (Qwen3-8b, **4.8%**) sits **1.7
+points** behind a small frontier model (**3.1%**) on exactly this task, before the grounding
+gate and before escalation.
+
+At that price the whole argument inverts. Raising the free share from 45% to 85% saves
+**$63/year**; cutting the escalation rate from 10% to 5% saves **$906**. Escalation fires
+when the cheap tier fails the grounding gate — so better retrieval, reranking and a gentler
+escalation ladder make answers **more accurate and cheaper at the same time**.
+
+The whole menu, costed and sourced: **[COST-STRATEGIES.md](docs/COST-STRATEGIES.md)**.
+
 ### Where self-hosting actually helps — and where it doesn't
 
 A local model has no per-token bill, but it does have a GPU behind it, and that cost is
@@ -352,6 +377,7 @@ src/openknowledge/
 | [COST-MODEL.md](docs/COST-MODEL.md) | The arithmetic, and how to reproduce it |
 | [DETERMINISM.md](docs/DETERMINISM.md) | What we guarantee, and what we don't |
 | [DOCUMENTS.md](docs/DOCUMENTS.md) | What formats are read, and why tables get special care |
+| [COST-STRATEGIES.md](docs/COST-STRATEGIES.md) | Every cost lever, costed, and whether it hurts accuracy |
 | [KNOWLEDGE.md](docs/KNOWLEDGE.md) | Drafting at upload, review, and contradictions |
 | [EVALUATION.md](docs/EVALUATION.md) | How correctness is measured, and what fails a run |
 | [ROADMAP.md](docs/ROADMAP.md) | What's built, what's next |

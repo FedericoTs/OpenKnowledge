@@ -362,8 +362,18 @@ def _citations(chunks: list[Chunk]) -> tuple[Citation, ...]:
 
 
 def _price(usage: Usage, provider: ChatProvider) -> tuple[float, tuple[str, ...]]:
-    """Cost of a call, with a note when we cannot price it honestly."""
-    model_id = "local" if getattr(provider, "tier", "") == "local" else provider.model_id
+    """Cost of a call, with a note when we cannot price it honestly.
+
+    The local *tier* is not the same thing as a free call. An open-weight model
+    on Together or Groq reaches the same tier through the same adapter and bills
+    per token, so what decides the price is whether there is an invoice behind
+    the endpoint - `self_hosted` - not what the tier is named. Pricing every
+    local-tier call at zero would understate the bill by exactly the amount an
+    operator most needs to see.
+    """
+    tier = getattr(provider, "tier", "")
+    self_hosted = getattr(provider, "self_hosted", True)
+    model_id = "local" if tier == "local" and self_hosted else provider.model_id
     try:
         return cost_usd(usage, get_price(model_id)), ()
     except PricingError:

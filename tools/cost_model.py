@@ -171,6 +171,51 @@ CASCADE_ESCALATIONS = Step(  # 45% free, 45% local, 10% escalated to frontier
 )
 
 
+#: The cheap tier, cheapest last. Everything here reaches OpenKnowledge through
+#: the same OpenAI-compatible adapter, so choosing between them is configuration
+#: rather than code. Prices are verified in pricing.yaml with their dates.
+CHEAP_TIER_CANDIDATES = (
+    "claude-opus-5",
+    "claude-sonnet-5",
+    "claude-haiku-4-5",
+    "gpt-oss-120b",
+    "qwen3.5-9b",
+    "deepseek-v4-flash",
+    "llama-3-8b-instruct-lite",
+    "gpt-oss-20b",
+    "local",
+)
+
+_TIGHT_USAGE = Usage(
+    input_tokens=_TIGHT - _CACHED,
+    cache_read_tokens=_CACHED,
+    output_tokens=ANSWER_TOKENS,
+)
+
+#: Whole-cascade configurations worth comparing head to head.
+CASCADES = (
+    ("45% free, mid-tier for the rest", "claude-sonnet-5", "claude-sonnet-5", 0.0),
+    ("45% free + small frontier, 10% -> frontier", "claude-haiku-4-5", "claude-opus-5", 0.10),
+    ("45% free + open-weight, 10% -> frontier", "gpt-oss-20b", "claude-opus-5", 0.10),
+    ("45% free + open-weight, 10% -> mid-tier", "gpt-oss-20b", "claude-sonnet-5", 0.10),
+    ("45% free + open-weight, 10% -> bigger open-weight", "gpt-oss-20b", "gpt-oss-120b", 0.10),
+    ("45% free + self-hosted, 10% -> frontier", "local", "claude-opus-5", 0.10),
+)
+
+
+def cascade_cost(cheap: str, escalate_to: str, escalation: float, free: float = 0.45) -> float:
+    """Per-question cost of a whole cascade, not of one call.
+
+    ``free`` is the share a pin, cache hit or drafted answer resolves with no
+    model at all; ``escalation`` is the share the cheap tier hands upward after
+    failing the grounding gate. The remainder is answered by ``cheap``.
+    """
+    cheap_share = max(1.0 - free - escalation, 0.0)
+    return cheap_share * cost_usd(_TIGHT_USAGE, get_price(cheap)) + escalation * cost_usd(
+        _TIGHT_USAGE, get_price(escalate_to)
+    )
+
+
 def hardware_per_question(questions_per_day: float) -> float:
     if questions_per_day <= 0:
         return 0.0
@@ -267,6 +312,49 @@ def main(argv: list[str]) -> int:
             f"  on it is inert. Retrieval discipline and the free tier do all of the work."
         )
 
+    # -- choosing the cheap tier ---------------------------------------------
+    print("\n\nWhat to answer with, at the measured prompt size")
+    print(f"  {'model':<28}{'per call':>12}{'vs frontier':>14}{'per year':>14}")
+    opus = cost_usd(_TIGHT_USAGE, get_price("claude-opus-5"))
+    for model in CHEAP_TIER_CANDIDATES:
+        per_call = cost_usd(_TIGHT_USAGE, get_price(model))
+        ratio = f"{opus / per_call:.0f}x cheaper" if per_call else "free"
+        print(f"  {model:<28}{per_call:>12.6f}{ratio:>14}{annual(per_call):>14,.0f}")
+    print(
+        "\n  Open-weight models reach the same tier through the same OpenAI-compatible\n"
+        "  adapter as a self-hosted one - point local_base_url at the vendor. They bill\n"
+        "  per token, so the cascade prices them by endpoint rather than by tier name."
+    )
+
+    # -- what now dominates ---------------------------------------------------
+    print("\n\nWhole-cascade cost, 45% of questions answered without a model")
+    cascade_width = max(len(label) for label, *_ in CASCADES) + 2
+    print(f"  {'configuration':<{cascade_width}}{'per question':>14}{'per year':>13}")
+    for label, cheap, escalate_to, escalation in CASCADES:
+        per_q = cascade_cost(cheap, escalate_to, escalation)
+        print(f"  {label:<{cascade_width}}{per_q:>14.5f}{annual(per_q):>13,.0f}")
+
+    print("\n\nOnce the cheap tier is nearly free, only escalation is left")
+    print(f"  {'escalation rate':>18}{'per question':>15}{'per year':>13}")
+    for rate in (0.20, 0.10, 0.05, 0.02, 0.00):
+        per_q = cascade_cost("gpt-oss-20b", "claude-opus-5", rate)
+        print(f"  {rate:>17.0%}{per_q:>15.5f}{annual(per_q):>13,.0f}")
+    free_saving = annual(cascade_cost("gpt-oss-20b", "claude-sonnet-5", 0.10)) - annual(
+        cascade_cost("gpt-oss-20b", "claude-sonnet-5", 0.10, free=0.85)
+    )
+    escalation_saving = annual(cascade_cost("gpt-oss-20b", "claude-opus-5", 0.10)) - annual(
+        cascade_cost("gpt-oss-20b", "claude-opus-5", 0.05)
+    )
+    print(
+        f"\n  This reorders the project. Raising the free share from 45% to 85% saves\n"
+        f"  {free_saving:,.0f} a year; cutting escalation from 10% to 5% saves "
+        f"{escalation_saving:,.0f}. Escalation\n"
+        "  happens when the cheap tier fails the grounding gate, so everything that\n"
+        "  lowers it - better retrieval, reranking, a gentler escalation ladder - makes\n"
+        "  answers *more* accurate as well as cheaper. That alignment is rare, and it\n"
+        "  is where the work should go."
+    )
+
     # -- the local tier ------------------------------------------------------
     print("\n\nAdding a local model: the fixed cost has to be carried too")
     print(
@@ -317,8 +405,9 @@ def main(argv: list[str]) -> int:
     print("\n\nDrafting answers at upload instead of at question time")
     print(
         f"  An FAQ drafted across {CORPUS_DOCUMENTS} documents costs ${one_off:.2f}, once.\n"
-        f"  It raises the share of questions answered without a model, which is the\n"
-        f"  single number the whole cost model turns on."
+        f"  Priced against a mid-tier paid answer, below. Read it knowing that with an\n"
+        f"  open-weight cheap tier the money here is small - the reason to draft is\n"
+        f"  determinism, latency and a warm cache on day one, not the bill."
     )
     print(
         f"\n  {'free share':>12}{'$/question':>13}{'$/year':>11}{'saved/year':>13}{'payback':>11}"
