@@ -57,6 +57,12 @@ if [ -d "$DIR/.git" ]; then
         git -C "$DIR" merge --quiet --ff-only "origin/$here" \
             || warn "could not fast-forward $here; leaving the code as it is"
     fi
+elif [ -d "$DIR" ] && [ -n "$(ls -A "$DIR" 2>/dev/null)" ]; then
+    # A folder that is neither empty nor a checkout. git would print its own
+    # blunt fatal here; say what to do about it instead, and never delete it.
+    die "$DIR already exists and is not an OpenKnowledge checkout.
+     Move it aside, empty it, or install somewhere else:
+         OK_DIR=\"\$HOME/Documents/Projects/OpenKnowledge2\" sh install.sh"
 else
     say "cloning into $DIR"
     mkdir -p "$(dirname "$DIR")"
