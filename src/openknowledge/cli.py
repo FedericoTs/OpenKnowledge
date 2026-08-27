@@ -57,6 +57,14 @@ def _cmd_index(_: argparse.Namespace) -> int:
     return 0
 
 
+def _confidence_label(score: float) -> str:
+    from .retrieval.confidence import HIGH, LOW
+
+    if score >= HIGH:
+        return "high"
+    return "low" if score <= LOW else "medium"
+
+
 def _cmd_ask(args: argparse.Namespace) -> int:
     engine = _engine()
     answer = asyncio.run(engine.cascade.answer(args.question, channel="cli"))
@@ -70,6 +78,10 @@ def _cmd_ask(args: argparse.Namespace) -> int:
 
     price = "free" if answer.tier.is_cache_hit else f"${answer.cost_usd:.5f}"
     print(f"\n{answer.tier.value} · {answer.model_id} · {price}")
+    if answer.is_answerable:
+        print(f"  confidence: {_confidence_label(answer.confidence)} ({answer.confidence:.0%})")
+        for reason in answer.confidence_reasons:
+            print(f"    - {reason}")
     for note in answer.notes:
         print(f"  note: {note}")
     return 0 if answer.tier is not Tier.REFUSED else 1

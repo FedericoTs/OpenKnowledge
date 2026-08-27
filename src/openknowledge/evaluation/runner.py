@@ -33,6 +33,32 @@ def _normalise(text: str) -> str:
     return _WHITESPACE.sub(" ", text.casefold()).strip()
 
 
+def _states(text: str, phrase: str) -> bool:
+    """Whether ``text`` states ``phrase``, with figures matched on boundaries.
+
+    Plain substring matching is right for prose and wrong where a number touches
+    the edge of the phrase, because every figure is a substring of a larger one.
+    A live run scored a correct "EUR 25,000" as containing the forbidden
+    "5,000"; the same rule would read "EUR 145" as containing "45" and "20
+    weeks" as containing "0 weeks". A golden set that fails correct answers is
+    worse than none, because it teaches its author to loosen the checks that
+    catch real errors.
+
+    The guard follows the digits rather than the whole phrase: a needle
+    *starting* with a digit may not be preceded by one, and a needle *ending*
+    with a digit may not be followed by one. Everything else keeps ordinary
+    substring behaviour, which is what "not reimbursable" wants.
+    """
+    needle = _normalise(phrase)
+    if not needle:
+        return False
+    left = r"(?<![\d.,])" if needle[0].isdigit() else ""
+    right = r"(?![\d]|[.,]\d)" if needle[-1].isdigit() else ""
+    if not left and not right:
+        return needle in text
+    return re.search(rf"{left}{re.escape(needle)}{right}", text) is not None
+
+
 @dataclass(frozen=True, slots=True)
 class CaseResult:
     case: Case
@@ -45,6 +71,7 @@ class CaseResult:
     deterministic: bool = True
     paraphrase_consistent: bool = True
     cost_usd: float = 0.0
+    confidence: float = 1.0
 
     @property
     def tier(self) -> Tier:
@@ -106,6 +133,22 @@ class EvalReport:
         return dict(sorted(counts.items(), key=lambda kv: -kv[1]))
 
     @property
+    def confidence_separation(self) -> tuple[float, float] | None:
+        """Mean confidence on the cases that passed, and on those that failed.
+
+        This is the only claim worth making for a confidence score: that it is
+        lower where the answer was wrong. Reported rather than asserted, because
+        on a given corpus it may simply not be true - and a score that does not
+        separate is worse than none, since it makes wrong answers look checked.
+        """
+        answered = [r for r in self.answerable if r.answer.is_answerable]
+        passed = [r.confidence for r in answered if r.passed]
+        failed = [r.confidence for r in answered if not r.passed]
+        if not passed or not failed:
+            return None
+        return sum(passed) / len(passed), sum(failed) / len(failed)
+
+    @property
     def free_share(self) -> float:
         if not self.results:
             return 0.0
@@ -132,6 +175,11 @@ class EvalReport:
             "cost_per_question_usd": round(self.cost_per_question_usd, 6),
             "total_cost_usd": round(self.total_cost_usd, 6),
             "free_share": round(self.free_share, 4),
+            "confidence_separation": (
+                [round(v, 4) for v in self.confidence_separation]
+                if self.confidence_separation
+                else None
+            ),
             "tiers": self.tier_counts,
             "failures": [
                 {"id": r.case.id, "tier": r.tier.value, "reasons": list(r.failures)}
@@ -173,12 +221,14 @@ def _score(case: Case, answer: Answer) -> tuple[bool, tuple[str, ...], bool]:
     if missing:
         failures.append(f"did not cite {', '.join(missing)} (cited: {', '.join(sorted(cited))})")
 
-    for fact in case.must_say:
-        if _normalise(fact) not in text:
-            failures.append(f"missing required fact {fact!r}")
+    for alternatives in case.must_say:
+        # Any one spelling satisfies the fact. Requiring all of them would fail
+        # every correct answer, because no answer says a number both ways.
+        if not any(_states(text, form) for form in alternatives):
+            failures.append(f"missing required fact {_describe(alternatives)}")
 
     for wrong in case.must_not_say:
-        if _normalise(wrong) in text:
+        if _states(text, wrong):
             failures.append(f"contains incorrect content {wrong!r}")
 
     if not answer.grounded:
@@ -187,9 +237,27 @@ def _score(case: Case, answer: Answer) -> tuple[bool, tuple[str, ...], bool]:
     return not failures, tuple(failures), False
 
 
+def _describe(alternatives: tuple[str, ...]) -> str:
+    """How a fact reads in a failure line."""
+    if len(alternatives) == 1:
+        return repr(alternatives[0])
+    return " or ".join(repr(a) for a in alternatives)
+
+
 def _facts_present(case: Case, answer: Answer) -> frozenset[str]:
+    """Which facts the answer states, identified by the fact rather than by
+    which of its spellings was used.
+
+    Paraphrase consistency compares two answers to the same question, and they
+    may legitimately spell one figure differently. Keying on the fact rather
+    than the wording is what keeps that from reading as an inconsistency.
+    """
     text = _normalise(answer.text)
-    return frozenset(f for f in case.must_say if _normalise(f) in text)
+    return frozenset(
+        alternatives[0]
+        for alternatives in case.must_say
+        if any(_states(text, form) for form in alternatives)
+    )
 
 
 async def run_case(cascade: Cascade, case: Case, *, check_determinism: bool = True) -> CaseResult:
@@ -199,6 +267,7 @@ async def run_case(cascade: Cascade, case: Case, *, check_determinism: bool = Tr
     answer = await cascade.answer(case.question, principals=principals, channel="eval")
     passed, failures, false_answer = _score(case, answer)
     cost = answer.cost_usd
+    confidence = answer.confidence
 
     deterministic = True
     if check_determinism:
@@ -230,6 +299,7 @@ async def run_case(cascade: Cascade, case: Case, *, check_determinism: bool = Tr
         deterministic=deterministic,
         paraphrase_consistent=consistent,
         cost_usd=cost,
+        confidence=confidence,
     )
 
 

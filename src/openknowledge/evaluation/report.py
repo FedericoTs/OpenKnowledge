@@ -93,6 +93,21 @@ def format_report(report: EvalReport, *, verbose: bool = False) -> str:
     )
 
     lines.append("")
+    separation = report.confidence_separation
+    if separation is not None:
+        good, bad = separation
+        lines.append("")
+        lines.append("Confidence")
+        lines.append(f"  mean on answers that passed  {good:>8.0%}")
+        lines.append(f"  mean on answers that failed  {bad:>8.0%}")
+        verdict = (
+            "separates - lower confidence really did mean a worse answer"
+            if bad < good
+            else "DOES NOT separate on this set; do not present it to readers as a check"
+        )
+        lines.append(f"  {verdict}")
+    lines.append("")
+
     lines.append("Cost")
     lines.append(f"  per question             ${report.cost_per_question_usd:>7.5f}")
     lines.append(f"  total for this run       ${report.total_cost_usd:>7.5f}")

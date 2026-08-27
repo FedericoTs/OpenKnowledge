@@ -46,7 +46,8 @@ class CaseCheck:
     #: other is a typo, and telling an operator to tune retrieval for a typo
     #: wastes an afternoon.
     unknown_documents: tuple[str, ...] = ()
-    #: Expected phrases that appear nowhere in the retrieved text.
+    #: Facts none of whose accepted spellings appear in the retrieved text,
+    #: named by their first form.
     missing_phrases: tuple[str, ...] = ()
     retrieved: tuple[str, ...] = ()
 
@@ -56,11 +57,11 @@ class CaseCheck:
 
     @property
     def unsupported(self) -> bool:
-        """True when *none* of the expected phrases were retrieved.
+        """True when none of the case's facts were retrieved at all.
 
-        Requiring all of them would be wrong: a case may list several
-        acceptable spellings of one fact ("two", "2"), and only one has to be
-        present for the answer to be reachable.
+        A case listing several facts may legitimately have one of them stated
+        somewhere the top-k did not reach; a case with none of them present was
+        not retrievable and will fail for reasons no model can fix.
         """
         return bool(self.missing_phrases) and len(self.missing_phrases) == self._expected
 
@@ -117,7 +118,11 @@ def preflight(
                 missing_citations=tuple(
                     d for d in case.must_cite if d in known and d not in retrieved
                 ),
-                missing_phrases=tuple(s for s in case.must_say if s.lower() not in haystack),
+                missing_phrases=tuple(
+                    alternatives[0]
+                    for alternatives in case.must_say
+                    if not any(form.lower() in haystack for form in alternatives)
+                ),
                 retrieved=retrieved,
                 _expected=len(case.must_say),
             )

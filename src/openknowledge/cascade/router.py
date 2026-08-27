@@ -18,12 +18,17 @@ from ..cache import AnswerStore, KeyContext, answer_key
 from ..canonical import canonicalize_query
 from ..config import Settings
 from ..costs import PricingError, Usage, cost_usd, get_price
-from ..knowledge.relevance import describe_for_user, relevant_conflicts
+from ..knowledge.relevance import (
+    DEFAULT_MIN_OVERLAP,
+    describe_for_user,
+    relevant_conflicts,
+)
 from ..knowledge.store import KnowledgeStore, StoredConflict
 from ..prompts import PROMPT_VERSION, REFUSAL_TEXT, SYSTEM_PROMPT, format_context
 from ..providers.base import ChatProvider, ProviderError
 from ..retrieval.base import Chunk
 from ..retrieval.bm25 import BM25Retriever
+from ..retrieval.confidence import assess
 from ..retrieval.grounding import check_grounding
 from ..retrieval.rerank import Reranker, StructuralReranker
 from ..types import Answer, Citation, Tier
@@ -160,8 +165,19 @@ class Cascade:
         # wrong, so an unresolved disagreement outranks everything except a pin
         # that has already accounted for it.
         contested: list[StoredConflict] = []
+        near_misses = 0
         if self.knowledge is not None and self.settings.block_on_conflict:
-            contested = relevant_conflicts(question, self.knowledge.open_conflicts())
+            open_conflicts = self.knowledge.open_conflicts()
+            contested = relevant_conflicts(question, open_conflicts)
+            if not contested:
+                # Disagreements that were relevant but scored under the bar that
+                # would have refused. The decision was closest here, and saying
+                # so on the answer costs nothing.
+                near_misses = len(
+                    relevant_conflicts(
+                        question, open_conflicts, min_overlap=DEFAULT_MIN_OVERLAP * 0.6
+                    )
+                )
 
         # L0 - a human already wrote this answer.
         pin = self.store.get_pin(canonical)
@@ -287,6 +303,7 @@ class Cascade:
                 rung_chunks,
                 key,
                 max_tokens=rung.max_tokens or self.settings.max_answer_tokens,
+                near_misses=near_misses,
             )
             spent_usd += attempt.cost_usd
             spent_usage += attempt.usage
@@ -352,6 +369,7 @@ class Cascade:
         chunks: list[Chunk],
         key: str,
         max_tokens: int | None = None,
+        near_misses: int = 0,
     ) -> _Attempt:
         """Call one provider, returning its answer only if it passes the gate."""
         try:
@@ -386,6 +404,14 @@ class Cascade:
             )
 
         cited = set(report.cited_ids)
+        # Free: every input is already computed. The gate says whether the answer
+        # may be served; this says how closely to read it.
+        confidence = assess(
+            completion.text,
+            grounding=report,
+            retrieved=chunks,
+            near_miss_conflicts=near_misses,
+        )
         answer = Answer(
             text=completion.text,
             tier=tier,
@@ -396,6 +422,8 @@ class Cascade:
             cost_usd=cost,
             grounded=True,
             notes=cost_notes,
+            confidence=confidence.score,
+            confidence_reasons=confidence.reasons,
         )
         return _Attempt(answer, completion.usage, cost, cost_notes)
 

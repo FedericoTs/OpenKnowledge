@@ -35,7 +35,7 @@
 - id: parental-leave-short-service
   question: I have been here eight months. How much paid parental leave do I get?
   must_cite: [hr-parental-leave]
-  must_say: ["12 weeks"]
+  must_say: [["12 weeks", "twelve weeks"]]
   must_not_say: ["20 weeks"]
   tags: [hr, conditions]
   notes: The same document, the other branch. A system that only ever finds the
@@ -44,7 +44,7 @@
 - id: meal-allowance-domestic
   question: How much can I claim for meals per day when travelling in Ireland?
   must_cite: [hr-expenses-policy]
-  must_say: ["45"]
+  must_say: [["45"]]
   must_not_say: ["65", "35"]
   tags: [finance, conditions]
   notes: >
@@ -55,7 +55,7 @@
 - id: remote-days-client-facing
   question: I am in a client-facing role. How many days a week can I work remotely?
   must_cite: [hr-remote-work]
-  must_say: ["two", "2"]
+  must_say: [["two", "2"]]
   must_not_say: ["three days", "3 days"]
   tags: [hr, conditions]
 
@@ -80,21 +80,21 @@
 - id: usb-storage-prohibited
   question: Can I copy a file to a USB stick?
   must_cite: [security-information-security]
-  must_say: ["prohibited"]
+  must_say: [["prohibited", "not permitted", "must not"]]
   must_not_say: ["yes, you can", "permitted"]
   tags: [security, negation]
 
 - id: contractors-parental-leave
   question: Are contractors entitled to company-paid parental leave?
   must_cite: [hr-parental-leave]
-  must_say: ["not eligible"]
+  must_say: [["not eligible", "not entitled"]]
   must_not_say: ["20 weeks"]
   tags: [hr, negation]
 
 - id: approve-own-expenses
   question: Can a Director approve their own expense claim?
   must_cite: [hr-expenses-policy]
-  must_say: ["must not"]
+  must_say: [["must not", "may not", "cannot", "not permitted"]]
   tags: [finance, negation]
 
 # --- the fact is in a table ------------------------------------------------
@@ -102,7 +102,7 @@
 - id: cfo-approval-limit
   question: What is the approval limit for the Chief Financial Officer?
   must_cite: [hr-expenses-policy]
-  must_say: ["25,000"]
+  must_say: [["25,000", "25000", "EUR 25,000"]]
   must_not_say: ["15,000", "5,000"]
   tags: [finance, table]
   notes: EUR 15,000 is the superseded 2023 figure, sitting in the archive folder.
@@ -110,14 +110,14 @@
 - id: cctv-retention
   question: How long do we keep CCTV footage?
   must_cite: [security-data-protection]
-  must_say: ["30 days"]
+  must_say: [["30 days", "thirty days"]]
   must_not_say: ["7 years", "12 months"]
   tags: [legal, table]
 
 - id: payroll-retention
   question: How long are payroll records retained and why?
   must_cite: [security-data-protection]
-  must_say: ["7 years"]
+  must_say: [["7 years", "seven years"]]
   tags: [legal, table]
 
 # --- the fact is in a non-markdown file ------------------------------------
@@ -125,7 +125,7 @@
 - id: rto-payments
   question: What is the recovery time objective for payments processing?
   must_cite: [finance-business-continuity]
-  must_say: ["2 hours"]
+  must_say: [["2 hours", "two hours"]]
   must_not_say: ["8 hours", "48 hours", "4 hours"]
   tags: [ops, table, format]
   notes: PDF. Every other row in that table is a plausible wrong answer.
@@ -133,13 +133,13 @@
 - id: strategic-supplier-terms
   question: What are the standard payment terms for a strategic supplier?
   must_cite: [finance-approval-limits]
-  must_say: ["30"]
+  must_say: [["30", "thirty"]]
   tags: [finance, table, format]
   notes: Excel. The value is a cell, and only means anything with its row label.
 
 - id: new-joiner-security-training
   question: How long does a new joiner have to complete security awareness training?
-  must_say: ["two weeks", "2 weeks"]
+  must_say: [["two weeks", "2 weeks"]]
   must_not_say: ["30 days"]
   tags: [security, format, conditions]
   notes: >
@@ -157,7 +157,7 @@
 
 - id: ict-supplier-exit-period
   question: What exit period must we agree with a critical ICT supplier?
-  must_say: ["six months"]
+  must_say: [["six months", "6 months"]]
   tags: [finance, cross-doc]
   notes: Stated in both the procurement policy and the continuity PDF. Either
     citation is correct; inventing a third figure is not.

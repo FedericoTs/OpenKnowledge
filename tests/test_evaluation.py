@@ -23,8 +23,8 @@ from openknowledge.evaluation import (
     parse_cases,
     run_eval,
 )
-from openknowledge.evaluation.runner import _score
-from openknowledge.types import Answer, Tier
+from openknowledge.evaluation.runner import _normalise, _score, _states
+from openknowledge.types import Answer, Citation, Tier
 
 GOOD_LEAVE = (
     "Employees with 12 months of continuous service get 20 weeks of fully paid "
@@ -63,7 +63,22 @@ def test_parses_a_minimal_case() -> None:
 
 def test_scalars_are_accepted_where_lists_are_expected() -> None:
     (case,) = parse_cases([{"id": "a", "question": "Q?", "must_say": "20 weeks"}])
-    assert case.must_say == ("20 weeks",)
+    assert case.must_say == (("20 weeks",),)
+
+
+def test_a_nested_list_means_any_one_of_these() -> None:
+    (case,) = parse_cases(
+        [{"id": "a", "question": "Q?", "must_say": [["two", "2"], "client-facing"]}]
+    )
+    assert case.must_say == (("two", "2"), ("client-facing",))
+
+
+def test_a_bare_string_written_in_code_is_not_matched_character_by_character() -> None:
+    """`Case(must_say=("20 weeks",))` is what anyone writes, and left alone it
+    would iterate the string - "2" is in almost any answer, so the case would
+    silently pass."""
+    case = Case(id="a", question="Q?", must_say=("20 weeks",))  # type: ignore[arg-type]
+    assert case.must_say == (("20 weeks",),)
 
 
 @pytest.mark.parametrize(
@@ -477,3 +492,67 @@ def test_the_tiers_that_decline_are_named_in_one_place() -> None:
     assert Tier.REFUSED.declined and Tier.CONTESTED.declined
     for tier in (Tier.PINNED, Tier.EXACT_CACHE, Tier.DRAFT, Tier.LOCAL, Tier.FRONTIER):
         assert not tier.declined
+
+
+# -- matching facts and forbidden content -----------------------------------
+
+
+@pytest.mark.parametrize(
+    ("text", "phrase", "expected"),
+    [
+        # A figure must not match inside a larger one. Found by a live run, which
+        # scored a correct "EUR 25,000" as containing the forbidden "5,000".
+        ("the cfo limit is eur 25,000", "5,000", False),
+        ("the cfo limit is eur 25,000", "25,000", True),
+        ("the allowance is eur 145 per night", "45", False),
+        ("the allowance is eur 45 per day", "45", True),
+        ("the rate is 0.42 per kilometre", "42", False),
+        ("claims must be submitted within 60 days", "30 days", False),
+        ("claims must be submitted within 60 days", "60 days", True),
+        # Prose keeps ordinary substring behaviour.
+        ("alcohol is not reimbursable", "not reimbursable", True),
+        ("employees get 20 weeks of leave", "20 weeks", True),
+    ],
+)
+def test_a_figure_never_matches_inside_a_larger_figure(
+    text: str, phrase: str, expected: bool
+) -> None:
+    assert _states(_normalise(text), phrase) is expected
+
+
+async def test_a_correct_answer_is_not_failed_by_a_substring_of_its_own_figure(
+    store, retriever, settings
+) -> None:
+    """The end-to-end shape of the same bug.
+
+    A golden set that fails correct answers is worse than none, because it
+    teaches its author to loosen the checks that catch real errors.
+    """
+    case = Case(
+        id="limit",
+        question="How much parental leave do I get?",
+        must_cite=("hr-handbook",),
+        must_say=(("20 weeks",),),
+        must_not_say=("0 weeks",),
+    )
+    cascade = build(store, retriever, settings, [GOOD_LEAVE, GOOD_LEAVE])
+    report = await run_eval(cascade, [case])
+
+    assert report.results[0].passed, report.results[0].failures
+
+
+def test_a_fact_with_alternatives_reads_as_one_requirement_when_it_fails() -> None:
+    case = parse_cases(
+        [{"id": "a", "question": "Q?", "must_say": [["two", "2"]], "must_cite": []}]
+    )[0]
+    answer = Answer(
+        text="Employees may work remotely for up to three days. [hr-remote-work]",
+        tier=Tier.LOCAL,
+        model_id="m",
+        cache_key="k",
+        citations=(Citation(document_id="hr-remote-work", document_title="Remote", snippet="x"),),
+        grounded=True,
+    )
+    _passed, failures, _false = _score(case, answer)
+    assert len(failures) == 1
+    assert "'two' or '2'" in failures[0]

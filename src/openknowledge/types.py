@@ -84,6 +84,12 @@ class Answer:
     grounded: bool = True
     escalated_from: Tier | None = None
     notes: tuple[str, ...] = ()
+    #: How much to trust this, in [0, 1], derived from signals the cascade
+    #: already computed. 1.0 for a human-written pin, which is certain by
+    #: construction. See `retrieval/confidence.py` for what moves it.
+    confidence: float = 1.0
+    #: Why it is not 1.0. Empty when nothing counted against the answer.
+    confidence_reasons: tuple[str, ...] = ()
 
     @property
     def is_answerable(self) -> bool:
