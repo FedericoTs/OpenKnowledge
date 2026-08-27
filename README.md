@@ -407,23 +407,52 @@ telemetry.
 ## Quick start
 
 ```bash
-git clone https://github.com/FedericoTs/OpenKnowledge
-cd OpenKnowledge
-cp .env.example .env      # optional: add API keys for the escalation tier
-docker compose up
+curl -fsSL https://raw.githubusercontent.com/FedericoTs/OpenKnowledge/main/install.sh | sh
 ```
 
-Then open <http://localhost:8080> for the chat widget.
+Clones into `~/Documents/Projects/OpenKnowledge`, builds a virtualenv inside that folder,
+and proves the install by running the audit against this repository's own test corpus.
+No `sudo`, nothing installed system-wide, and deleting the folder uninstalls it. Prefer to
+read it first? `git clone`, then `./install.sh` — same result.
+
+Then, in order:
+
+```bash
+openknowledge audit ~/policies        # free: where your documents disagree, no model
+openknowledge model use qwen3:8b      # a model on your machine, so answers cost nothing
+openknowledge serve                   # chat widget on http://localhost:8080
+```
+
+The first of those needs no model, no key and no GPU, and writes nothing — you can point
+it at a folder you would never upload anywhere, because nothing is uploaded.
+
+Long documents want a bigger context window than a model's default. Ollama's
+OpenAI-compatible endpoint has no field for that, so `--context` builds a copy of the
+model carrying it, and records the window so a prompt that would not fit is refused
+rather than silently truncated:
+
+```bash
+openknowledge model use qwen3:30b --context 131072
+```
 
 Pin the questions people actually ask — those become free and identical forever:
 
 ```bash
-openknowledge audit ./policies        # free: where your documents disagree, no model
 openknowledge learn                   # draft answers from your documents
 openknowledge review                  # approve them, most valuable first
 openknowledge conflicts               # documents that disagree with each other
 openknowledge costs                   # what it has cost so far
 ```
+
+Or run the whole thing in a container, with Java present for the better PDF backend:
+
+```bash
+cp .env.example .env      # optional: add API keys for the escalation tier
+docker compose up
+```
+
+Step by step, including model sizes and what to do when something fails:
+**[LOCAL-SETUP.md](docs/LOCAL-SETUP.md)**.
 
 To develop against it directly:
 
@@ -462,6 +491,7 @@ src/openknowledge/
 | [COST-MODEL.md](docs/COST-MODEL.md) | The arithmetic, and how to reproduce it |
 | [DETERMINISM.md](docs/DETERMINISM.md) | What we guarantee, and what we don't |
 | [DOCUMENTS.md](docs/DOCUMENTS.md) | What formats are read, and why tables get special care |
+| [LOCAL-SETUP.md](docs/LOCAL-SETUP.md) | Install, pick a model, size its context window, run it |
 | [TEST-RUN.md](docs/TEST-RUN.md) | Step by step to your first real run against a live model |
 | [web/site/](web/site/) | The public page, and how to serve it with or without a backend |
 | [COST-STRATEGIES.md](docs/COST-STRATEGIES.md) | Every cost lever, costed, and whether it hurts accuracy |

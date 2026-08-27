@@ -389,7 +389,9 @@ def _cmd_audit(args: argparse.Namespace) -> int:
     settings = load_settings()
     report = audit_folder(
         args.path or settings.documents_dir,
-        min_overlap=settings.conflict_min_overlap,
+        min_overlap=(
+            settings.conflict_min_overlap if args.min_overlap is None else args.min_overlap
+        ),
         deontic_strictness=args.strictness,
         pdf_backend=args.pdf_backend or settings.pdf_backend,
     )
@@ -560,7 +562,13 @@ def _cmd_model(args: argparse.Namespace) -> int:
     return 0
 
 
-def main(argv: list[str] | None = None) -> int:
+def build_parser() -> argparse.ArgumentParser:
+    """The whole command surface, as an object rather than a side effect.
+
+    Separate from :func:`main` so that the documentation tests can walk it -
+    every command and flag a guide tells a reader to run is checked against this
+    tree, which is cheaper and more exact than running each one.
+    """
     parser = argparse.ArgumentParser(prog="openknowledge", description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -694,6 +702,16 @@ def main(argv: list[str] | None = None) -> int:
         help="scale the prose thresholds; above 1.0 flags less",
     )
     p.add_argument(
+        "--min-overlap",
+        type=float,
+        default=None,
+        metavar="R",
+        help=(
+            "how much context two figures must share before disagreeing about "
+            "them counts (default 0.34); raise it to flag less"
+        ),
+    )
+    p.add_argument(
         "--exit-zero",
         action="store_true",
         help="always exit 0; without it, findings exit 1 so this can gate CI",
@@ -737,7 +755,11 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("pricing", help="show the model price table")
     p.set_defaults(func=_cmd_pricing)
 
-    args = parser.parse_args(argv)
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
     return int(args.func(args))
 
 
