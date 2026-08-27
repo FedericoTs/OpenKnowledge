@@ -493,7 +493,14 @@ def _cmd_model(args: argparse.Namespace) -> int:
                 width = max(len(m.name) for m in have) + 2
                 for model in sorted(have, key=lambda m: m.name):
                     window = local_models.context_window(runtime, model.name)
-                    shown = f"{window:,} tokens" if window else "window not reported"
+                    # Say which number this is. "40,960" next to a model Ollama
+                    # will run at 4,096 is worse than saying nothing.
+                    if window.pinned:
+                        shown = f"{window.pinned:,} pinned"
+                    elif window.declared:
+                        shown = f"{window.declared:,} declared, not pinned"
+                    else:
+                        shown = "window not reported"
                     mark = " <- in use" if model.name == settings.local_model else ""
                     print(f"  {model.name:<{width}}{model.size:>9}  {shown}{mark}")
             else:
@@ -506,20 +513,31 @@ def _cmd_model(args: argparse.Namespace) -> int:
         return 0
 
     if args.action == "status":
-        window = settings.local_context_tokens
+        recorded = settings.local_context_tokens
         print(f"model:    {settings.local_model}")
         print(f"runtime:  {runtime.kind} at {settings.local_base_url}")
-        print(f"window:   {window:,} tokens" if window else "window:   not recorded")
+        print(f"window:   {recorded:,} tokens" if recorded else "window:   not recorded")
         if not settings.local_enabled:
             print("\n  The local tier is off (OK_LOCAL_ENABLED=false).")
         if not runtime.reachable:
             print("\n  Not reachable. `openknowledge ask` will refuse rather than answer.")
             return 1
         live = local_models.context_window(runtime, settings.local_model)
-        if live and window and live != window:
+        if live.pinned and recorded and live.pinned != recorded:
             print(
-                f"\n  The runtime reports {live:,} tokens, not the {window:,} recorded here."
-                "\n  Re-run `openknowledge model use` to bring them back into line."
+                f"\n  The model is pinned at {live.pinned:,} tokens, not the {recorded:,} "
+                "recorded here.\n  Re-run `openknowledge model use` to bring them back "
+                "into line."
+            )
+            return 1
+        if not live.pinned and runtime.is_ollama:
+            declared = f"{live.declared:,}" if live.declared else "an unreported number of"
+            print(
+                f"\n  Nothing is pinned on this model. It declares {declared} tokens, but "
+                "\n  Ollama will run it at its own default - 4,096 unless "
+                "OLLAMA_CONTEXT_LENGTH\n  says otherwise, and its API does not report that. "
+                "Pin it to make it certain:\n"
+                f"      openknowledge model use {settings.local_model} --context 8192"
             )
             return 1
         names = {m.name for m in local_models.installed(runtime)}
@@ -565,6 +583,7 @@ def _cmd_model(args: argparse.Namespace) -> int:
             runtime,
             args.model,
             context=args.context,
+            pin=not args.no_pin,
             allow_download=not args.no_download,
             on_progress=report,
         )
@@ -793,6 +812,14 @@ def build_parser() -> argparse.ArgumentParser:
         "--no-download",
         action="store_true",
         help="fail rather than fetching a model that is not installed",
+    )
+    q.add_argument(
+        "--no-pin",
+        action="store_true",
+        help=(
+            "leave the window to the runtime's own default instead of pinning "
+            "one; nothing is then recorded, and no prompt is checked for fit"
+        ),
     )
     q.add_argument("--env-file", default=".env", help="where to record it (default: .env)")
     q.set_defaults(func=_cmd_model)

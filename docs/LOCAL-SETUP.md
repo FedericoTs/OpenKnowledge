@@ -134,8 +134,17 @@ openknowledge model list        # what your machine has, and each one's window
 openknowledge model use qwen3:8b
 ```
 
-`model use` downloads the model if it is missing, records it in `.env`, and reads
-the context window back out of the runtime rather than assuming one.
+`model use` downloads the model if it is missing, pins its context window at
+8,192 tokens, and records both in `.env`.
+
+Pinning matters more than it sounds. `/api/show` reports what the *weights*
+declare — 40,960 for qwen3:8b — but Ollama runs an unpinned model at **4,096**
+unless `OLLAMA_CONTEXT_LENGTH` says otherwise, and its API does not report that
+setting. This project's own defaults (`k=6` retrieval plus 1,500 answer tokens)
+come to roughly 3,800, so an unpinned model fits until one longer document
+doesn't — and then the prompt is truncated from the front, where the grounding
+rules are. Pinning makes the number true; `--no-pin` opts out, and then nothing
+is recorded and no prompt is checked for fit.
 
 ### Rough guide to size
 

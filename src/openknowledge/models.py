@@ -36,6 +36,12 @@ from urllib.parse import urlparse
 
 import httpx
 
+#: What `model use` pins when no window is asked for. Twice Ollama's own
+#: default, which this project's defaults - k=6 retrieval plus 1,500 answer
+#: tokens, about 3,800 - very nearly fill. Comfortable on any machine that can
+#: hold the model at all, and a number an operator can raise knowing what it is.
+DEFAULT_CONTEXT = 8192
+
 #: Names worth trying first, with no numbers attached: the sizes and windows
 #: are whatever the registry is serving today, and `model list` reads those
 #: from the runtime instead of repeating a guess.
@@ -139,27 +145,51 @@ def _context_from_info(info: dict[str, object]) -> int | None:
     return None
 
 
-def context_window(runtime: Runtime, model: str, *, timeout: float = 10.0) -> int | None:
-    """The window ``model`` declares, or None where the runtime will not say."""
+@dataclass(frozen=True)
+class Window:
+    """What a model *may* do, and what the runtime *will* do. Not the same number.
+
+    ``declared`` is the context length in the weights - 40,960 for qwen3:8b.
+    ``pinned`` is ``num_ctx`` on the model itself, which is the only thing that
+    decides what Ollama actually allocates.
+
+    Ollama runs a model at its own default (4,096 unless OLLAMA_CONTEXT_LENGTH
+    says otherwise) regardless of what the weights allow, and nothing in its API
+    reports that server-side setting. So an unpinned model's real window is not
+    knowable from here - and recording the declared length as if it were would
+    be ten times too large for qwen3:8b, waving through prompts the runtime then
+    truncates. Which is the exact failure this whole feature exists to prevent.
+    """
+
+    declared: int | None = None
+    pinned: int | None = None
+
+    @property
+    def effective(self) -> int | None:
+        """What may be recorded and enforced. None means genuinely unknown."""
+        return self.pinned
+
+
+def context_window(runtime: Runtime, model: str, *, timeout: float = 10.0) -> Window:
+    """Ask what ``model`` declares and what, if anything, is pinned on it."""
     if not runtime.is_ollama:
-        return None
+        return Window()
     try:
         with httpx.Client(timeout=timeout) as client:
             response = client.post(f"{runtime.root}/api/show", json={"model": model})
             if response.status_code != 200:
-                return None
+                return Window()
             body = response.json()
     except (httpx.HTTPError, ValueError):
-        return None
+        return Window()
 
-    # A derived model's own num_ctx wins: it is the window it will actually run
-    # with, where model_info only reports what the weights were trained for.
     parameters = str(body.get("parameters") or "")
     override = re.search(r"^\s*num_ctx\s+(\d+)", parameters, re.M)
-    if override:
-        return int(override.group(1))
     info = body.get("model_info")
-    return _context_from_info(info) if isinstance(info, dict) else None
+    return Window(
+        declared=_context_from_info(info) if isinstance(info, dict) else None,
+        pinned=int(override.group(1)) if override else None,
+    )
 
 
 def installed(runtime: Runtime, *, timeout: float = 10.0) -> tuple[InstalledModel, ...]:
@@ -282,6 +312,7 @@ def switch(
     model: str,
     *,
     context: int | None = None,
+    pin: bool = True,
     allow_download: bool = True,
     on_progress: Callable[[str, int, int], None] | None = None,
 ) -> Switch:
@@ -330,30 +361,59 @@ def switch(
         pull(runtime, model, on_progress=on_progress)
         result.pulled = True
 
-    native = context_window(runtime, model)
-    result.native_context = native
+    window = context_window(runtime, model)
+    result.native_context = window.declared
 
-    if context is None:
-        result.context = native
-        return result
-
-    if native is not None and context <= native:
-        # Already fits: a derived copy would only pin a smaller window than the
-        # weights allow, which is a downgrade dressed as a setting.
-        result.context = context
-        if context < native:
+    if context is None and not pin:
+        # Explicitly asked to leave it alone. Record only what is knowable, so
+        # the fit check stays off rather than checking against a guess.
+        result.context = window.pinned
+        if window.pinned is None:
             result.notes.append(
-                f"{model} already declares {native:,} tokens; recording {context:,} as the "
-                "working limit without building a resized copy."
+                "no window recorded, so no prompt will be checked for fit. Ollama will "
+                "run this at its own default, which its API does not report."
             )
         return result
 
-    if native is not None and context > native:
+    if context is None:
+        # Nothing asked for. Keep whatever is already pinned; otherwise pin the
+        # default, because the alternative is a configuration that is quietly
+        # marginal. Ollama runs an unpinned model at 4,096 (unless
+        # OLLAMA_CONTEXT_LENGTH says otherwise, which its API does not report),
+        # and this project's own defaults - k=6 retrieval, 1,500 answer tokens -
+        # come to roughly 3,800. That fits, barely, until one longer document
+        # does not, and then the prompt is truncated from the front where the
+        # grounding rules are. Leaving that to chance is not a default.
+        if window.pinned is not None:
+            result.context = window.pinned
+            return result
+        context = DEFAULT_CONTEXT
         result.notes.append(
-            f"{context:,} tokens is beyond the {native:,} this model declares. Ollama will "
-            "extend it, but quality past a model's trained window is a thing to measure, "
-            "not assume - run `openknowledge eval` before trusting it."
+            f"pinned at {DEFAULT_CONTEXT:,} tokens. Ollama runs an unpinned model at "
+            "4,096, which this project's own defaults very nearly fill, and its API does "
+            "not report the server-side setting - so the window is pinned rather than "
+            f"assumed. {model} declares "
+            f"{f'{window.declared:,}' if window.declared else 'more'}: raise it with "
+            "`--context N` if you have the memory for it, or keep the runtime's own "
+            "default with `--no-pin`."
         )
+
+    if window.pinned == context:
+        # Already exactly this. Rebuilding would be a no-op with a download's
+        # worth of ceremony.
+        result.context = context
+        return result
+
+    if window.declared is not None and context > window.declared:
+        result.notes.append(
+            f"{context:,} tokens is beyond the {window.declared:,} this model declares. "
+            "Ollama will extend it, but quality past a model's trained window is a thing "
+            "to measure, not assume - run `openknowledge eval` before trusting it."
+        )
+
+    # Always build, even well under the declared length. Pinning num_ctx is the
+    # only way to know what Ollama allocates; recording a number without it
+    # would be a setting that describes nothing.
     result.model = create_resized(runtime, base=model, context=context)
     result.derived_from = model
     result.context = context

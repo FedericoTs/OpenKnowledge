@@ -154,11 +154,57 @@ def test_nothing_listening_is_reported_not_guessed() -> None:
         switch(runtime, "qwen3:8b")
 
 
-def test_switching_to_an_installed_model_reads_its_window(base_url: str) -> None:
+def test_the_plain_command_pins_a_window_rather_than_trusting_the_default(
+    base_url: str, state: _State
+) -> None:
+    """`model use qwen3:8b` has to produce a configuration that is actually true.
+
+    Two wrong answers were possible here and this used to give the first:
+
+      - record the declared 40,960, which Ollama will not use. The fit check
+        then waves through prompts ten times too large for what is allocated,
+        and they get truncated from the front - where the grounding rules are.
+      - record nothing, and leave the runtime on its 4,096 default. That is
+        honest but marginal: k=6 retrieval plus 1,500 answer tokens comes to
+        about 3,800, which fits until one longer document does not.
+
+    So the plain command pins a real window and says it did.
+    """
     result = switch(probe(base_url), "qwen3:8b")
+
+    assert state.created, "left the window to chance"
+    assert state.created[0]["parameters"] == {"num_ctx": 8192}
+    assert result.model == "qwen3-8b-ok8192"
+    assert result.context == 8192
+    assert result.native_context == 40_960  # what the weights allow, for the note
+    assert any("pinned at 8,192" in note for note in result.notes)
+    assert any("--no-pin" in note for note in result.notes)
+
+
+def test_pinning_can_be_declined(base_url: str, state: _State) -> None:
+    """--no-pin leaves the runtime alone, and then records nothing at all.
+
+    Recording a number without pinning it would describe nothing, so the fit
+    check stays off rather than checking against a guess.
+    """
+    result = switch(probe(base_url), "qwen3:8b", pin=False)
+
+    assert state.created == []
     assert result.model == "qwen3:8b"
-    assert result.context == 40_960  # asked for, not assumed
-    assert not result.pulled
+    assert result.context is None
+    assert any("no window recorded" in note for note in result.notes)
+
+
+def test_a_model_already_pinned_is_left_as_it_is(base_url: str, state: _State) -> None:
+    """Re-running the plain command must not re-pin a deliberate choice back to
+    the default."""
+    runtime = probe(base_url)
+    first = switch(runtime, "qwen3:8b", context=32_768)
+    state.created.clear()
+
+    again = switch(runtime, first.model)
+    assert state.created == []
+    assert again.context == 32_768
 
 
 def test_an_absent_model_is_downloaded_first(base_url: str, state: _State) -> None:
@@ -222,11 +268,32 @@ def test_a_bigger_window_builds_a_model_that_carries_it(base_url: str, state: _S
     assert any("beyond the 40,960" in note for note in result.notes)
 
 
-def test_a_window_the_model_already_has_builds_nothing(base_url: str, state: _State) -> None:
+def test_a_window_under_the_declared_length_is_still_pinned(base_url: str, state: _State) -> None:
+    """Asking for less than the weights allow still has to build the model.
+
+    This used to skip the build, reasoning that a smaller window than the
+    weights allow is "a downgrade dressed as a setting". That was wrong:
+    pinning num_ctx is the only thing that decides what Ollama allocates, so
+    recording 32,768 without pinning it described nothing at all.
+    """
     result = switch(probe(base_url), "qwen3:8b", context=32_768)
-    assert state.created == []
+
+    assert state.created, "recorded a window without making it true"
+    assert state.created[0]["parameters"] == {"num_ctx": 32_768}
+    assert result.model == "qwen3-8b-ok32768"
     assert result.context == 32_768
-    assert result.model == "qwen3:8b"
+
+
+def test_asking_for_the_window_already_pinned_builds_nothing(base_url: str, state: _State) -> None:
+    """Idempotent: re-running the same command is a no-op, not a rebuild."""
+    runtime = probe(base_url)
+    first = switch(runtime, "qwen3:8b", context=16_384)
+    state.created.clear()
+
+    again = switch(runtime, first.model, context=16_384)
+    assert state.created == []
+    assert again.model == first.model
+    assert again.context == 16_384
 
 
 def test_the_derived_model_reports_the_window_it_was_built_with(
@@ -241,7 +308,10 @@ def test_the_derived_model_reports_the_window_it_was_built_with(
 
     runtime = probe(base_url)
     switch(runtime, "qwen3:30b", context=131_072)
-    assert context_window(runtime, "qwen3-30b-ok131072") == 131_072
+
+    window = context_window(runtime, "qwen3-30b-ok131072")
+    assert window.pinned == 131_072, "the pinned window is what it will run with"
+    assert window.declared == 40_960, "and the weights still say what they say"
 
 
 def test_a_non_ollama_runtime_says_what_to_relaunch(base_url: str, state: _State) -> None:
