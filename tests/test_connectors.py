@@ -28,6 +28,42 @@ def test_reads_text_files_recursively(corpus: Path) -> None:
     assert ids == {"policies-expenses", "notes"}
 
 
+def test_unreadable_files_are_named_not_silently_dropped(corpus: Path) -> None:
+    """A file contributing nothing without saying so is how a corpus grows a
+    hole that only surfaces months later as a wrong answer."""
+    connector = LocalFilesConnector(corpus)
+    connector.fetch()
+    skipped = {s.path: s.reason for s in connector.skipped}
+    assert "image.png" in skipped
+    assert "no parser for .png" in skipped["image.png"]
+    assert "empty.md" in skipped
+
+
+def test_a_legacy_office_file_says_how_to_fix_it(corpus: Path) -> None:
+    (corpus / "handbook.doc").write_bytes(b"\xd0\xcf\x11\xe0 legacy")
+    connector = LocalFilesConnector(corpus)
+    connector.fetch()
+    reason = next(s.reason for s in connector.skipped if s.path == "handbook.doc")
+    assert "re-save it as .docx" in reason
+
+
+def test_office_lock_files_are_ignored_entirely(corpus: Path) -> None:
+    """Word leaves ~$ files behind; they are not documents and not worth
+    reporting as failures either."""
+    (corpus / "~$expenses.docx").write_bytes(b"lock")
+    connector = LocalFilesConnector(corpus)
+    connector.fetch()
+    assert not any("~$" in s.path for s in connector.skipped)
+
+
+def test_parsed_documents_carry_their_structure(corpus: Path) -> None:
+    doc = next(
+        d for d in LocalFilesConnector(corpus).fetch() if d.document_id == "policies-expenses"
+    )
+    assert doc.blocks, "the connector must pass parsed structure through"
+    assert doc.title == "Expenses Policy"
+
+
 def test_document_ids_are_stable_and_citable(corpus: Path) -> None:
     """Models must reproduce these exactly, so they stay simple."""
     doc = next(d for d in LocalFilesConnector(corpus).fetch() if "expenses" in d.document_id)

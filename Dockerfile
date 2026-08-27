@@ -7,6 +7,12 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
+# pdfplumber needs libgomp for its image backend; everything else in the
+# parsing stack is pure Python.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
 # Dependencies first so application edits do not invalidate the layer.
 COPY pyproject.toml README.md ./
 COPY src/ ./src/

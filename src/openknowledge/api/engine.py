@@ -52,6 +52,8 @@ class Engine:
             min_conflict_overlap=self.settings.conflict_min_overlap,
             deontic_strictness=self.settings.deontic_strictness,
         )
+        for skipped in self.connector.skipped:
+            self.last_scan.notes.append(f"skipped {skipped.path}: {skipped.reason}")
         log.info(
             "indexed %d documents into %d chunks (corpus %s); evicted %d stale answers; "
             "%d conflicts open",

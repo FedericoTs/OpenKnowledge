@@ -38,6 +38,14 @@ def _cmd_index(_: argparse.Namespace) -> int:
     documents, chunks, version, evicted = engine.reindex()
     print(f"indexed {documents} documents -> {chunks} chunks")
     print(f"corpus version: {version}")
+
+    skipped = engine.connector.skipped
+    if skipped:
+        print(f"\n{len(skipped)} file(s) contributed nothing:")
+        for item in skipped[:20]:
+            print(f"  {item.path}: {item.reason}")
+        if len(skipped) > 20:
+            print(f"  ... and {len(skipped) - 20} more")
     if evicted:
         print(f"dropped {evicted} answers derived from a previous corpus")
     if documents == 0:

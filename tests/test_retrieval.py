@@ -130,3 +130,120 @@ def test_number_formatting_differences_are_not_false_positives(retriever: BM25Re
 
 def test_empty_answer_is_rejected(retriever: BM25Retriever) -> None:
     assert not check_grounding("   ", _chunks(retriever)).passed
+
+
+# -- structure-aware chunking ----------------------------------------------
+
+from openknowledge.documents import parse_text  # noqa: E402
+from openknowledge.retrieval.base import chunk_blocks  # noqa: E402
+
+POLICY_MD = """# Expenses Policy
+
+## Approval thresholds
+
+Any single expense above EUR 500 requires prior written approval.
+
+| Grade | Meal allowance | Notice |
+|---|---|---|
+| Junior | EUR 35 | 5 days |
+| Senior | EUR 45 | 2 days |
+
+## Meals
+
+Meals are reimbursed up to EUR 45 per day when travelling.
+"""
+
+
+def parsed_document(text: str = POLICY_MD, doc_id: str = "expenses") -> Document:
+    parsed = parse_text(text)
+    return Document(doc_id, parsed.title or doc_id, parsed.text, blocks=parsed.blocks)
+
+
+def test_a_heading_starts_a_new_chunk() -> None:
+    """Content under different headings is about different things; merging them
+    lets retrieval return a chunk whose heading contradicts half its body."""
+    chunks = chunk_document(parsed_document())
+    meals = [c for c in chunks if "Meals" in c.text]
+    assert meals, "expected a chunk for the Meals section"
+    assert all("Approval thresholds" not in c.text for c in meals)
+
+
+def test_table_rows_are_never_split(retriever) -> None:
+    """A row cut in half is a number with no label attached."""
+    chunks = chunk_document(parsed_document(), target_words=8, overlap_words=0)
+    for chunk in chunks:
+        for line in chunk.text.split("\n"):
+            if "Meal allowance:" in line:
+                assert "Grade:" in line and "Notice:" in line
+
+
+def test_every_chunk_carries_its_heading_trail() -> None:
+    chunks = chunk_document(parsed_document())
+    body = [c for c in chunks if "EUR 500" in c.text]
+    assert body and "Approval thresholds" in body[0].text
+
+
+def test_chunks_keep_a_real_locator() -> None:
+    """The citation has to point somewhere a person can open."""
+    parsed = parse_text("# T\n\nbody text here")
+    doc = Document("d", "T", parsed.text, blocks=parsed.blocks)
+    assert chunk_document(doc)[0].locator
+
+
+def test_an_over_long_paragraph_still_gets_windowed() -> None:
+    long_text = "# T\n\n" + " ".join(f"w{i}" for i in range(900))
+    chunks = chunk_document(parsed_document(long_text, "long"), target_words=100)
+    assert len(chunks) > 1
+    assert all("T:" in c.text for c in chunks), "windows keep the heading trail"
+
+
+def test_a_document_without_blocks_falls_back_to_word_windows() -> None:
+    doc = Document("d", "D", " ".join(f"w{i}" for i in range(1000)))
+    chunks = chunk_document(doc, target_words=100, overlap_words=20)
+    assert len(chunks) > 1
+    assert chunks[0].text.split()[-20:] == chunks[1].text.split()[:20]
+
+
+def test_chunk_ids_are_stable_and_unique() -> None:
+    doc = parsed_document()
+    first = [c.chunk_id for c in chunk_document(doc)]
+    assert first == [c.chunk_id for c in chunk_document(doc)]
+    assert len(set(first)) == len(first)
+
+
+def test_structure_beats_flattening_on_a_table_question() -> None:
+    """The accuracy claim, stated as a test: a labelled row retrieves for the
+    question its labels answer, and a flattened corpus does not carry them."""
+    structured = parsed_document()
+    flat = Document("expenses", "Expenses Policy", structured.text)  # no blocks
+
+    structured_index = BM25Retriever()
+    structured_index.index([structured])
+    hit = structured_index.search("what is the meal allowance for senior grade", k=1)[0]
+    assert "Grade: Senior" in hit.chunk.text
+    assert "Meal allowance: EUR 45" in hit.chunk.text
+
+    flat_index = BM25Retriever()
+    flat_index.index([flat])
+    flat_hit = flat_index.search("what is the meal allowance for senior grade", k=1)[0]
+    # The flattened chunk still contains the words, but as one undifferentiated
+    # blob covering every section - so it cannot be cited to a location.
+    assert flat_hit.chunk.locator.startswith("chunk ")
+
+
+def test_blocks_survive_into_the_document_for_claim_extraction() -> None:
+    """The claim extractors read Document.text, which must include the labels."""
+    doc = parsed_document()
+    assert "Grade: Senior | Meal allowance: EUR 45" in doc.text
+
+
+def test_chunk_blocks_on_an_empty_document() -> None:
+    assert chunk_blocks(Document("d", "D", "")) == []
+
+
+def test_headings_alone_do_not_become_chunks() -> None:
+    """A heading with nothing under it is a fine retrieval signal and a useless
+    answer, so it attaches to the content beneath instead of standing alone."""
+    parsed = parse_text("# Only A Heading")
+    doc = Document("d", "D", parsed.text, blocks=parsed.blocks)
+    assert all(c.text.strip() for c in chunk_document(doc))

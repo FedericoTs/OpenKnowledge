@@ -5,11 +5,12 @@
 Self-hosted. Connects to SharePoint and Google Drive. Answers in Teams, Slack, or a web
 widget. Runs on your own hardware, your own API keys, or both.
 
-> **Status: pre-alpha (v0.1.0).** The cost architecture, the determinism layer, the
-> grounding gate, the knowledge lifecycle (drafting, review, conflict detection) and the
-> evaluation harness are implemented and tested. Connectors beyond a local folder, the
-> Teams channel, and the admin UI are scaffolded interfaces, not working integrations.
-> See [ROADMAP](docs/ROADMAP.md).
+> **Status: pre-alpha (v0.1.0).** Document parsing, the cost architecture, the
+> determinism layer, the grounding gate, the knowledge lifecycle (drafting, review,
+> conflict detection) and the evaluation harness are implemented and tested. Nothing has
+> yet been run against a live model on a real corpus — every quality number is measured
+> with scripted providers. Connectors beyond a local folder, the Teams channel, and the
+> admin UI are scaffolded interfaces. See [ROADMAP](docs/ROADMAP.md).
 
 ---
 
@@ -94,6 +95,36 @@ and the local tier wins by a widening margin.
 
 Your own hit rates and hardware will differ, which is why `openknowledge costs` reports the
 blended figure from the ledger rather than from this table.
+
+### It reads the documents you actually have
+
+PDF, Word, Excel, PowerPoint and Markdown, parsed into structure rather than
+flattened into text — headings, lists, and tables, each block carrying its heading trail
+and a citable locator (`p. 7`, `Limits!A7`, `slide 4`).
+
+Tables get particular care because that is where policy keeps its thresholds. Flattened,
+a limits table reads as `Grade Limit Notice Junior EUR 200 5 days` — six numbers attached
+to nothing, which the claim extractor cannot check. Every row is carried with its header
+instead:
+
+```
+Grade: Senior | Limit: EUR 1,000 | Notice: 2 days
+```
+
+Chunking then follows the document's own shape: a heading starts a chunk, a table row is
+never split, every chunk keeps its heading trail. This is an accuracy property, not a
+tidy one — the grounding gate checks an answer against the chunk it was given, so a
+window boundary that dropped a condition is invisible to every check downstream.
+
+Files that cannot be read are named with a remedy rather than silently skipped:
+
+```
+2 file(s) contributed nothing:
+  logo.png: no parser for .png
+  old-handbook.doc: .doc is the pre-2007 Office format; re-save it as .docx
+```
+
+See [DOCUMENTS.md](docs/DOCUMENTS.md).
 
 ### Maintenance is a one-off at upload
 
@@ -226,6 +257,7 @@ src/openknowledge/
 ├── providers/       Anthropic (with prompt caching), OpenAI-compatible (incl. local)
 ├── cascade/         The router: try cheap, verify, escalate
 ├── retrieval/       Hybrid retrieval + the grounding gate
+├── documents/       PDF, Word, Excel, PowerPoint, Markdown -> structured blocks
 ├── knowledge/       Draft at ingest, review queue, conflict detection
 ├── evaluation/      Golden set, scoring, baseline comparison
 ├── connectors/      SharePoint / Google Drive  (interfaces only)
@@ -240,6 +272,7 @@ src/openknowledge/
 | [ARCHITECTURE.md](docs/ARCHITECTURE.md) | How the cascade fits together |
 | [COST-MODEL.md](docs/COST-MODEL.md) | The arithmetic, and how to reproduce it |
 | [DETERMINISM.md](docs/DETERMINISM.md) | What we guarantee, and what we don't |
+| [DOCUMENTS.md](docs/DOCUMENTS.md) | What formats are read, and why tables get special care |
 | [KNOWLEDGE.md](docs/KNOWLEDGE.md) | Drafting at upload, review, and contradictions |
 | [EVALUATION.md](docs/EVALUATION.md) | How correctness is measured, and what fails a run |
 | [ROADMAP.md](docs/ROADMAP.md) | What's built, what's next |

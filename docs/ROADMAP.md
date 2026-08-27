@@ -24,6 +24,10 @@ Honest status. "Built" means implemented and covered by tests in this repository
   precomputed cache entries, a review queue ranked by value, free numeric conflict
   detection, citation-anchored re-verification when documents change, and refusal on
   contested claims including the stale-pin case. See [KNOWLEDGE.md](KNOWLEDGE.md).
+- **Document parsing** — PDF (headings from type size, ruled and unruled tables),
+  Word, Excel, PowerPoint and Markdown into structured blocks with citable locators,
+  plus structure-aware chunking that never splits a rule from its condition. See
+  [DOCUMENTS.md](DOCUMENTS.md) and ADR 0007.
 - **Prose contradiction detection** — deontic claim extraction (must / may / must not) with
   predicate families and hard-versus-soft force pairs, plus a free FAQ cross-check that
   catches a newly uploaded document disagreeing with an existing answer. Measured by
@@ -34,23 +38,36 @@ Honest status. "Built" means implemented and covered by tests in this repository
 
 ## Next — makes it useful in a real company
 
-1. **Grow the golden set.** The harness is built; the shipped set covers the sample
+1. **A real run.** Nothing here has been executed against a live model on a real
+   corpus: every quality number is measured with scripted providers, and the draft
+   yield, gate pass rate and local-tier competence are all assumed. Point it at a
+   folder of real policies with a model configured and the assumptions become
+   measurements. This now outranks everything below it.
+2. **Grow the golden set.** The harness is built; the shipped set covers the sample
    documents only. Real corpus, real questions, and above all more safety cases — they
    are the cheapest insurance in the project.
-2. **Semantic cache.** Local embeddings over canonical questions, similarity
+3. **Semantic cache.** Local embeddings over canonical questions, similarity
    threshold, and a citation check before serving a near-match. This is where the free share
    grows, and it needs to be careful: a hash cannot decide two sentences mean the same thing,
    so a bad match must be catchable.
-3. **Hybrid retrieval + reranking.** BM25 fused with local dense retrieval, then a
+4. **Hybrid retrieval + reranking.** BM25 fused with local dense retrieval, then a
    cross-encoder rerank. The biggest single cost lever is sending fewer, better chunks — this
    is cheaper *and* more accurate, which is a rare combination.
-4. **SharePoint connector.** Microsoft Graph enumeration, text extraction, and — the real
+5. **SharePoint connector.** Microsoft Graph enumeration, text extraction, and — the real
    work — mapping item permissions, including group expansion and inheritance, onto
    `allowed_principals`.
-5. **Google Drive connector.** Same shape: service account with domain-wide delegation,
+6. **Google Drive connector.** Same shape: service account with domain-wide delegation,
    `files.list`, and permission mapping including inherited folder ACLs.
-6. **Teams channel.** Bot Framework adapter, with the asker's tenant groups supplying
+7. **Teams channel.** Bot Framework adapter, with the asker's tenant groups supplying
    `principals` so access control works from the identity Teams already has.
+
+### Known gaps in document parsing
+
+- **No OCR.** A scanned PDF is reported and indexed as nothing.
+- **PDF headings are inferred from type size**, so a document that styles headings at body
+  size reads as one flat section.
+- **Unruled tables need a numeric column**, so a purely textual table reads as prose.
+- **Spreadsheet formulas are read as last-saved values**, which can be stale.
 
 ### Known gaps in contradiction detection
 

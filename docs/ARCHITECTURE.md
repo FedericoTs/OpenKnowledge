@@ -34,7 +34,7 @@ One question enters. It leaves at the first tier that can answer it *and prove i
       L2  drafted at upload?  -------- yes -> return, $0
                         | no                  (gate-checked, marked unreviewed)
                         v
-              retrieve (BM25 today; hybrid + rerank next)
+              retrieve (BM25 over structure-aware chunks)
                         |
                    no hits -> refuse
                         v
@@ -120,6 +120,7 @@ leaks documents if done casually.
 | `retrieval/grounding.py` | The gate |
 | `providers/` | `ChatProvider` protocol; Anthropic (with caching), OpenAI-compatible |
 | `cascade/router.py` | Tier ordering, escalation, pricing of each answer |
+| `documents/` | Format parsers producing structured, citable blocks |
 | `knowledge/` | Ingest-time drafting, review queue, conflict detection, re-verification |
 | `evaluation/` | Golden set, scoring, baseline comparison |
 | `connectors/` | Document sources |
