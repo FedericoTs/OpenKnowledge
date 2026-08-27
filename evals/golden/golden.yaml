@@ -29,6 +29,7 @@
   question: Do I need a minimum length of service for full parental leave?
   must_cite: [parental-leave]
   must_say: ["12 months"]
+  must_not_say: ["6 months", "24 months", "no minimum"]
   tags: [hr, conditions]
 
 - id: parental-leave-notice
@@ -58,6 +59,7 @@
   question: Can I expense alcohol for client entertainment?
   must_cite: [expenses-policy]
   must_say: ["not reimbursable"]
+  must_not_say: ["is reimbursable", "you can expense alcohol"]
   tags: [finance, negation]
   notes: >
     A negation case. The corpus says alcohol is never reimbursable, including
@@ -75,6 +77,7 @@
   question: How long does it take to get VPN access approved?
   must_cite: [vpn-access]
   must_say: ["2 business days"]
+  must_not_say: ["5 business days", "24 hours", "same day"]
   tags: [it]
 
 # --- must refuse -----------------------------------------------------------

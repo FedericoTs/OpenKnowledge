@@ -62,7 +62,8 @@
 - id: dsar-deadline-extension
   question: Can we extend the deadline for a data subject access request?
   must_cite: [security-data-protection]
-  must_say: ["two further months", "complex"]
+  must_say: [["two further months", "two months", "2 months"], ["complex", "several requests"]]
+  must_not_say: ["three further months", "30 further days"]
   tags: [legal, conditions]
 
 # --- negation --------------------------------------------------------------
@@ -70,7 +71,8 @@
 - id: alcohol-not-reimbursable
   question: Can I expense alcohol?
   must_cite: [hr-expenses-policy]
-  must_say: ["not reimbursable"]
+  must_say: [["not reimbursable", "is not reimbursable"]]
+  must_not_say: ["alcohol is reimbursable", "you can expense alcohol", "freely"]
   tags: [finance, negation]
   notes: >
     There is a genuine exception - pre-approved client entertainment - so the
@@ -95,6 +97,7 @@
   question: Can a Director approve their own expense claim?
   must_cite: [hr-expenses-policy]
   must_say: [["must not", "may not", "cannot", "not permitted"]]
+  must_not_say: ["yes, a director", "directors may approve their own"]
   tags: [finance, negation]
 
 # --- the fact is in a table ------------------------------------------------
@@ -118,6 +121,7 @@
   question: How long are payroll records retained and why?
   must_cite: [security-data-protection]
   must_say: [["7 years", "seven years"]]
+  must_not_say: ["6 years", "12 months", "3 years", "30 days"]
   tags: [legal, table]
 
 # --- the fact is in a non-markdown file ------------------------------------
@@ -133,7 +137,8 @@
 - id: strategic-supplier-terms
   question: What are the standard payment terms for a strategic supplier?
   must_cite: [finance-approval-limits]
-  must_say: [["30", "thirty"]]
+  must_say: [["30 days", "thirty days", "30"]]
+  must_not_say: ["14 days", "21 days", "60 days"]
   tags: [finance, table, format]
   notes: Excel. The value is a cell, and only means anything with its row label.
 
@@ -158,6 +163,7 @@
 - id: ict-supplier-exit-period
   question: What exit period must we agree with a critical ICT supplier?
   must_say: [["six months", "6 months"]]
+  must_not_say: ["three months", "12 months", "60 days"]
   tags: [finance, cross-doc]
   notes: Stated in both the procurement policy and the continuity PDF. Either
     citation is correct; inventing a third figure is not.

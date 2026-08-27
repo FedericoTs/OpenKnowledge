@@ -556,3 +556,20 @@ def test_a_fact_with_alternatives_reads_as_one_requirement_when_it_fails() -> No
     _passed, failures, _false = _score(case, answer)
     assert len(failures) == 1
     assert "'two' or '2'" in failures[0]
+
+
+def test_every_answerable_case_in_the_shipped_set_guards_a_wrong_answer() -> None:
+    """The rule the golden set's own header states, enforced.
+
+    "20 weeks" appearing is half the check; "26 weeks" not appearing is the
+    other half. A case with no `must_not_say` passes on any answer that happens
+    to contain its phrase, which on a corpus full of "30 days" is most of them -
+    and a set of those produces a 100% score that means nothing.
+    """
+    root = Path(__file__).resolve().parent.parent / "evals"
+    for directory in ("golden", "golden-aveline"):
+        for case in load_cases(root / directory):
+            if case.kind != "answerable":
+                continue
+            assert case.must_say, f"{case.id}: asserts nothing"
+            assert case.must_not_say, f"{case.id}: no wrong answer to rule out"
