@@ -43,6 +43,16 @@ class BM25Retriever:
     def __len__(self) -> int:
         return len(self._chunks)
 
+    @property
+    def document_count(self) -> int:
+        """How many documents, not how many chunks.
+
+        These differ by roughly an order of magnitude and get confused: a health
+        endpoint reporting the chunk count under the name "documents_indexed"
+        tells an operator with four files that it has six of them.
+        """
+        return len({chunk.document_id for chunk in self._chunks})
+
     def index(self, documents: list[Document]) -> None:
         """Rebuild the index from scratch.
 

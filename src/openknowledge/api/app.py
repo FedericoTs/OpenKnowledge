@@ -186,7 +186,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def healthz(engine: EngineDep) -> dict[str, Any]:
         return {
             "status": "ok",
-            "documents_indexed": len(engine.retriever),
+            # These are not the same number and were reported as if they were:
+            # `documents_indexed` carried the chunk count, so a corpus of four
+            # files reported six documents.
+            "documents_indexed": engine.retriever.document_count,
+            "chunks_indexed": len(engine.retriever),
             "corpus_version": engine.retriever.corpus_version,
             "escalation_enabled": engine.settings.escalation_enabled,
         }

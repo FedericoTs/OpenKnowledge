@@ -230,3 +230,33 @@ def test_the_widget_has_a_tab_icon() -> None:
         assert response.status_code == 200
         assert response.headers["content-type"].startswith("image/svg+xml")
         assert response.text.startswith("<svg")
+
+
+def test_health_counts_documents_and_chunks_separately(tmp_path: Path) -> None:
+    """`documents_indexed` used to carry the chunk count.
+
+    Reported from a real install: `openknowledge index` said "4 documents -> 6
+    chunks" and this endpoint said six documents. They differ by roughly an
+    order of magnitude on a real corpus, and the widget now shows this number
+    to the person asking.
+    """
+    from fastapi.testclient import TestClient
+
+    from openknowledge.api.app import create_app
+    from openknowledge.config import Settings
+
+    documents = tmp_path / "docs"
+    documents.mkdir()
+    # Two files, deliberately long enough to chunk into more than two pieces.
+    for name in ("a.md", "b.md"):
+        (documents / name).write_text(
+            f"# {name}\n\n" + "\n\n".join(f"Paragraph {i} about policy. " * 60 for i in range(6))
+        )
+
+    settings = Settings(data_dir=str(tmp_path / "data"), documents_dir=str(documents))
+    with TestClient(create_app(settings)) as client:
+        client.app.state.engine.reindex()
+        body = client.get("/healthz").json()
+
+    assert body["documents_indexed"] == 2, "counted chunks as documents"
+    assert body["chunks_indexed"] > body["documents_indexed"]

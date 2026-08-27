@@ -54,6 +54,7 @@
 <div class="wrap">
   <header><h1>OpenKnowledge</h1></header>
   <p class="sub">Answers come only from your indexed documents, with the source for each one.</p>
+  <p class="sub" id="corpus"></p>
   <div id="log"></div>
 </div>
 
@@ -65,6 +66,21 @@
 </form>
 
 <script>
+// What is indexed, stated rather than asked. "How many documents do you have?"
+// is a question *about* the corpus, not one answerable *from* it, so the model
+// rightly refuses it - which reads as the system not knowing what it holds.
+// The count is a fact the server already has; showing it beats refusing it.
+(function () {
+  fetch('healthz').then(r => r.ok ? r.json() : null).then(h => {
+    if (!h) { return; }
+    const docs = h.documents_indexed, bits = h.chunks_indexed;
+    const el = document.getElementById('corpus');
+    el.textContent = docs
+      ? `${docs} document${docs === 1 ? '' : 's'} indexed, in ${bits} passage${bits === 1 ? '' : 's'}.`
+      : 'No documents indexed yet - put files in your documents folder and run `openknowledge index`.';
+  }).catch(() => {});
+}());
+
 const log = document.getElementById('log');
 const form = document.getElementById('form');
 const input = document.getElementById('q');
