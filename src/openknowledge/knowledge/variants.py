@@ -29,8 +29,29 @@ disagree on one, somebody needs to know.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Generic, Protocol, TypeVar, runtime_checkable
 
 from .claims import Conflict
+
+
+@runtime_checkable
+class HasDocumentPair(Protocol):
+    """The two ends of a stored disagreement.
+
+    A protocol rather than an import of `StoredConflict`: grouping only needs to
+    know which documents a finding joins, and depending on the store's row type
+    for that would tie this module to where conflicts happen to be persisted.
+    """
+
+    left_document: str
+    right_document: str
+
+
+#: Kept generic so grouping does not force callers to give up the rest of their
+#: row. The CLI groups by document pair and then prints each finding's sentences;
+#: narrowing to the protocol here would mean looking every one of them up again.
+ConflictT = TypeVar("ConflictT", bound=HasDocumentPair)
+
 
 #: Below this many disagreements a pair is always reported claim by claim. It is
 #: also what protects the case the shared-subject test would otherwise get wrong:
@@ -110,6 +131,50 @@ def group_by_document_pair(
         for (left, right), found in grouped.items()
     ]
     # Variants last: they are a filing problem, not an answer that is at risk.
+    pairs.sort(key=lambda p: (p.is_variant, -len(p.conflicts), p.left, p.right))
+    return pairs
+
+
+@dataclass(frozen=True)
+class StoredPair(Generic[ConflictT]):
+    """The same grouping over conflicts read back from the store.
+
+    A stored conflict has no agreement count - the store keeps disagreements,
+    not the figures two documents agreed on - so duplication can only be judged
+    from the disagreements themselves. That makes this a coarser test than
+    `DocumentPair`, and it is applied where its being coarse is safe: naming a
+    pair as duplicated in a review list, rather than deciding what to compare.
+    """
+
+    left: str
+    right: str
+    conflicts: tuple[ConflictT, ...]
+
+    @property
+    def is_variant(self) -> bool:
+        return len(self.conflicts) >= _MIN_SHARED_FIGURES
+
+    def describe(self) -> str:
+        if self.is_variant:
+            return (
+                f"{self.left} and {self.right} disagree on {len(self.conflicts)} figures. "
+                "That is a versioning problem, not a contradiction: retire one rather "
+                "than reconciling them line by line."
+            )
+        return f"{self.left} vs {self.right}: {len(self.conflicts)} disagreement(s)"
+
+
+def group_stored(conflicts: list[ConflictT]) -> list[StoredPair[ConflictT]]:
+    """Group stored conflicts by the two documents involved, worst pair first."""
+    grouped: dict[tuple[str, str], list[ConflictT]] = {}
+    for conflict in conflicts:
+        key = _pair(conflict.left_document, conflict.right_document)
+        grouped.setdefault(key, []).append(conflict)
+
+    pairs: list[StoredPair[ConflictT]] = [
+        StoredPair(left=left, right=right, conflicts=tuple(found))
+        for (left, right), found in grouped.items()
+    ]
     pairs.sort(key=lambda p: (p.is_variant, -len(p.conflicts), p.left, p.right))
     return pairs
 

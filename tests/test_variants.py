@@ -103,3 +103,37 @@ def test_agreements_are_counted_from_real_documents() -> None:
 
     assert [c.left.raw for c in conflicts] == ["EUR 500"]
     assert agreements[("policy-v1", "policy-v2")] == 1
+
+
+def test_stored_conflicts_group_the_same_way_the_audit_does() -> None:
+    """`openknowledge conflicts` and `openknowledge audit` read the same data.
+
+    They disagreed for a while: the audit collapsed a duplicated pair into one
+    line and the CLI listed all twenty-four findings, which made the review
+    queue unusable on exactly the corpus the audit handled well.
+    """
+    from openknowledge.knowledge.variants import group_stored
+
+    class Row:
+        def __init__(self, left: str, right: str) -> None:
+            self.left_document = left
+            self.right_document = right
+
+    rows = [Row("policy-v1", "policy-v2") for _ in range(24)]
+    rows += [Row("expenses", "travel"), Row("expenses", "travel")]
+
+    pairs = group_stored(rows)
+
+    assert [p.is_variant for p in pairs] == [False, True], "real disagreements come first"
+    assert len(pairs[0].conflicts) == 2
+    assert "versioning problem" in pairs[1].describe()
+
+
+def test_a_pair_with_one_disagreement_is_never_called_duplication() -> None:
+    from openknowledge.knowledge.variants import group_stored
+
+    class Row:
+        left_document = "expenses"
+        right_document = "travel"
+
+    assert not group_stored([Row()])[0].is_variant

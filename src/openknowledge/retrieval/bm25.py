@@ -144,6 +144,15 @@ class BM25Retriever:
                 return False
         return True
 
+    def document_ids(self) -> frozenset[str]:
+        """Every document currently indexed.
+
+        Used to tell "this case cites a document that does not exist" apart from
+        "this case cites a real document retrieval did not rank" - a typo and a
+        ranking problem look identical in a report and need opposite fixes.
+        """
+        return frozenset(c.document_id for c in self._chunks)
+
     def describe_document(self, document_id: str) -> tuple[str, str] | None:
         """Return ``(title, snippet)`` for an indexed document, or None.
 

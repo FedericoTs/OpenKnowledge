@@ -1,0 +1,229 @@
+# Golden set for the Aveline Group corpus in ../corpus/aveline.
+#
+# The corpus is synthetic and the questions were written alongside it, so this
+# set measures whether the *pipeline* behaves - retrieval, grounding, conditions,
+# negations, contradictions, abstention. It is not evidence about accuracy on
+# somebody's real documents, and should not be quoted as if it were. What it is
+# good for: proving the whole thing works end to end against a live model, and
+# catching a regression when something changes.
+#
+# Every case here is a trap of a specific kind. The tags say which.
+#
+#   conditions   a rule that is wrong if its condition is dropped
+#   negation     a prohibition that must not read as a permission
+#   table        the fact lives in a table row, not in prose
+#   format       the fact lives in a .docx, .xlsx or .pdf
+#   cross-doc    the answer needs two documents
+#   contested    the documents disagree; refusing is the only correct answer
+#   safety       the corpus does not answer this at all
+
+# --- conditions: right number, wrong answer without the condition ----------
+
+- id: parental-leave-entitlement
+  question: How many weeks of paid parental leave do I get?
+  must_cite: [hr-parental-leave]
+  must_say: ["20 weeks", "12 months"]
+  must_not_say: ["26 weeks", "16 weeks"]
+  paraphrases:
+    - "what is the parental leave entitlement"
+    - "how much parental leave am I entitled to"
+  tags: [hr, conditions]
+  notes: >
+    "20 weeks" alone is wrong for anyone under a year of service, who gets 12.
+    The service condition is part of the answer, not context around it.
+
+- id: parental-leave-short-service
+  question: I have been here eight months. How much paid parental leave do I get?
+  must_cite: [hr-parental-leave]
+  must_say: ["12 weeks"]
+  must_not_say: ["20 weeks"]
+  tags: [hr, conditions]
+  notes: The same document, the other branch. A system that only ever finds the
+    headline figure fails this one.
+
+- id: meal-allowance-domestic
+  question: How much can I claim for meals per day when travelling in Ireland?
+  must_cite: [hr-expenses-policy]
+  must_say: ["45"]
+  must_not_say: ["65", "35"]
+  tags: [finance, conditions]
+  notes: >
+    EUR 45 domestic and EUR 65 international sit in one sentence. Answering
+    without saying which is which is not an answer. EUR 35 is the 2023 figure
+    and appears in the archived copy.
+
+- id: remote-days-client-facing
+  question: I am in a client-facing role. How many days a week can I work remotely?
+  must_cite: [hr-remote-work]
+  must_say: ["two", "2"]
+  must_not_say: ["three days", "3 days"]
+  tags: [hr, conditions]
+
+- id: dsar-deadline-extension
+  question: Can we extend the deadline for a data subject access request?
+  must_cite: [security-data-protection]
+  must_say: ["two further months", "complex"]
+  tags: [legal, conditions]
+
+# --- negation --------------------------------------------------------------
+
+- id: alcohol-not-reimbursable
+  question: Can I expense alcohol?
+  must_cite: [hr-expenses-policy]
+  must_say: ["not reimbursable"]
+  tags: [finance, negation]
+  notes: >
+    There is a genuine exception - pre-approved client entertainment - so the
+    ideal answer states the prohibition and the exception. Stating only the
+    exception is the dangerous failure.
+
+- id: usb-storage-prohibited
+  question: Can I copy a file to a USB stick?
+  must_cite: [security-information-security]
+  must_say: ["prohibited"]
+  must_not_say: ["yes, you can", "permitted"]
+  tags: [security, negation]
+
+- id: contractors-parental-leave
+  question: Are contractors entitled to company-paid parental leave?
+  must_cite: [hr-parental-leave]
+  must_say: ["not eligible"]
+  must_not_say: ["20 weeks"]
+  tags: [hr, negation]
+
+- id: approve-own-expenses
+  question: Can a Director approve their own expense claim?
+  must_cite: [hr-expenses-policy]
+  must_say: ["must not"]
+  tags: [finance, negation]
+
+# --- the fact is in a table ------------------------------------------------
+
+- id: cfo-approval-limit
+  question: What is the approval limit for the Chief Financial Officer?
+  must_cite: [hr-expenses-policy]
+  must_say: ["25,000"]
+  must_not_say: ["15,000", "5,000"]
+  tags: [finance, table]
+  notes: EUR 15,000 is the superseded 2023 figure, sitting in the archive folder.
+
+- id: cctv-retention
+  question: How long do we keep CCTV footage?
+  must_cite: [security-data-protection]
+  must_say: ["30 days"]
+  must_not_say: ["7 years", "12 months"]
+  tags: [legal, table]
+
+- id: payroll-retention
+  question: How long are payroll records retained and why?
+  must_cite: [security-data-protection]
+  must_say: ["7 years"]
+  tags: [legal, table]
+
+# --- the fact is in a non-markdown file ------------------------------------
+
+- id: rto-payments
+  question: What is the recovery time objective for payments processing?
+  must_cite: [finance-business-continuity]
+  must_say: ["2 hours"]
+  must_not_say: ["8 hours", "48 hours", "4 hours"]
+  tags: [ops, table, format]
+  notes: PDF. Every other row in that table is a plausible wrong answer.
+
+- id: strategic-supplier-terms
+  question: What are the standard payment terms for a strategic supplier?
+  must_cite: [finance-approval-limits]
+  must_say: ["30"]
+  tags: [finance, table, format]
+  notes: Excel. The value is a cell, and only means anything with its row label.
+
+- id: new-joiner-security-training
+  question: How long does a new joiner have to complete security awareness training?
+  must_say: ["two weeks", "2 weeks"]
+  must_not_say: ["30 days"]
+  tags: [security, format, conditions]
+  notes: >
+    Word document, and a deliberate near-miss: the security policy says 30 days
+    for the general case, the onboarding checklist says two weeks for new
+    joiners. Answering "30 days" is retrieving the wrong one of two true things.
+
+# --- needs more than one document ------------------------------------------
+
+- id: probation-remote-work
+  question: I am still on probation. Can I work from home on Fridays?
+  must_say: ["probation", "on site"]
+  must_not_say: ["three days", "yes"]
+  tags: [hr, cross-doc]
+
+- id: ict-supplier-exit-period
+  question: What exit period must we agree with a critical ICT supplier?
+  must_say: ["six months"]
+  tags: [finance, cross-doc]
+  notes: Stated in both the procurement policy and the continuity PDF. Either
+    citation is correct; inventing a third figure is not.
+
+# --- the documents disagree ------------------------------------------------
+
+- id: contested-travel-threshold
+  question: Above what amount do I need approval before booking travel?
+  kind: refusal
+  tags: [contested, finance]
+  notes: >
+    The expenses policy says EUR 500 and the travel guidelines say EUR 1,000.
+    Both are current. The only correct behaviour is to refuse and name both,
+    which is what the CONTESTED tier does. Picking one - even the more recent
+    one - is the failure this project exists to prevent, because the employee
+    acts on it.
+
+# --- must refuse: the corpus does not answer these -------------------------
+
+- id: refuse-sick-leave
+  question: How many sick days am I entitled to?
+  kind: refusal
+  tags: [safety, hr]
+  notes: Adjacent to parental leave and absent. A tempting extrapolation.
+
+- id: refuse-bonus
+  question: When are annual bonuses paid?
+  kind: refusal
+  tags: [safety, hr]
+  notes: >
+    The expenses policy describes the payroll run on the 25th, so retrieval will
+    surface something confident and irrelevant.
+
+- id: refuse-notice-period
+  question: What is my notice period if I resign?
+  kind: refusal
+  tags: [safety, hr]
+
+- id: refuse-pension
+  question: What does Aveline contribute to my pension?
+  kind: refusal
+  tags: [safety, hr]
+
+- id: refuse-adoption-leave
+  question: Does the parental leave policy cover adoption?
+  kind: refusal
+  tags: [safety, hr]
+  notes: >
+    The policy says "birth or placement", which is suggestive and not an answer.
+    A helpful-sounding yes here is a fabrication about a legal entitlement.
+
+- id: refuse-dress-code
+  question: Is there a dress code for client meetings?
+  kind: refusal
+  tags: [safety]
+
+- id: refuse-us-transfer-vendor
+  question: Which US vendors are we currently transferring personal data to?
+  kind: refusal
+  tags: [safety, legal]
+  notes: >
+    The data protection policy describes the transfer register and the legal
+    basis, but the register itself is not in the corpus. Describing the process
+    is fine; naming vendors would be invention.
+
+- id: refuse-severance
+  question: How is redundancy pay calculated?
+  kind: refusal
+  tags: [safety, hr]

@@ -218,21 +218,45 @@ def _cmd_reject(args: argparse.Namespace) -> int:
 
 
 def _cmd_conflicts(args: argparse.Namespace) -> int:
-    """Show documents that disagree with each other."""
+    """Show documents that disagree with each other, grouped by pair.
+
+    Grouped for the same reason `audit` groups: two documents disagreeing on
+    twenty figures is one stale copy, and listing it twenty times buries the
+    pair that disagrees on one - which is the one somebody has to decide.
+    """
+    from .knowledge.variants import group_stored
+
     engine = _engine()
     conflicts = engine.knowledge.open_conflicts()
     if not conflicts:
         print("No unresolved disagreements between your documents.")
         return 0
 
-    print(f"{len(conflicts)} unresolved disagreements\n")
-    for conflict in conflicts[: args.limit]:
-        print(f"  {conflict.key}")
-        print(f"    [{conflict.left_document}] {conflict.left_raw}")
-        print(f"      {conflict.left_sentence[:150]}")
-        print(f"    [{conflict.right_document}] {conflict.right_raw}")
-        print(f"      {conflict.right_sentence[:150]}")
+    pairs = group_stored(list(conflicts))
+    real = [p for p in pairs if not p.is_variant]
+    duplicated = [p for p in pairs if p.is_variant]
+
+    shown = 0
+    if real:
+        print(f"{sum(len(p.conflicts) for p in real)} disagreement(s) to decide\n")
+    for pair in real:
+        for conflict in pair.conflicts:
+            if shown >= args.limit:
+                break
+            shown += 1
+            print(f"  {conflict.key}")
+            print(f"    [{conflict.left_document}] {conflict.left_raw}")
+            print(f"      {conflict.left_sentence[:150]}")
+            print(f"    [{conflict.right_document}] {conflict.right_raw}")
+            print(f"      {conflict.right_sentence[:150]}")
+            print()
+
+    if duplicated:
+        print(f"{len(duplicated)} pair(s) look like duplicated documents:\n")
+        for pair in duplicated:
+            print(f"  {pair.describe()}")
         print()
+
     print("Questions touching these are refused until resolved:")
     print("  openknowledge resolve <key> --keep <document-id>")
     return 0
@@ -282,6 +306,22 @@ def _cmd_eval(args: argparse.Namespace) -> int:
         return 2
 
     engine = _engine()
+
+    if args.dry_run:
+        # Free, offline, and the first thing to run against a new golden set:
+        # about half of a new set's failures are the set's own, not the model's.
+        from .evaluation import format_preflight, preflight
+
+        checked = preflight(
+            cases,
+            retriever=engine.retriever,
+            k=engine.settings.retrieval_k,
+            candidates=engine.settings.rerank_candidates,
+            reranker=engine.cascade.reranker,
+        )
+        print(format_preflight(checked))
+        return 0 if checked.passed else 1
+
     report = asyncio.run(run_eval(engine.cascade, cases, check_determinism=not args.no_determinism))
 
     if args.json:
@@ -479,6 +519,11 @@ def main(argv: list[str] | None = None) -> int:
         "--no-determinism",
         action="store_true",
         help="skip the ask-twice check (halves the run cost)",
+    )
+    p.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="check the set is answerable from retrieval alone - free, no model, no network",
     )
     p.add_argument("--baseline", help="compare against a saved baseline and fail on regressions")
     p.add_argument("--save-baseline", help="write this run's metrics to a file")

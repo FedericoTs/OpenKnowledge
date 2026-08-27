@@ -59,6 +59,12 @@ Honest status. "Built" means implemented and covered by tests in this repository
 - **Standalone audit** — `openknowledge audit ./folder` reports where a folder's documents
   disagree with each other with no API key, no model, no database and nothing written. Exits
   non-zero on findings so it can gate CI.
+- **Test corpus and pre-flight** — eleven synthetic documents across Markdown, Word, Excel
+  and PDF built around traps (conditions, negations, a live contradiction, a superseded
+  copy, near-misses that must stay quiet), a 26-case golden set over them, and
+  `eval --dry-run`, which checks with no model and no cost that every answerable case has
+  its evidence in the retrieved context. About half of a new golden set's failures are the
+  set's own, and all of them are free to find.
 - **Evaluation harness** — golden set with a first-class safety set, scoring for accuracy,
   false answers, determinism and paraphrase consistency, cost reported alongside, and
   baseline comparison that fails CI on regressions. See [EVALUATION.md](EVALUATION.md).
@@ -68,8 +74,12 @@ Honest status. "Built" means implemented and covered by tests in this repository
 1. **A real run.** Every cost lever is now built and measured; not one *answer-side* number
    is, because no model has been called. Draft yield, gate pass rate, the escalation rate
    the whole cost model now turns on, and whether an open-weight rung actually grounds
-   answers are all assumed. Point it at a folder with a model configured and the assumptions
-   become measurements. **This now outranks everything below it, by a distance.**
+   answers are all assumed. **Everything needed to do it now ships**: a synthetic corpus
+   built around traps (`evals/corpus/aveline`), a 26-case golden set with a nine-case safety
+   set (`evals/golden-aveline`), a free `eval --dry-run` that proves the set is answerable
+   before you spend anything, and a step-by-step guide for all three tiers in
+   [TEST-RUN.md](TEST-RUN.md). What is missing is an API key. **This outranks everything
+   below it, by a distance.**
 2. **A cross-encoder reranker** behind the `Reranker` protocol that already exists. The
    shipped one is free and model-less and fixes three specific BM25 failures; a real
    cross-encoder (`bge-reranker-v2-m3`, Apache-2.0, 80–200 ms for 100 documents on CPU)
