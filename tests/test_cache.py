@@ -130,3 +130,30 @@ def test_top_questions_surfaces_pin_candidates(store: AnswerStore) -> None:
         store.record("how do i book leave", _answer())
     store.record("what is the vpn host", _answer())
     assert store.top_questions(limit=1) == [("how do i book leave", 5)]
+
+
+# -- pin provenance --------------------------------------------------------
+
+
+def test_citations_are_built_from_the_indexed_corpus(retriever) -> None:
+    from openknowledge.cache import citations_for
+
+    (citation,) = citations_for(retriever, ("hr-handbook",))
+    assert citation.document_title == "HR Handbook"
+    assert "parental leave" in citation.snippet.lower()
+
+
+def test_citing_a_document_that_is_not_indexed_is_visible_not_silent(retriever) -> None:
+    """An admin can pin a wrong source; the reader should be able to tell."""
+    from openknowledge.cache import citations_for
+
+    (citation,) = citations_for(retriever, ("does-not-exist",))
+    assert citation.document_id == "does-not-exist"
+    assert "not currently in the indexed corpus" in citation.snippet
+
+
+def test_citations_for_tolerates_a_retriever_without_the_method() -> None:
+    from openknowledge.cache import citations_for
+
+    (citation,) = citations_for(object(), ("some-doc",))
+    assert citation.document_id == "some-doc"

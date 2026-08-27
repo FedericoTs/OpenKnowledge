@@ -143,3 +143,15 @@ class BM25Retriever:
             if allowed and not (allowed & principals):
                 return False
         return True
+
+    def describe_document(self, document_id: str) -> tuple[str, str] | None:
+        """Return ``(title, snippet)`` for an indexed document, or None.
+
+        Used when an admin pins an answer and names its sources: the pin then
+        carries the same provenance a model-generated answer would, so a reader
+        can check it rather than taking it on trust.
+        """
+        for chunk in self._chunks:
+            if chunk.document_id == document_id:
+                return chunk.document_title, chunk.text
+        return None

@@ -41,6 +41,12 @@ jobs:
       - name: Cost model still computes
         run: uv run python tools/cost_model.py
 
+      # The scorer itself is exercised by tests/test_evaluation.py above, which
+      # scripts model answers. This step only checks the golden set parses and the
+      # safety set runs - a real evaluation needs a configured model.
+      - name: Golden set loads and the safety set runs
+        run: uv run openknowledge eval --only refusal
+
   docker:
     runs-on: ubuntu-latest
     steps:

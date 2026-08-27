@@ -81,6 +81,28 @@ HR writes the canonical answer to "how much parental leave do I get", it is retu
 every time, for free, with no model involved. `openknowledge top` ranks questions by
 frequency so an admin can see which ones are worth the ten minutes.
 
+```bash
+openknowledge pin "How much parental leave do I get?" \
+  "20 weeks fully paid after 12 months of continuous service; 6 weeks at statutory rate below that." \
+  --cite parental-leave \
+  --alias "what is the parental leave entitlement" \
+  --alias "how much time off do I get for a new baby" \
+  --author hr@example.com
+```
+
+Two flags worth using every time:
+
+`--cite` attaches the source documents, so a pinned answer carries the same provenance a
+model-generated one does. A pin without sources asks the reader to take it on trust, which is
+the one thing this project is trying not to do. Citing a document that is not in the corpus
+produces a visible marker rather than a silent omission — the grounding rules that apply to
+models should apply to people too.
+
+`--alias` catches the phrasings canonicalisation deliberately will not collapse. Until the
+semantic cache lands, this is how "what is the parental leave entitlement" reaches the same
+answer as "how much parental leave do I get". `openknowledge eval` will tell you when you have
+missed one: paraphrase consistency drops.
+
 Pins are access-checked like any other answer.
 
 ## Verifying it yourself

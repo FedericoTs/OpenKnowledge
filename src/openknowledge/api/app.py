@@ -25,6 +25,7 @@ from typing import Annotated, Any
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.responses import HTMLResponse
 
+from ..cache import citations_for
 from ..canonical import canonicalize_query
 from ..config import Settings, load_settings
 from .engine import Engine, build_engine
@@ -143,17 +144,31 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get("/admin/pins", dependencies=[AdminOnly])
     async def list_pins(engine: EngineDep) -> list[dict[str, Any]]:
         return [
-            {"question": p.canonical_query, "answer": p.answer, "author": p.author}
+            {
+                "question": p.canonical_query,
+                "answer": p.answer,
+                "author": p.author,
+                "cited": [c.document_id for c in p.citations],
+            }
             for p in engine.store.list_pins()
         ]
 
     @app.post("/admin/pins", dependencies=[AdminOnly], status_code=201)
     async def create_pin(req: PinRequest, engine: EngineDep) -> dict[str, Any]:
-        canonical = canonicalize_query(req.question)
-        if not canonical:
+        phrasings = [req.question, *req.aliases]
+        canonicals = [c for c in (canonicalize_query(p) for p in phrasings) if c]
+        if not canonicals:
             raise HTTPException(422, "question is empty after normalisation")
-        engine.store.pin(canonical, req.answer, author=req.author)
-        return {"question": canonical, "pinned": True}
+
+        citations = citations_for(engine.retriever, tuple(req.cite))
+        for canonical in canonicals:
+            engine.store.pin(canonical, req.answer, citations=citations, author=req.author)
+        return {
+            "question": canonicals[0],
+            "aliases": canonicals[1:],
+            "cited": [c.document_id for c in citations],
+            "pinned": True,
+        }
 
     @app.delete("/admin/pins", dependencies=[AdminOnly])
     async def delete_pin(question: str, engine: EngineDep) -> dict[str, Any]:

@@ -55,6 +55,11 @@ class PinRequest(BaseModel):
     question: str = Field(min_length=1)
     answer: str = Field(min_length=1)
     author: str | None = None
+    #: Document ids this answer comes from. A pinned answer without provenance
+    #: asks the reader to trust it, which is the thing this project avoids.
+    cite: list[str] = []
+    #: Other phrasings that should resolve to the same answer.
+    aliases: list[str] = []
 
 
 class ReindexResponse(BaseModel):

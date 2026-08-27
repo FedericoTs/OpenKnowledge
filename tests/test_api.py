@@ -164,3 +164,55 @@ def test_refusal_is_not_reported_as_cached(client: TestClient) -> None:
     body = client.post("/chat", json={"question": "Something not in the docs at all"}).json()
     assert body["tier"] == "refused"
     assert body["cached"] is False
+
+
+def test_a_pin_can_carry_provenance(client: TestClient) -> None:
+    """A pinned answer without sources asks the reader to take it on trust."""
+    client.post(
+        "/admin/pins",
+        headers=AUTH,
+        json={
+            "question": "How much parental leave?",
+            "answer": "20 weeks after 12 months of service.",
+            "cite": ["leave"],
+            "author": "hr@example.com",
+        },
+    )
+    body = client.post("/chat", json={"question": "How much parental leave?"}).json()
+    assert body["tier"] == "pinned"
+    assert body["citations"][0]["document_id"] == "leave"
+    assert body["citations"][0]["document_title"] == "Parental Leave"
+
+
+def test_aliases_let_one_pin_answer_several_phrasings(client: TestClient) -> None:
+    created = client.post(
+        "/admin/pins",
+        headers=AUTH,
+        json={
+            "question": "How much parental leave do I get?",
+            "answer": "20 weeks.",
+            "aliases": [
+                "what is the parental leave entitlement",
+                "how much time off do I get for a new baby",
+            ],
+        },
+    ).json()
+    assert len(created["aliases"]) == 2
+
+    for phrasing in [
+        "How much parental leave do I get?",
+        "What is the parental leave entitlement?",
+        "how much time off do I get for a new baby",
+    ]:
+        body = client.post("/chat", json={"question": phrasing}).json()
+        assert body["tier"] == "pinned", phrasing
+        assert body["answer"] == "20 weeks."
+
+
+def test_listed_pins_show_their_sources(client: TestClient) -> None:
+    client.post(
+        "/admin/pins",
+        headers=AUTH,
+        json={"question": "q?", "answer": "a", "cite": ["leave"]},
+    )
+    assert client.get("/admin/pins", headers=AUTH).json()[0]["cited"] == ["leave"]

@@ -32,6 +32,9 @@ from pathlib import Path
 from ..costs import Usage
 from ..types import Answer, Citation, Tier
 
+#: How much of a source document to keep as a pin's citation snippet.
+_PIN_SNIPPET_CHARS = 280
+
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS pinned_answers (
     canonical_query TEXT PRIMARY KEY,
@@ -371,3 +374,30 @@ class AnswerStore:
             (limit,),
         ).fetchall()
         return [(r["canonical_query"], r["n"]) for r in rows]
+
+
+def citations_for(retriever: object, document_ids: tuple[str, ...]) -> tuple[Citation, ...]:
+    """Build citations for ``document_ids`` using an indexed retriever.
+
+    An id that is not in the corpus still produces a citation, with the id as its
+    title. Dropping it silently would let an admin pin an answer that claims a
+    source which does not exist - and the grounding rules that apply to models
+    should apply to people too.
+    """
+    describe = getattr(retriever, "describe_document", None)
+    citations: list[Citation] = []
+    for doc_id in document_ids:
+        found = describe(doc_id) if callable(describe) else None
+        if found is None:
+            citations.append(
+                Citation(
+                    document_id=doc_id,
+                    document_title=doc_id,
+                    snippet="(not currently in the indexed corpus)",
+                )
+            )
+            continue
+        title, text = found
+        snippet = text[:_PIN_SNIPPET_CHARS] + ("..." if len(text) > _PIN_SNIPPET_CHARS else "")
+        citations.append(Citation(document_id=doc_id, document_title=title, snippet=snippet))
+    return tuple(citations)

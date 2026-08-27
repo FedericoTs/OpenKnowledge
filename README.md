@@ -5,9 +5,10 @@
 Self-hosted. Connects to SharePoint and Google Drive. Answers in Teams, Slack, or a web
 widget. Runs on your own hardware, your own API keys, or both.
 
-> **Status: pre-alpha (v0.1.0).** The cost architecture, the determinism layer, and the
-> provider abstraction are implemented and tested. Connectors, channels, and the admin UI
-> are scaffolded interfaces, not working integrations. See [ROADMAP](docs/ROADMAP.md).
+> **Status: pre-alpha (v0.1.0).** The cost architecture, the determinism layer, the
+> grounding gate, the provider abstraction, and the evaluation harness are implemented
+> and tested. Connectors beyond a local folder, the Teams channel, and the admin UI are
+> scaffolded interfaces, not working integrations. See [ROADMAP](docs/ROADMAP.md).
 
 ---
 
@@ -25,7 +26,7 @@ chunk into a frontier model on every single call, with no caching:
 | Answer | 1,000 out | $25.00 / M | $0.025 |
 | | | **total** | **$0.100** |
 
-At 2,000 questions a day that is **$73,000 a year** to look things up in documents the
+At 2,000 questions a day that is **$50,000 a year** to look things up in documents the
 company already owns. And it still gets the answer subtly wrong sometimes, and gives two
 different answers to the same question asked on Tuesday and Thursday.
 
@@ -93,6 +94,19 @@ and the local tier wins by a widening margin.
 Your own hit rates and hardware will differ, which is why `openknowledge costs` reports the
 blended figure from the ledger rather than from this table.
 
+### Is it actually right?
+
+Cheapness is worthless if the answers are wrong, so correctness is measured rather than
+asserted. `openknowledge eval` runs a golden set and reports accuracy **and** cost together —
+either number alone is trivially gamed.
+
+The metric that governs everything else is **false answers**: questions the corpus does not
+cover that got an answer anyway. It is scored separately, and any increase fails the run
+regardless of everything else. A bot that answers 95% of questions correctly and confidently
+invents the other 5% is unusable, because nobody can tell which kind they are reading.
+
+See [EVALUATION.md](docs/EVALUATION.md).
+
 ## Determinism
 
 "The same question gets the same answer" is a hard requirement for policy and procedure
@@ -102,7 +116,7 @@ OpenKnowledge gets it from the cache key instead. Every answer is keyed on the q
 plus **everything that produced it**:
 
 ```
-sha256( canonical_question ‖ corpus_version ‖ prompt_version ‖ policy_version ‖ model_id )
+sha256( canonical_question ‖ corpus_version ‖ prompt_version ‖ policy_version ‖ route_id )
 ```
 
 Two consequences worth stating plainly:
@@ -135,13 +149,23 @@ cp .env.example .env      # optional: add API keys for the escalation tier
 docker compose up
 ```
 
-Then open <http://localhost:8080> for the chat widget and `/admin` for pins and costs.
+Then open <http://localhost:8080> for the chat widget.
+
+Pin the questions people actually ask — those become free and identical forever:
+
+```bash
+openknowledge top                     # what is asked most
+openknowledge pin "How much parental leave do I get?" "20 weeks after 12 months." \
+  --cite parental-leave --alias "what is the parental leave entitlement"
+openknowledge costs                   # what it has cost so far
+```
 
 To develop against it directly:
 
 ```bash
 uv venv && uv pip install -e ".[dev]"
 uv run pytest
+uv run openknowledge eval          # accuracy and cost, together
 uv run uvicorn openknowledge.api.app:app --reload
 ```
 
@@ -157,6 +181,7 @@ src/openknowledge/
 ├── providers/       Anthropic (with prompt caching), OpenAI-compatible (incl. local)
 ├── cascade/         The router: try cheap, verify, escalate
 ├── retrieval/       Hybrid retrieval + the grounding gate
+├── evaluation/      Golden set, scoring, baseline comparison
 ├── connectors/      SharePoint / Google Drive  (interfaces only)
 ├── channels/        Web / Teams / Slack        (web only)
 └── api/             FastAPI app + admin endpoints
@@ -169,6 +194,7 @@ src/openknowledge/
 | [ARCHITECTURE.md](docs/ARCHITECTURE.md) | How the cascade fits together |
 | [COST-MODEL.md](docs/COST-MODEL.md) | The arithmetic, and how to reproduce it |
 | [DETERMINISM.md](docs/DETERMINISM.md) | What we guarantee, and what we don't |
+| [EVALUATION.md](docs/EVALUATION.md) | How correctness is measured, and what fails a run |
 | [ROADMAP.md](docs/ROADMAP.md) | What's built, what's next |
 | [adr/](docs/adr/) | Why the load-bearing decisions went the way they did |
 

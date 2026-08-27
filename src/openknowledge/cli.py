@@ -11,6 +11,7 @@ import argparse
 import asyncio
 import json
 import sys
+from pathlib import Path
 from typing import Any
 
 from .canonical import canonicalize_query
@@ -104,13 +105,28 @@ def _cmd_top(args: argparse.Namespace) -> int:
 
 
 def _cmd_pin(args: argparse.Namespace) -> int:
+    from .cache import citations_for
+
     engine = _engine()
-    canonical = canonicalize_query(args.question)
-    if not canonical:
+    phrasings = [args.question, *(args.alias or [])]
+    canonicals = [c for c in (canonicalize_query(p) for p in phrasings) if c]
+    if not canonicals:
         print("Question is empty after normalisation.", file=sys.stderr)
         return 2
-    engine.store.pin(canonical, args.answer, author=args.author)
-    print(f"pinned: {canonical}")
+
+    citations = citations_for(engine.retriever, tuple(args.cite or ()))
+    unknown = [c.document_id for c in citations if "not currently in the indexed" in c.snippet]
+    if unknown:
+        print(
+            f"warning: cited document(s) not in the corpus: {', '.join(unknown)}",
+            file=sys.stderr,
+        )
+
+    for canonical in canonicals:
+        engine.store.pin(canonical, args.answer, citations=citations, author=args.author)
+        print(f"pinned: {canonical}")
+    if citations:
+        print(f"  sources: {', '.join(c.document_id for c in citations)}")
     return 0
 
 
@@ -122,6 +138,60 @@ def _cmd_unpin(args: argparse.Namespace) -> int:
         return 0
     print(f"no pin found for: {canonical}", file=sys.stderr)
     return 1
+
+
+def _cmd_eval(args: argparse.Namespace) -> int:
+    """Run the golden set and report accuracy and cost together."""
+    import json as _json
+
+    from .evaluation import (
+        DatasetError,
+        compare,
+        filter_cases,
+        format_report,
+        load_cases,
+        run_eval,
+    )
+
+    try:
+        cases = load_cases(args.path)
+    except DatasetError as exc:
+        print(f"golden set: {exc}", file=sys.stderr)
+        return 2
+
+    cases = filter_cases(
+        cases,
+        kind=None if args.only == "all" else args.only,
+        tags=tuple(args.tag or ()),
+    )
+    if not cases:
+        print("no cases matched the given filters", file=sys.stderr)
+        return 2
+
+    engine = _engine()
+    report = asyncio.run(run_eval(engine.cascade, cases, check_determinism=not args.no_determinism))
+
+    if args.json:
+        print(_json.dumps(report.to_dict(), indent=2))
+    else:
+        print(format_report(report, verbose=args.verbose))
+
+    if args.save_baseline:
+        Path(args.save_baseline).write_text(_json.dumps(report.to_dict(), indent=2) + "\n")
+        print(f"\nbaseline written to {args.save_baseline}", file=sys.stderr)
+
+    if args.baseline:
+        baseline = _json.loads(Path(args.baseline).read_text())
+        result = compare(report, baseline)
+        print()
+        for line in result.improvements:
+            print(f"  improved:   {line}")
+        for line in result.regressions:
+            print(f"  REGRESSED:  {line}")
+        if not result.ok:
+            return 1
+
+    return 0 if report.passed else 1
 
 
 def _cmd_pricing(_: argparse.Namespace) -> int:
@@ -168,11 +238,43 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("question")
     p.add_argument("answer")
     p.add_argument("--author")
+    p.add_argument(
+        "--cite",
+        action="append",
+        metavar="DOC_ID",
+        help="document this answer comes from; repeat for several",
+    )
+    p.add_argument(
+        "--alias",
+        action="append",
+        metavar="PHRASING",
+        help="another way people ask this; repeat for several",
+    )
     p.set_defaults(func=_cmd_pin)
 
     p = sub.add_parser("unpin", help="remove a pinned answer")
     p.add_argument("question")
     p.set_defaults(func=_cmd_unpin)
+
+    p = sub.add_parser("eval", help="run the golden set: accuracy and cost together")
+    p.add_argument("--path", default="evals", help="golden set file or directory")
+    p.add_argument("--json", action="store_true")
+    p.add_argument("--verbose", action="store_true", help="show failing answers in full")
+    p.add_argument(
+        "--only",
+        choices=("all", "answerable", "refusal"),
+        default="all",
+        help="run only one kind of case; 'refusal' is the safety set",
+    )
+    p.add_argument("--tag", action="append", help="run only cases carrying this tag")
+    p.add_argument(
+        "--no-determinism",
+        action="store_true",
+        help="skip the ask-twice check (halves the run cost)",
+    )
+    p.add_argument("--baseline", help="compare against a saved baseline and fail on regressions")
+    p.add_argument("--save-baseline", help="write this run's metrics to a file")
+    p.set_defaults(func=_cmd_eval)
 
     p = sub.add_parser("pricing", help="show the model price table")
     p.set_defaults(func=_cmd_pricing)
