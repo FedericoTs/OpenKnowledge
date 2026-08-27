@@ -1,0 +1,80 @@
+# Model price table.
+#
+# `verified` is the date the numbers were last checked against the vendor's own
+# pricing page. Anything without a `verified` date is operator-supplied and is
+# NOT shipped with numbers - you must fill it in. We would rather the cost
+# report refuse to run than quote a price we invented.
+#
+# Prices are USD per million tokens.
+#
+# `cache_read_multiplier` / `cache_write_multiplier` are applied to the *input*
+# price. `batch_multiplier` applies to the whole request when submitted through
+# the vendor's asynchronous batch endpoint.
+
+defaults:
+  cache_read_multiplier: 0.1
+  cache_write_multiplier: 1.25
+  batch_multiplier: 0.5
+
+models:
+  # --- Anthropic -----------------------------------------------------------
+  # Verified against the Anthropic pricing table on the date below.
+  - model_id: claude-opus-5
+    provider: anthropic
+    tier: frontier
+    input_per_mtok: 5.00
+    output_per_mtok: 25.00
+    context_tokens: 1000000
+    cache_min_tokens: 512
+    verified: 2026-06-24
+
+  - model_id: claude-sonnet-5
+    provider: anthropic
+    tier: mid
+    input_per_mtok: 2.00
+    output_per_mtok: 10.00
+    context_tokens: 1000000
+    cache_min_tokens: 1024
+    verified: 2026-06-24
+
+  - model_id: claude-haiku-4-5
+    provider: anthropic
+    tier: small
+    input_per_mtok: 1.00
+    output_per_mtok: 5.00
+    context_tokens: 200000
+    cache_min_tokens: 4096
+    verified: 2026-06-24
+
+  # --- Operator-supplied ---------------------------------------------------
+  # OpenAI and Google rates change often and we have not verified them, so we
+  # ship the slots without numbers. Fill them in from the vendor pricing page
+  # (and set `verified`) before trusting any cost report that includes them.
+  - model_id: openai-frontier
+    provider: openai
+    tier: frontier
+    input_per_mtok: null
+    output_per_mtok: null
+    context_tokens: null
+
+  - model_id: gemini-frontier
+    provider: google
+    tier: frontier
+    input_per_mtok: null
+    output_per_mtok: null
+    context_tokens: null
+
+  # --- Self-hosted ---------------------------------------------------------
+  # A model you run yourself has no per-token invoice. It is not free: it costs
+  # hardware and electricity, which is a *fixed* cost that does not grow with
+  # question volume. `costs.py` models that separately as an amortised hourly
+  # rate; per-token price is genuinely zero.
+  - model_id: local
+    provider: local
+    tier: local
+    input_per_mtok: 0.0
+    output_per_mtok: 0.0
+    context_tokens: 32768
+    cache_read_multiplier: 1.0
+    cache_write_multiplier: 1.0
+    verified: 2026-08-27

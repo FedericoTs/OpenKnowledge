@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OpenKnowledge</title>
+<style>
+  :root {
+    --bg: #fbfbfa; --panel: #fff; --ink: #1a1a19; --muted: #6b6b66;
+    --line: #e5e4e0; --accent: #2f5d50; --free: #2f5d50; --paid: #8a5a2b;
+    --radius: 10px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#191917; --panel:#232320; --ink:#eceae4; --muted:#9a978e;
+            --line:#35342f; --accent:#7fb3a2; --free:#7fb3a2; --paid:#d0a06a; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.55 ui-sans-serif,
+         system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  .wrap { max-width: 720px; margin: 0 auto; padding: 32px 20px 96px; }
+  header { display:flex; align-items:baseline; gap:10px; margin-bottom:6px; }
+  h1 { font-size:19px; margin:0; letter-spacing:-.01em; }
+  .sub { color:var(--muted); font-size:13px; margin:0 0 24px; }
+  #log { display:flex; flex-direction:column; gap:16px; }
+  .msg { padding:14px 16px; border-radius:var(--radius); border:1px solid var(--line); }
+  .q { background:transparent; border-style:dashed; }
+  .q b { color:var(--muted); font-weight:600; font-size:12px; text-transform:uppercase;
+         letter-spacing:.06em; display:block; margin-bottom:4px; }
+  .a { background:var(--panel); }
+  .a p { margin:0 0 10px; white-space:pre-wrap; }
+  .meta { display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin-top:10px;
+          padding-top:10px; border-top:1px solid var(--line); font-size:12px; }
+  .badge { padding:2px 8px; border-radius:999px; border:1px solid currentColor;
+           font-weight:600; font-size:11px; letter-spacing:.03em; }
+  .badge.free { color:var(--free); } .badge.paid { color:var(--paid); }
+  .meta .dim { color:var(--muted); }
+  .cites { margin-top:10px; display:flex; flex-direction:column; gap:6px; }
+  .cite { font-size:12.5px; color:var(--muted); border-left:2px solid var(--line);
+          padding-left:10px; }
+  .cite b { color:var(--ink); font-weight:600; }
+  form { position:fixed; left:0; right:0; bottom:0; background:var(--bg);
+         border-top:1px solid var(--line); padding:14px 20px; }
+  .row { max-width:720px; margin:0 auto; display:flex; gap:8px; }
+  input { flex:1; padding:11px 13px; font:inherit; color:inherit; background:var(--panel);
+          border:1px solid var(--line); border-radius:var(--radius); }
+  input:focus { outline:2px solid var(--accent); outline-offset:-1px; }
+  button { padding:11px 18px; font:inherit; font-weight:600; color:var(--bg);
+           background:var(--accent); border:0; border-radius:var(--radius); cursor:pointer; }
+  button:disabled { opacity:.5; cursor:default; }
+  .err { color:#b3261e; } @media (prefers-color-scheme:dark){ .err{color:#f2b8b5;} }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header><h1>OpenKnowledge</h1></header>
+  <p class="sub">Answers come only from your indexed documents, with the source for each one.</p>
+  <div id="log"></div>
+</div>
+
+<form id="form">
+  <div class="row">
+    <input id="q" autocomplete="off" placeholder="Ask about a policy or procedure&hellip;" required>
+    <button id="send" type="submit">Ask</button>
+  </div>
+</form>
+
+<script>
+const log = document.getElementById('log');
+const form = document.getElementById('form');
+const input = document.getElementById('q');
+const send = document.getElementById('send');
+
+const FREE_TIERS = new Set(['pinned', 'exact', 'semantic']);
+const TIER_LABEL = {
+  pinned: 'pinned answer', exact: 'from cache', semantic: 'from cache',
+  local: 'local model', frontier: 'escalated', refused: 'no answer',
+};
+
+function el(tag, cls, text) {
+  const n = document.createElement(tag);
+  if (cls) n.className = cls;
+  if (text !== undefined) n.textContent = text;
+  return n;
+}
+
+function renderAnswer(data) {
+  const box = el('div', 'msg a');
+  box.appendChild(el('p', null, data.answer));
+
+  if (data.citations && data.citations.length) {
+    const cites = el('div', 'cites');
+    for (const c of data.citations) {
+      const d = el('div', 'cite');
+      d.appendChild(el('b', null, c.document_title + (c.locator ? ' · ' + c.locator : '')));
+      d.appendChild(document.createTextNode(' — ' + c.snippet));
+      cites.appendChild(d);
+    }
+    box.appendChild(cites);
+  }
+
+  const meta = el('div', 'meta');
+  const free = FREE_TIERS.has(data.tier);
+  meta.appendChild(el('span', 'badge ' + (free ? 'free' : 'paid'),
+                      TIER_LABEL[data.tier] || data.tier));
+  meta.appendChild(el('span', 'dim',
+    free ? 'no model call · $0.00' : data.model + ' · $' + data.cost_usd.toFixed(5)));
+  for (const note of data.notes || []) meta.appendChild(el('span', 'dim', '· ' + note));
+  box.appendChild(meta);
+  return box;
+}
+
+form.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const question = input.value.trim();
+  if (!question) return;
+
+  const q = el('div', 'msg q');
+  q.appendChild(el('b', null, 'You asked'));
+  q.appendChild(document.createTextNode(question));
+  log.appendChild(q);
+
+  input.value = '';
+  send.disabled = true;
+  const pending = el('div', 'msg a');
+  pending.appendChild(el('p', null, 'Looking…'));
+  log.appendChild(pending);
+  window.scrollTo(0, document.body.scrollHeight);
+
+  try {
+    const res = await fetch('/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question, channel: 'web' }),
+    });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    pending.replaceWith(renderAnswer(await res.json()));
+  } catch (err) {
+    pending.replaceWith(el('div', 'msg a err', 'Could not reach the server: ' + err.message));
+  } finally {
+    send.disabled = false;
+    input.focus();
+    window.scrollTo(0, document.body.scrollHeight);
+  }
+});
+input.focus();
+</script>
+</body>
+</html>

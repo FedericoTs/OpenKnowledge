@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install
+        run: uv venv --python ${{ matrix.python-version }} && uv pip install -e ".[dev,anthropic]"
+
+      - name: Lint
+        run: |
+          uv run ruff check src tests tools
+          uv run ruff format --check src tests tools
+
+      - name: Typecheck
+        run: uv run mypy
+
+      - name: Test
+        run: uv run pytest -q
+
+      - name: Cost model still computes
+        run: uv run python tools/cost_model.py
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image
+        run: docker build -t openknowledge:ci .
+      - name: Container starts and serves
+        run: |
+          docker run -d --name ok -p 8080:8080 openknowledge:ci
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:8080/healthz && break || sleep 2
+          done
+          curl -sf http://localhost:8080/healthz | grep -q '"status":"ok"'
+          docker rm -f ok

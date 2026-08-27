@@ -1,0 +1,41 @@
+# OpenKnowledge, self-hosted.
+#
+#   docker compose up                      chat widget on http://localhost:8080
+#   docker compose --profile local-llm up   also starts Ollama for the free tier
+#
+# Everything stays on this machine. The app makes no outbound calls unless you
+# set OK_ESCALATION_ENABLED=true and supply an API key.
+
+services:
+  openknowledge:
+    build: .
+    image: openknowledge:0.1.0
+    ports:
+      - "8080:8080"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      # Reach the Ollama service by name when the local-llm profile is running.
+      OK_LOCAL_BASE_URL: ${OK_LOCAL_BASE_URL:-http://ollama:11434/v1}
+    volumes:
+      # Your documents. Read-only: OpenKnowledge indexes, it never writes back.
+      - ./documents:/app/documents:ro
+      # Index, cache, pins, and cost ledger. Persisting this is what keeps the
+      # cache warm - and the cache is where the cost saving lives.
+      - openknowledge-data:/app/data
+    restart: unless-stopped
+
+  ollama:
+    image: ollama/ollama:latest
+    profiles: ["local-llm"]
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-models:/root/.ollama
+    restart: unless-stopped
+    # After first start, pull a model:  docker compose exec ollama ollama pull qwen3:8b
+
+volumes:
+  openknowledge-data:
+  ollama-models:
