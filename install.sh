@@ -106,6 +106,10 @@ OpenKnowledge is installed in $DIR
   Put it on your PATH for this shell:
       export PATH="$DIR/$BIN:\$PATH"
 
+  Or for every shell from now on - this script deliberately does not edit
+  your shell profile, so run it yourself if you want that:
+      echo 'export PATH="$DIR/$BIN:\$PATH"' >> ~/.bashrc
+
   Then, in order:
       openknowledge audit ~/policies     # free, offline, writes nothing
       openknowledge model list           # what your machine can run

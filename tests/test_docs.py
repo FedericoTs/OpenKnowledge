@@ -103,13 +103,26 @@ def test_the_setup_guide_points_at_the_installer_that_exists() -> None:
     assert "install.sh" in guide
     assert (ROOT / "install.sh").exists()
 
-    # The guide promises the whole thing lives in one folder. Comments are
-    # excluded: the script's own header says "no sudo, no system packages", and
-    # matching that would be the test reading the promise instead of checking it.
-    code = "\n".join(
-        line
-        for line in (ROOT / "install.sh").read_text().splitlines()
-        if not line.lstrip().startswith("#")
-    )
+    # The guide promises the whole thing lives in one folder. Two things are
+    # excluded before checking, and both for the same reason - the test has to
+    # look at what the script *does*, not at what it says.
+    #
+    #   comments: the header itself says "no sudo, no system packages".
+    #   heredocs: the closing message tells the reader how to add the PATH line
+    #             to their own .bashrc. Printing that advice is the opposite of
+    #             doing it behind their back.
+    code, in_heredoc = [], False
+    for line in (ROOT / "install.sh").read_text().splitlines():
+        stripped = line.strip()
+        if in_heredoc:
+            in_heredoc = stripped != "EOF"
+            continue
+        if "<<EOF" in stripped:
+            in_heredoc = True
+            continue
+        if not stripped.startswith("#"):
+            code.append(line)
+    executed = "\n".join(code)
+
     for forbidden in ("sudo", "apt-get", "brew install", ".bashrc", ".zshrc", "/usr/local"):
-        assert forbidden not in code, f"install.sh reaches outside its folder: {forbidden}"
+        assert forbidden not in executed, f"install.sh reaches outside its folder: {forbidden}"

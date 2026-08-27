@@ -53,11 +53,24 @@ command with `.venv/bin/`, or add it to your shell for this session:
 
 ```sh
 cd ~/Documents/Projects/OpenKnowledge
-export PATH="$PWD/.venv/bin:$PATH"
+export PATH="$PWD/.venv/bin:$PATH"     # .venv/Scripts on Windows
 ```
 
-To make that permanent, add the same line to `~/.zshrc` (macOS) or `~/.bashrc`
-(most Linux) with the path spelled out in full.
+That lasts as long as the terminal. To make it permanent — this is the single
+most common thing to trip over, because a new shell forgets it:
+
+```sh
+# macOS / Linux
+echo "export PATH=\"$HOME/Documents/Projects/OpenKnowledge/.venv/bin:\$PATH\"" >> ~/.zshrc
+
+# Windows, in Git Bash
+echo "export PATH=\"$HOME/Documents/Projects/OpenKnowledge/.venv/Scripts:\$PATH\"" >> ~/.bashrc
+```
+
+Open a new terminal for it to take effect. The installer will not do this for
+you: editing your shell profile is the one thing that would leave a trace
+outside the install folder, and then `rm -rf` would no longer be the whole
+uninstall.
 
 ---
 
