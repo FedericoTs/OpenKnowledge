@@ -12,10 +12,12 @@ import pytest
 from openknowledge.knowledge import KnowledgeStore, find_conflicts
 from openknowledge.knowledge.relevance import (
     _fold,
+    claim_coverage,
     describe_for_user,
     overlap_coefficient,
     relevant_conflicts,
 )
+from openknowledge.knowledge.store import StoredConflict
 from openknowledge.retrieval import Document
 
 OLD = Document(
@@ -136,3 +138,81 @@ def test_thresholds_are_tunable(conflicts) -> None:
         min_shared=10,
     )
     assert strict == []
+
+
+# -- the failure a live run found ------------------------------------------
+
+
+def _travel_conflict() -> StoredConflict:
+    """The contested claim as the detector actually stores it.
+
+    Context words are the folded content of the sentence around the figure:
+    "Any single item of travel expenditure above EUR 500 requires written
+    approval from a line manager before the expense is incurred."
+    """
+    return StoredConflict(
+        key="hr-expenses-policy:EUR 500|hr-travel-guidelines:EUR 1,000",
+        left_document="hr-expenses-policy",
+        left_raw="EUR 500",
+        left_sentence="Travel expenditure above EUR 500 requires written approval.",
+        right_document="hr-travel-guidelines",
+        right_raw="EUR 1,000",
+        right_sentence="Travel expenditure above EUR 1,000 requires written approval.",
+        unit="eur",
+        kind="numeric",
+        overlap=0.43,
+        context=frozenset(
+            {
+                "travel",
+                "expenditure",
+                "requires",
+                "written",
+                "approval",
+                "line",
+                "manager",
+                "before",
+            }
+        ),
+        status="open",
+    )
+
+
+def test_the_same_question_asked_at_greater_length_is_still_contested() -> None:
+    """The safety failure a live run caught.
+
+    Under an overlap coefficient these two scored 0.60 and 0.38 against a 0.5
+    threshold, so the terser wording was refused and the longer one was answered
+    with one of the two disputed figures. They are the same question.
+    """
+    conflict = _travel_conflict()
+    terse = relevant_conflicts("What is the approval threshold for travel expenses?", [conflict])
+    wordy = relevant_conflicts(
+        "Above what amount do I need approval before booking travel?", [conflict]
+    )
+    assert terse, "the terse wording must be contested"
+    assert wordy, "and so must the same question asked at greater length"
+
+
+def test_padding_a_question_can_never_lower_its_score() -> None:
+    """The structural property, not just the one case.
+
+    A gate a wordier question slips past is not a gate, so this is asserted
+    directly rather than left to the thresholds to imply.
+    """
+    context = frozenset({"travel", "expenditure", "approval", "written", "manager"})
+    question = frozenset({"travel", "approval"})
+    padded = question | {"please", "quickly", "today", "colleague", "office", "thanks"}
+
+    assert claim_coverage(padded, context) >= claim_coverage(question, context)
+
+
+def test_an_unrelated_question_over_the_same_conflicts_stays_quiet() -> None:
+    """Lowering the threshold must not turn every question into a refusal."""
+    conflict = _travel_conflict()
+    for question in (
+        "How much parental leave do I get?",
+        "Can I copy a file to a USB stick?",
+        "How long do we keep CCTV footage?",
+        "What is the recovery time objective for payments processing?",
+    ):
+        assert not relevant_conflicts(question, [conflict]), question
