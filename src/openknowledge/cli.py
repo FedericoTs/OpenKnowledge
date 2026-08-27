@@ -529,16 +529,30 @@ def _cmd_model(args: argparse.Namespace) -> int:
         return 0
 
     # --- use ---------------------------------------------------------------
+    def report(status: str, done: int, total: int) -> None:
+        """One line, rewritten in place, so a long download does not look hung."""
+        if total:
+            gb = f"{done / 1_000_000_000:.1f} of {total / 1_000_000_000:.1f} GB"
+            line = f"  {status}: {gb} ({done * 100 // total}%)"
+        else:
+            line = f"  {status}"
+        # Pad to clear whatever the previous, longer line left behind.
+        print(f"\r{line:<64}", end="", file=sys.stderr, flush=True)
+
     try:
         result = local_models.switch(
             runtime,
             args.model,
             context=args.context,
             allow_download=not args.no_download,
+            on_progress=report if sys.stderr.isatty() else None,
         )
     except local_models.ModelError as exc:
-        print(f"error: {exc}", file=sys.stderr)
+        print(f"\nerror: {exc}", file=sys.stderr)
         return 1
+    finally:
+        if sys.stderr.isatty():
+            print("\r" + " " * 64 + "\r", end="", file=sys.stderr, flush=True)
 
     values = {"OK_LOCAL_MODEL": result.model, "OK_LOCAL_ENABLED": "true"}
     if result.context:

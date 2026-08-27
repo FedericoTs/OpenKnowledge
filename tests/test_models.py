@@ -37,6 +37,8 @@ class _State:
         self.created: list[dict[str, object]] = []
         self.pulled: list[str] = []
         self.is_ollama = True
+        #: When set, /api/pull streams this error instead of succeeding.
+        self.fail_pull_with: str | None = None
 
 
 @pytest.fixture
@@ -94,8 +96,26 @@ def base_url(state: _State) -> Iterator[str]:
                 )
             if self.path == "/api/pull":
                 state.pulled.append(body.get("model", ""))
+                if state.fail_pull_with:
+                    return self._send(200, {"error": state.fail_pull_with})
                 state.models[body["model"]] = 40_960
-                return self._send(200, {"status": "success"})
+                if not body.get("stream", True):
+                    return self._send(200, {"status": "success"})
+                # Ollama streams newline-delimited progress, not one object at
+                # the end. The stub does too, or the progress path is untested.
+                lines = [
+                    {"status": "pulling manifest"},
+                    {"status": "pulling 1a2b", "completed": 1_000_000, "total": 5_000_000},
+                    {"status": "pulling 1a2b", "completed": 5_000_000, "total": 5_000_000},
+                    {"status": "success"},
+                ]
+                payload = ("\n".join(json.dumps(row) for row in lines) + "\n").encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/x-ndjson")
+                self.send_header("Content-Length", str(len(payload)))
+                self.end_headers()
+                self.wfile.write(payload)
+                return None
             if self.path == "/api/create":
                 state.created.append(body)
                 name = body["model"]
@@ -145,6 +165,32 @@ def test_an_absent_model_is_downloaded_first(base_url: str, state: _State) -> No
     result = switch(probe(base_url), "qwen3:14b")
     assert state.pulled == ["qwen3:14b"]
     assert result.pulled
+
+
+def test_the_download_reports_progress_while_it_runs(base_url: str) -> None:
+    """Five gigabytes behind a silent request looks exactly like a hung command.
+
+    Asking Ollama for a pull without `stream` returns one response at the end,
+    which is what this used to do: the terminal sat blank for ten minutes with
+    no way to tell a slow download from a dead one.
+    """
+    seen: list[tuple[str, int, int]] = []
+    switch(probe(base_url), "qwen3:14b", on_progress=lambda *row: seen.append(row))
+
+    assert len(seen) >= 3, "progress arrived only at the end, or not at all"
+    assert seen[0][0] == "pulling manifest"
+    assert seen[-1][0] == "success"
+    # Enough to render a percentage, not just a spinner.
+    assert any(total and 0 < done < total for _, done, total in seen)
+
+
+def test_a_failed_download_is_reported_from_the_stream(base_url: str, state: _State) -> None:
+    """Ollama reports a bad model name inside the stream, with a 200 status."""
+    from openknowledge.models import pull
+
+    state.fail_pull_with = "model 'nope:1b' not found"
+    with pytest.raises(ModelError, match="not found"):
+        pull(probe(base_url), "nope:1b")
 
 
 def test_downloading_can_be_refused(base_url: str, state: _State) -> None:

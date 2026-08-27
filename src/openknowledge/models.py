@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import urlparse
@@ -187,24 +188,51 @@ def installed(runtime: Runtime, *, timeout: float = 10.0) -> tuple[InstalledMode
         return ()
 
 
-def pull(runtime: Runtime, model: str, *, timeout: float = 3600.0) -> None:
-    """Download ``model`` into the runtime. Minutes, and gigabytes, so it is loud."""
+def pull(
+    runtime: Runtime,
+    model: str,
+    *,
+    on_progress: Callable[[str, int, int], None] | None = None,
+) -> None:
+    """Download ``model`` into the runtime, reporting progress as it arrives.
+
+    Gigabytes and minutes. Asking for it without ``stream`` returns one response
+    at the end, which means a terminal that sits blank for ten minutes and looks
+    hung - so this streams, and hands each update to ``on_progress`` as
+    ``(status, completed_bytes, total_bytes)``.
+
+    The read timeout is per-chunk rather than for the whole download: a slow
+    connection should not fail, but a stalled one should.
+    """
     if not runtime.is_ollama:
         raise ModelError(
             f"{runtime.hostname} is not Ollama, so OpenKnowledge cannot download "
             f"{model!r} for you. Load it into that runtime yourself, then re-run this."
         )
+
+    timeout = httpx.Timeout(connect=15.0, read=180.0, write=30.0, pool=15.0)
     try:
-        with httpx.Client(timeout=timeout) as client:
-            response = client.post(
-                f"{runtime.root}/api/pull", json={"model": model, "stream": False}
-            )
+        with (
+            httpx.Client(timeout=timeout) as client,
+            client.stream(
+                "POST", f"{runtime.root}/api/pull", json={"model": model, "stream": True}
+            ) as response,
+        ):
             response.raise_for_status()
-            body = response.json()
+            for line in response.iter_lines():
+                if not line.strip():
+                    continue
+                event = json.loads(line)
+                if event.get("error"):
+                    raise ModelError(f"could not download {model!r}: {event['error']}")
+                if on_progress is not None:
+                    on_progress(
+                        str(event.get("status", "")),
+                        int(event.get("completed") or 0),
+                        int(event.get("total") or 0),
+                    )
     except (httpx.HTTPError, ValueError) as exc:
         raise ModelError(f"could not download {model!r}: {exc}") from exc
-    if isinstance(body, dict) and body.get("error"):
-        raise ModelError(f"could not download {model!r}: {body['error']}")
 
 
 def derived_name(model: str, context: int) -> str:
@@ -255,6 +283,7 @@ def switch(
     *,
     context: int | None = None,
     allow_download: bool = True,
+    on_progress: Callable[[str, int, int], None] | None = None,
 ) -> Switch:
     """Work out what ``OK_LOCAL_MODEL`` should become, doing the work it implies.
 
@@ -298,7 +327,7 @@ def switch(
                 f"{model!r} is not installed. Run it without --no-download, or "
                 f"`ollama pull {model}` yourself."
             )
-        pull(runtime, model)
+        pull(runtime, model, on_progress=on_progress)
         result.pulled = True
 
     native = context_window(runtime, model)
