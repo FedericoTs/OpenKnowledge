@@ -575,12 +575,13 @@ def test_every_answerable_case_in_the_shipped_set_guards_a_wrong_answer() -> Non
             assert case.must_not_say, f"{case.id}: no wrong answer to rule out"
 
 
-def test_a_refusal_carries_no_confidence_rather_than_full_confidence() -> None:
-    """A refusal asserts nothing, so there is nothing to be confident about.
+def test_a_refusal_carries_no_support_figure() -> None:
+    """A refusal asserts nothing, so there is nothing to measure support for.
 
-    Defaulting it to 1.0 made the one reply that deliberately says nothing the
-    most certain thing in the log - and any consumer plotting the field would
-    have read a corpus full of refusals as a corpus full of certainty.
+    An earlier version defaulted this to full marks, which made the one reply
+    that deliberately says nothing the best-supported thing in the log - and any
+    consumer plotting the field would have read a corpus full of refusals as a
+    corpus full of certainty.
     """
     refusal = Answer(
         text="I don't know - that isn't covered by the documents I have.",
@@ -596,11 +597,11 @@ def test_a_refusal_carries_no_confidence_rather_than_full_confidence() -> None:
         cache_key="k",
         grounded=True,
     )
-    assert refusal.confidence is None
-    assert contested.confidence is None
+    assert refusal.support is None
+    assert contested.support is None
 
 
-def test_confidence_separation_is_none_when_nothing_failed() -> None:
+def test_support_separation_is_none_when_nothing_failed() -> None:
     """It must stay silent rather than imply it was checked."""
     case = Case(id="a", question="Q?", must_say=(("x",),), must_not_say=("y",))
     report = EvalReport(
@@ -609,37 +610,37 @@ def test_confidence_separation_is_none_when_nothing_failed() -> None:
                 case=case,
                 answer=Answer(text="x", tier=Tier.LOCAL, model_id="m", cache_key="k"),
                 passed=True,
-                confidence=0.9,
+                support=0.9,
             )
         ]
     )
-    assert report.confidence_separation is None
-    assert "Confidence" not in format_report(report)
+    assert report.support_separation is None
+    assert "Grounding support" not in format_report(report)
 
 
-def test_confidence_separation_reports_both_means_when_there_is_a_failure() -> None:
+def test_support_separation_reports_both_means_when_there_is_a_failure() -> None:
     case = Case(id="a", question="Q?", must_say=(("x",),), must_not_say=("y",))
     answer = Answer(text="x", tier=Tier.LOCAL, model_id="m", cache_key="k")
     report = EvalReport(
         results=[
-            CaseResult(case=case, answer=answer, passed=True, confidence=0.9),
-            CaseResult(case=case, answer=answer, passed=False, confidence=0.5),
+            CaseResult(case=case, answer=answer, passed=True, support=0.9),
+            CaseResult(case=case, answer=answer, passed=False, support=0.5),
         ]
     )
-    good, bad = report.confidence_separation  # type: ignore[misc]
+    good, bad = report.support_separation  # type: ignore[misc]
     assert (good, bad) == (0.9, 0.5)
     assert "separates" in format_report(report)
 
 
-def test_a_confidence_score_that_does_not_separate_says_so() -> None:
-    """The failure mode worth naming: a score that makes wrong answers look
-    checked is worse than no score."""
+def test_a_score_that_does_not_separate_says_so() -> None:
+    """The failure mode worth naming, and the one a real run produced: a score
+    that makes wrong answers look checked is worse than no score."""
     case = Case(id="a", question="Q?", must_say=(("x",),), must_not_say=("y",))
     answer = Answer(text="x", tier=Tier.LOCAL, model_id="m", cache_key="k")
     report = EvalReport(
         results=[
-            CaseResult(case=case, answer=answer, passed=True, confidence=0.5),
-            CaseResult(case=case, answer=answer, passed=False, confidence=0.9),
+            CaseResult(case=case, answer=answer, passed=True, support=0.5),
+            CaseResult(case=case, answer=answer, passed=False, support=0.9),
         ]
     )
     assert "DOES NOT separate" in format_report(report)

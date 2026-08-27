@@ -141,6 +141,15 @@ Honest status. "Built" means implemented and covered by tests in this repository
   Hancom server, which breaks the no-external-calls promise.
 - **Spreadsheet formulas are read as last-saved values**, which can be stale.
 
+### Withdrawn after measurement
+
+- **A scored answer confidence.** Built from free signals, then measured against
+  degraded retrieval: 13 of 17 cases got *more* confident on *less* evidence, and at
+  `k=2` no penalty fired at all. Every signal was a property of the retrieval setting
+  rather than of the answer. Replaced by `Answer.support`, the grounding gate's own
+  figure, which is a fact rather than a prediction. See
+  [EVALUATION.md](EVALUATION.md) and `retrieval/confidence.py`.
+
 ### Known gaps in contradiction detection
 
 Worth stating plainly, and the first one is the largest thing wrong with this project:

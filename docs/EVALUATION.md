@@ -114,6 +114,42 @@ turn the answer into a number is to label what it finds and add the cases here.
 See [KNOWLEDGE.md](KNOWLEDGE.md#what-a-labelled-set-could-not-tell-us) for the
 full account of what that run exposed and what it cost to fix.
 
+## A confidence score that was built, measured and withdrawn
+
+Answers used to carry a confidence in [0, 1], derived from signals the cascade
+already computed: how much of the answer's wording appeared in its sources,
+whether the sources offered a competing figure of the same unit, whether an open
+disagreement came close to blocking the question, whether one document was cited
+out of several that matched. Free, deterministic, and wrong.
+
+Measured against a live model on 17 cases, then re-measured with retrieval
+deliberately starved to `k=2` with reranking off:
+
+| | mean confidence |
+|---|---:|
+| More evidence (k=6, reranked) | 0.905 |
+| **Less evidence (k=2, no rerank)** | **0.939** |
+
+**13 of 17 cases got more confident on less evidence**, and at k=2 not one
+penalty fired. Every signal turned out to be a property of how much was
+retrieved rather than of how reliable the answer was — fewer chunks means fewer
+competing figures, fewer documents to have cited only one of, fewer conflicts in
+range. The score rose as the system was degraded, and would have told an operator
+that narrowing retrieval had improved their answers. On the one case that failed,
+confidence was *higher* than the passing mean.
+
+What replaced it is the measurement without the verdict. `Answer.support` is the
+grounding gate's own figure — the share of the answer's content words that appear
+in the text it cited. It is a fact rather than a prediction and claims nothing
+about whether the answer is right.
+
+If you want a real confidence score, this harness will test one: `eval` reports
+mean support on answers that passed against answers that failed, and says
+**DOES NOT separate** in as many words when the score is higher on the wrong
+ones. Build a candidate, run it on a labelled corpus, keep it only if it
+separates — and check it against deliberately degraded retrieval before believing
+it, which is the test the first attempt failed.
+
 ## Catching regressions in CI
 
 ```bash

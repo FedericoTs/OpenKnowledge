@@ -71,7 +71,7 @@ class CaseResult:
     deterministic: bool = True
     paraphrase_consistent: bool = True
     cost_usd: float = 0.0
-    confidence: float | None = None
+    support: float | None = None
 
     @property
     def tier(self) -> Tier:
@@ -133,15 +133,20 @@ class EvalReport:
         return dict(sorted(counts.items(), key=lambda kv: -kv[1]))
 
     @property
-    def confidence_separation(self) -> tuple[float, float] | None:
-        """Mean confidence on the cases that passed, and on those that failed.
+    def support_separation(self) -> tuple[float, float] | None:
+        """Mean grounding support on the cases that passed, and on those that failed.
 
-        This is the only claim worth making for a confidence score: that it is
-        lower where the answer was wrong. Reported rather than asserted, because
-        on a given corpus it may simply not be true - and a score that does not
+        The only claim worth making for any answer-level score: that it is lower
+        where the answer was wrong. Reported rather than asserted, because on a
+        given corpus it may simply not be true - and a score that does not
         separate is worse than none, since it makes wrong answers look checked.
+
+        A scored confidence built on top of this was measured and withdrawn; see
+        `retrieval/confidence.py`. Anything proposed to replace it should be
+        checked here **and** against deliberately degraded retrieval, which is
+        the test the first attempt failed.
         """
-        scored = [(r.confidence, r.passed) for r in self.answerable if r.confidence is not None]
+        scored = [(r.support, r.passed) for r in self.answerable if r.support is not None]
         passed = [c for c, ok in scored if ok]
         failed = [c for c, ok in scored if not ok]
         if not passed or not failed:
@@ -175,10 +180,8 @@ class EvalReport:
             "cost_per_question_usd": round(self.cost_per_question_usd, 6),
             "total_cost_usd": round(self.total_cost_usd, 6),
             "free_share": round(self.free_share, 4),
-            "confidence_separation": (
-                [round(v, 4) for v in self.confidence_separation]
-                if self.confidence_separation
-                else None
+            "support_separation": (
+                [round(v, 4) for v in self.support_separation] if self.support_separation else None
             ),
             "tiers": self.tier_counts,
             "failures": [
@@ -267,7 +270,7 @@ async def run_case(cascade: Cascade, case: Case, *, check_determinism: bool = Tr
     answer = await cascade.answer(case.question, principals=principals, channel="eval")
     passed, failures, false_answer = _score(case, answer)
     cost = answer.cost_usd
-    confidence = answer.confidence
+    support = answer.support
 
     deterministic = True
     if check_determinism:
@@ -299,7 +302,7 @@ async def run_case(cascade: Cascade, case: Case, *, check_determinism: bool = Tr
         deterministic=deterministic,
         paraphrase_consistent=consistent,
         cost_usd=cost,
-        confidence=confidence,
+        support=support,
     )
 
 

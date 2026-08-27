@@ -35,13 +35,10 @@ class ChatResponse(BaseModel):
     cached: bool
     citations: list[CitationOut]
     notes: list[str] = []
-    #: How closely to read this answer, in [0, 1], or null where there is no
-    #: answer to read. Free to compute: every input is already produced by the
-    #: gate and the retriever, so it costs no extra model call. Not a
-    #: probability - an ordering, where lower deserves a look.
-    confidence: float | None = None
-    #: Why it is not 1.0, in words a reader can act on.
-    confidence_reasons: list[str] = []
+    #: Share of the answer's content words that appear in the text it cited,
+    #: from the grounding gate. A fact about how closely the answer tracks its
+    #: sources, not a prediction that it is right. Null where there is no answer.
+    support: float | None = None
 
     @classmethod
     def from_answer(cls, answer: Answer) -> ChatResponse:
@@ -54,8 +51,7 @@ class ChatResponse(BaseModel):
             cached=answer.tier.is_cache_hit,
             # Citation is a slots dataclass, so it has no __dict__ to splat.
             citations=[CitationOut(**asdict(c)) for c in answer.citations],
-            confidence=(None if answer.confidence is None else round(answer.confidence, 3)),
-            confidence_reasons=list(answer.confidence_reasons),
+            support=answer.support,
             notes=list(answer.notes),
         )
 

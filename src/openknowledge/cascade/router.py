@@ -28,7 +28,6 @@ from ..prompts import PROMPT_VERSION, REFUSAL_TEXT, SYSTEM_PROMPT, format_contex
 from ..providers.base import ChatProvider, ProviderError
 from ..retrieval.base import Chunk
 from ..retrieval.bm25 import BM25Retriever
-from ..retrieval.confidence import assess
 from ..retrieval.grounding import check_grounding
 from ..retrieval.rerank import Reranker, StructuralReranker
 from ..types import Answer, Citation, Tier
@@ -404,14 +403,6 @@ class Cascade:
             )
 
         cited = set(report.cited_ids)
-        # Free: every input is already computed. The gate says whether the answer
-        # may be served; this says how closely to read it.
-        confidence = assess(
-            completion.text,
-            grounding=report,
-            retrieved=chunks,
-            near_miss_conflicts=near_misses,
-        )
         answer = Answer(
             text=completion.text,
             tier=tier,
@@ -422,8 +413,7 @@ class Cascade:
             cost_usd=cost,
             grounded=True,
             notes=cost_notes,
-            confidence=confidence.score,
-            confidence_reasons=confidence.reasons,
+            support=round(report.support_ratio, 3),
         )
         return _Attempt(answer, completion.usage, cost, cost_notes)
 

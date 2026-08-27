@@ -84,14 +84,14 @@ class Answer:
     grounded: bool = True
     escalated_from: Tier | None = None
     notes: tuple[str, ...] = ()
-    #: How much to trust this, in [0, 1], derived from signals the cascade
-    #: already computed. **None when there is no answer to trust** - a refusal
-    #: or a contested response asserts nothing, and reporting 1.0 for it would
-    #: make the one reply that deliberately says nothing look the most certain
-    #: thing in the log. See `retrieval/confidence.py` for what moves it.
-    confidence: float | None = None
-    #: Why it is not 1.0. Empty when nothing counted against the answer.
-    confidence_reasons: tuple[str, ...] = ()
+    #: Share of this answer's content words that appear in the text it cited,
+    #: from the grounding gate. A fact, not a prediction: it says how closely
+    #: the answer tracks its sources, and claims nothing about whether it is
+    #: right. None where there is no answer - a refusal asserts nothing, and a
+    #: number there would make the one reply that deliberately says nothing look
+    #: like the best-supported thing in the log. `retrieval/confidence.py`
+    #: records the scored version that was built, measured, and withdrawn.
+    support: float | None = None
 
     @property
     def is_answerable(self) -> bool:
