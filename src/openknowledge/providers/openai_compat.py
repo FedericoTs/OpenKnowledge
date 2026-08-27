@@ -154,8 +154,23 @@ class OpenAICompatProvider:
                 )
                 resp.raise_for_status()
                 data = resp.json()
+        except httpx.TimeoutException as exc:
+            # httpx timeouts stringify to "", which reached an operator as
+            # `local tier unavailable: qwen3-8b-ok8192:` after four minutes of
+            # waiting - a blank where the reason should be. Say what happened,
+            # and the thing most likely to explain it: the first call after a
+            # model changes includes loading it into memory, which on a laptop
+            # is minutes before a single token is generated.
+            raise ProviderError(
+                f"{self.model_id}: no response within {self._timeout:.0f}s "
+                f"({type(exc).__name__}). The first call after a model changes also "
+                "loads it into memory, which can take minutes on a CPU - raise "
+                "OK_LOCAL_TIMEOUT_SECONDS if that is what happened."
+            ) from exc
         except httpx.HTTPError as exc:
-            raise ProviderError(f"{self.model_id}: {exc}") from exc
+            # Some httpx errors also carry no message. A class name is a worse
+            # reason than a sentence and a better one than nothing.
+            raise ProviderError(f"{self.model_id}: {exc or type(exc).__name__}") from exc
 
         try:
             choice = data["choices"][0]

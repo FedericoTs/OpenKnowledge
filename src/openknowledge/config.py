@@ -79,6 +79,14 @@ class Settings(BaseSettings):
     #: trim of the prompt's front, where the grounding rules are, and the API
     #: does not say which you have. Zero means unknown, and nothing is checked.
     local_context_tokens: int = Field(default=0, ge=0)
+    #: How long to wait for the local model, in seconds.
+    #:
+    #: Much longer than the paid tiers get, and deliberately: a cold call to a
+    #: self-hosted model loads it into memory first, which on a laptop CPU is
+    #: minutes before a single token is generated. A cloud API that has not
+    #: answered in two minutes has failed; a local one has probably just
+    #: finished reading eight gigabytes off disk.
+    local_timeout_seconds: float = Field(default=600.0, gt=0)
 
     # -- escalation tier -------------------------------------------------
     #: Off by default. Nothing leaves the machine until an operator opts in.

@@ -506,3 +506,54 @@ def test_a_model_it_just_built_is_not_then_reported_missing(
 
     assert main(["model", "status"]) == 0, capsys.readouterr().out
     assert "not installed" not in capsys.readouterr().out
+
+
+# --- what a failure is allowed to say ---------------------------------------
+
+
+def test_a_timeout_never_reports_an_empty_reason() -> None:
+    """Reported from a real install, after four minutes of waiting:
+
+        local tier unavailable: qwen3-8b-ok8192:
+
+    httpx timeouts stringify to "", so the reason was a blank. The person is
+    left knowing only that something did not work, which is worse than no note
+    at all - it looks like the system does not know either.
+    """
+    import asyncio
+
+    import httpx
+
+    from openknowledge.providers.base import ProviderError
+    from openknowledge.providers.openai_compat import OpenAICompatProvider
+
+    provider = OpenAICompatProvider(
+        model_id="qwen3-8b-ok8192", base_url="http://127.0.0.1:9/v1", timeout=0.001
+    )
+
+    async def timing_out(*_: object, **__: object) -> None:
+        raise httpx.ReadTimeout("")
+
+    with pytest.raises(ProviderError) as raised:
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setattr(httpx.AsyncClient, "post", timing_out)
+            asyncio.run(provider.complete(system="s", context="c", question="q"))
+
+    message = str(raised.value)
+    assert message.rstrip().endswith(".") or "ReadTimeout" in message
+    assert "no response within" in message
+    assert "loads it into memory" in message, "does not name the likely cause"
+
+
+def test_the_local_tier_waits_far_longer_than_a_paid_one() -> None:
+    """A cold local call reads gigabytes off disk before generating a token.
+
+    120 seconds is right for a cloud API that has stopped answering and wrong
+    for a laptop that has only just started.
+    """
+    from openknowledge.api.engine import _build_local
+    from openknowledge.config import Settings
+
+    provider = _build_local(Settings())
+    assert provider is not None
+    assert provider._timeout >= 600  # type: ignore[attr-defined]
