@@ -474,7 +474,7 @@ src/openknowledge/
 ├── cache/           Cache keys, pins, answer store, cost ledger
 ├── providers/       Anthropic (with prompt caching), OpenAI-compatible (incl. local)
 ├── cascade/         The router: try cheap, verify, escalate
-├── retrieval/       Hybrid retrieval + the grounding gate
+├── retrieval/       BM25 + structural reranking + the grounding gate
 ├── documents/       PDF, Word, Excel, PowerPoint, Markdown -> structured blocks
 ├── knowledge/       Draft at ingest, review queue, conflict detection
 ├── evaluation/      Golden set, scoring, baseline comparison
