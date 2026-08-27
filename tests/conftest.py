@@ -4,6 +4,7 @@ import pytest
 
 from openknowledge.cache import AnswerStore
 from openknowledge.config import Settings
+from openknowledge.knowledge import KnowledgeStore
 from openknowledge.retrieval import BM25Retriever, Document
 
 
@@ -46,6 +47,12 @@ def retriever(documents: list[Document]) -> BM25Retriever:
 def store() -> AnswerStore:
     with AnswerStore() as s:
         yield s
+
+
+@pytest.fixture
+def knowledge() -> KnowledgeStore:
+    with KnowledgeStore() as store:
+        yield store
 
 
 @pytest.fixture

@@ -18,9 +18,11 @@ class Tier(StrEnum):
     PINNED = "pinned"  # human-authored canonical answer; $0, exact
     EXACT_CACHE = "exact"  # byte-identical question seen before; $0
     SEMANTIC_CACHE = "semantic"  # near-identical question; $0
+    DRAFT = "draft"  # auto-drafted at ingest, gate-passed, unreviewed; $0
     LOCAL = "local"  # self-hosted model; no per-token invoice
     FRONTIER = "frontier"  # paid API call
     REFUSED = "refused"  # nothing grounded enough to answer with
+    CONTESTED = "contested"  # the sources disagree and nobody has resolved it
 
     @property
     def is_cache_hit(self) -> bool:
@@ -31,7 +33,12 @@ class Tier(StrEnum):
         the grounding gate, so the tokens were spent and the ledger has to say
         so.
         """
-        return self in (Tier.PINNED, Tier.EXACT_CACHE, Tier.SEMANTIC_CACHE)
+        return self in (
+            Tier.PINNED,
+            Tier.EXACT_CACHE,
+            Tier.SEMANTIC_CACHE,
+            Tier.DRAFT,
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,4 +74,9 @@ class Answer:
 
     @property
     def is_answerable(self) -> bool:
-        return self.tier is not Tier.REFUSED
+        return self.tier not in (Tier.REFUSED, Tier.CONTESTED)
+
+    @property
+    def needs_review(self) -> bool:
+        """True for an answer a machine drafted that no human has approved."""
+        return self.tier is Tier.DRAFT

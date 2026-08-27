@@ -113,6 +113,35 @@ def crossover_questions_per_day() -> float | None:
     return daily_hardware / headroom
 
 
+# --- moving work from query time to ingest time ---------------------------
+#
+# The cascade makes each question cheaper. Drafting answers at upload makes some
+# questions cost nothing at all, forever, for a price paid once.
+
+CORPUS_DOCUMENTS = 500
+#: Reading one document and drafting ~8 Q&A pairs from it. The system prompt is
+#: identical every time, so it is a cache read after the first document.
+DRAFT_USAGE = Usage(input_tokens=2_000, cache_read_tokens=600, output_tokens=800)
+DRAFTING_MODEL = "claude-sonnet-5"
+
+
+def drafting_cost(documents: int = CORPUS_DOCUMENTS) -> float:
+    """One-off cost of drafting an FAQ across the corpus."""
+    return cost_usd(DRAFT_USAGE, get_price(DRAFTING_MODEL)) * documents
+
+
+def naive_contradiction_cost(documents: int = CORPUS_DOCUMENTS) -> float:
+    """Comparing one uploaded document against every other document."""
+    return cost_usd(Usage(input_tokens=4_000, output_tokens=200), get_price(DRAFTING_MODEL)) * (
+        documents
+    )
+
+
+def anchored_contradiction_cost(affected_answers: int = 8) -> float:
+    """Re-asking only the approved answers that cite the changed document."""
+    return affected_answers * API_ONLY.per_paid_call()
+
+
 def main(argv: list[str]) -> int:
     questions_per_day = float(argv[1]) if len(argv) > 1 else 2_000
 
@@ -175,6 +204,50 @@ def main(argv: list[str]) -> int:
         f"\n  Best available: {baseline / best:.0f}x cheaper than today, "
         f"saving {annual(baseline) - annual(best):,.0f} per year."
     )
+
+    # -- moving the work to ingest time --------------------------------------
+    #
+    # Drafting does not "free N questions" on top of the existing saving - the
+    # cache was already answering some of them. What it does is raise the share
+    # of traffic that never reaches a model, so the saving is the *increase* in
+    # that share priced at what one paid answer costs.
+    one_off = drafting_cost()
+    per_paid = API_ONLY.per_paid_call()
+    base_free = 1 - API_ONLY.paid_share
+
+    print("\n\nDrafting answers at upload instead of at question time")
+    print(
+        f"  An FAQ drafted across {CORPUS_DOCUMENTS} documents costs ${one_off:.2f}, once.\n"
+        f"  It raises the share of questions answered without a model, which is the\n"
+        f"  single number the whole cost model turns on."
+    )
+    print(
+        f"\n  {'free share':>12}{'$/question':>13}{'$/year':>11}{'saved/year':>13}{'payback':>11}"
+    )
+    for free_share in (base_free, 0.60, 0.75, 0.85):
+        per_question = (1 - free_share) * per_paid
+        saved = annual((1 - base_free) * per_paid) - annual(per_question)
+        label = f"{free_share:.0%}" + (" (today)" if free_share == base_free else "")
+        payback = f"{one_off / (saved / WORKING_DAYS):.1f} d" if saved > 0 else "-"
+        print(
+            f"  {label:>12}{per_question:>13.5f}{annual(per_question):>11,.0f}"
+            f"{saved:>13,.0f}{payback:>11}"
+        )
+
+    print(
+        "\n  The bigger win is cold start. A fresh deployment has an empty cache and\n"
+        "  climbs to its free share over months of traffic. Drafting at upload means\n"
+        "  day one starts near the top of that table instead of at the bottom."
+    )
+
+    naive = naive_contradiction_cost()
+    anchored = anchored_contradiction_cost()
+    print("\n\nDetecting contradictions when a document is uploaded")
+    print(f"  compare it against all {CORPUS_DOCUMENTS} documents   ${naive:>8.2f} per upload")
+    print(f"  re-ask only the answers that cite it   ${anchored:>8.4f} per upload")
+    print(f"  -> {naive / anchored:,.0f}x cheaper, and it names the claim that moved")
+    print("\n  Numeric conflicts between documents are found without a model at all,")
+    print("  so that pass costs nothing and runs on every re-index.")
     return 0
 
 

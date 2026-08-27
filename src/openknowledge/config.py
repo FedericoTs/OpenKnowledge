@@ -32,6 +32,25 @@ class Settings(BaseSettings):
     min_support_ratio: float = Field(default=0.45, ge=0.0, le=1.0)
     require_citations: bool = True
 
+    # -- knowledge lifecycle ---------------------------------------------
+    #: Draft FAQ answers from documents when they are uploaded or change. This
+    #: is the one-off cost that makes the recurring one disappear.
+    draft_on_ingest: bool = True
+    #: Serve gate-passed drafts that no human has reviewed yet, marked as such.
+    #: Turn this off for a compliance posture where nothing machine-written may
+    #: reach an employee before sign-off; the cost benefit then waits on review.
+    serve_drafts: bool = True
+    #: Refuse to answer when two documents disagree about the claim being asked
+    #: for. Turning this off makes the bot answer from whichever document
+    #: retrieval preferred, which is where confident wrong answers come from.
+    block_on_conflict: bool = True
+    #: Re-check approved answers whose cited documents changed.
+    reverify_on_change: bool = True
+    #: Cap on how many changed documents one ingest run will draft for, so a
+    #: first import of ten thousand files cannot spend without warning.
+    max_documents_per_ingest: int = 200
+    conflict_min_overlap: float = Field(default=0.34, ge=0.0, le=1.0)
+
     # -- local tier ------------------------------------------------------
     local_enabled: bool = True
     local_model: str = "qwen3:8b"
@@ -61,6 +80,16 @@ class Settings(BaseSettings):
     @property
     def db_path(self) -> str:
         return f"{self.data_dir.rstrip('/')}/openknowledge.db"
+
+    @property
+    def knowledge_db_path(self) -> str:
+        """Proposals and conflicts, kept separate from the answer cache.
+
+        Different lifecycles: the answer cache is disposable and rebuilt on
+        any corpus change, while approvals and conflict resolutions are
+        human decisions that must survive one.
+        """
+        return f"{self.data_dir.rstrip('/')}/knowledge.db"
 
 
 def load_settings() -> Settings:

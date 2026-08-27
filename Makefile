@@ -1,4 +1,4 @@
-.PHONY: help install test lint fmt typecheck check serve index costs eval eval-safety docker clean
+.PHONY: help install test lint fmt typecheck check serve index costs learn review conflicts eval eval-safety docker clean
 
 help:
 	@grep -E '^[a-z-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
@@ -21,6 +21,15 @@ typecheck:  ## run mypy
 	uv run mypy
 
 check: lint typecheck test  ## everything CI runs
+
+learn:  ## draft answers from changed documents (spends tokens)
+	uv run openknowledge learn
+
+review:  ## drafted answers awaiting approval
+	uv run openknowledge review
+
+conflicts:  ## documents that disagree with each other
+	uv run openknowledge conflicts
 
 eval:  ## run the golden set (accuracy and cost)
 	uv run openknowledge eval

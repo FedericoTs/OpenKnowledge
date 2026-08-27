@@ -140,6 +140,111 @@ def _cmd_unpin(args: argparse.Namespace) -> int:
     return 1
 
 
+def _cmd_learn(args: argparse.Namespace) -> int:
+    """Draft answers for changed documents and re-check approved ones."""
+    engine = _engine()
+    report = asyncio.run(engine.learn(max_documents=args.max_documents))
+
+    print(report.summary())
+    for note in report.notes:
+        print(f"  {note}")
+
+    if report.drafts_rejected:
+        print(
+            f"\n{report.drafts_rejected} drafted answers were discarded by the grounding "
+            "gate before reaching the queue."
+        )
+    if report.needs_review:
+        print(f"\n{report.needs_review} items need review:")
+        if report.drafts_created:
+            print(f"  openknowledge review      # {report.drafts_created} drafted answers")
+        if report.conflicts_open:
+            print(f"  openknowledge conflicts   # {report.conflicts_open} disagreements")
+    return 0
+
+
+def _cmd_review(args: argparse.Namespace) -> int:
+    """Show drafted answers awaiting review, most valuable first."""
+    from .knowledge import rank_by_demand
+
+    engine = _engine()
+    pending = engine.knowledge.pending(limit=args.limit)
+    if not pending:
+        print("Nothing waiting for review.")
+        return 0
+
+    demand = dict(engine.store.top_questions(limit=500))
+    ranked = rank_by_demand(pending, demand=demand, cost_per_answer_usd=args.cost_per_answer)
+
+    print(f"{len(ranked)} drafted answers awaiting review\n")
+    for proposal, value in ranked:
+        asked = demand.get(proposal.canonical_query, 0)
+        worth = f"saves ~${value:.4f}/period" if value else "not asked yet"
+        print(f"  {proposal.id}  [{worth}, asked {asked}x, support {proposal.support_ratio:.0%}]")
+        print(f"    Q: {proposal.question}")
+        print(f"    A: {proposal.answer[:200]}{'...' if len(proposal.answer) > 200 else ''}")
+        print(f"    sources: {', '.join(c.document_id for c in proposal.citations) or '(none)'}")
+        if proposal.supersedes:
+            print("    ! replaces an answer you previously approved")
+        print()
+    print("openknowledge approve <id>   /   openknowledge reject <id>")
+    return 0
+
+
+def _cmd_approve(args: argparse.Namespace) -> int:
+    engine = _engine()
+    if engine.approve(args.proposal_id, reviewer=args.reviewer):
+        print(f"approved {args.proposal_id} and pinned it")
+        return 0
+    print(f"no draft awaiting review with id {args.proposal_id}", file=sys.stderr)
+    return 1
+
+
+def _cmd_reject(args: argparse.Namespace) -> int:
+    engine = _engine()
+    if engine.knowledge.reject(args.proposal_id, reviewer=args.reviewer, note=args.note):
+        print(f"rejected {args.proposal_id}; it will not be proposed again")
+        return 0
+    print(f"no draft awaiting review with id {args.proposal_id}", file=sys.stderr)
+    return 1
+
+
+def _cmd_conflicts(args: argparse.Namespace) -> int:
+    """Show documents that disagree with each other."""
+    engine = _engine()
+    conflicts = engine.knowledge.open_conflicts()
+    if not conflicts:
+        print("No unresolved disagreements between your documents.")
+        return 0
+
+    print(f"{len(conflicts)} unresolved disagreements\n")
+    for conflict in conflicts[: args.limit]:
+        print(f"  {conflict.key}")
+        print(f"    [{conflict.left_document}] {conflict.left_raw}")
+        print(f"      {conflict.left_sentence[:150]}")
+        print(f"    [{conflict.right_document}] {conflict.right_raw}")
+        print(f"      {conflict.right_sentence[:150]}")
+        print()
+    print("Questions touching these are refused until resolved:")
+    print("  openknowledge resolve <key> --keep <document-id>")
+    return 0
+
+
+def _cmd_resolve(args: argparse.Namespace) -> int:
+    engine = _engine()
+    resolution = args.note or (f"authoritative: {args.keep}" if args.keep else "resolved")
+    if engine.knowledge.resolve_conflict(args.key, resolution=resolution, resolver=args.reviewer):
+        print(f"resolved {args.key}: {resolution}")
+        if args.keep:
+            print(
+                "\nThis records the decision but does not edit your documents. "
+                "Remove or correct the superseded text so retrieval stops seeing it."
+            )
+        return 0
+    print(f"no open conflict with key {args.key}", file=sys.stderr)
+    return 1
+
+
 def _cmd_eval(args: argparse.Namespace) -> int:
     """Run the golden set and report accuracy and cost together."""
     import json as _json
@@ -255,6 +360,42 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("unpin", help="remove a pinned answer")
     p.add_argument("question")
     p.set_defaults(func=_cmd_unpin)
+
+    p = sub.add_parser("learn", help="draft answers for changed documents (costs tokens)")
+    p.add_argument("--max-documents", type=int, help="cap this run")
+    p.set_defaults(func=_cmd_learn)
+
+    p = sub.add_parser("review", help="drafted answers awaiting review")
+    p.add_argument("--limit", type=int, default=20)
+    p.add_argument(
+        "--cost-per-answer",
+        type=float,
+        default=0.0094,
+        help="what one un-cached answer costs, for ranking by value",
+    )
+    p.set_defaults(func=_cmd_review)
+
+    p = sub.add_parser("approve", help="approve a drafted answer and pin it")
+    p.add_argument("proposal_id")
+    p.add_argument("--reviewer")
+    p.set_defaults(func=_cmd_approve)
+
+    p = sub.add_parser("reject", help="reject a drafted answer for good")
+    p.add_argument("proposal_id")
+    p.add_argument("--reviewer")
+    p.add_argument("--note")
+    p.set_defaults(func=_cmd_reject)
+
+    p = sub.add_parser("conflicts", help="documents that disagree with each other")
+    p.add_argument("--limit", type=int, default=20)
+    p.set_defaults(func=_cmd_conflicts)
+
+    p = sub.add_parser("resolve", help="record which document wins a disagreement")
+    p.add_argument("key")
+    p.add_argument("--keep", metavar="DOC_ID", help="the document that is authoritative")
+    p.add_argument("--note")
+    p.add_argument("--reviewer")
+    p.set_defaults(func=_cmd_resolve)
 
     p = sub.add_parser("eval", help="run the golden set: accuracy and cost together")
     p.add_argument("--path", default="evals", help="golden set file or directory")

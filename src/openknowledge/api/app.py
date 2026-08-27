@@ -29,7 +29,15 @@ from ..cache import citations_for
 from ..canonical import canonicalize_query
 from ..config import Settings, load_settings
 from .engine import Engine, build_engine
-from .schemas import ChatRequest, ChatResponse, PinRequest, ReindexResponse
+from .schemas import (
+    ChatRequest,
+    ChatResponse,
+    LearnRequest,
+    PinRequest,
+    ReindexResponse,
+    ResolveRequest,
+    ReviewRequest,
+)
 
 log = logging.getLogger(__name__)
 
@@ -84,6 +92,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             yield
         finally:
             app.state.engine.store.close()
+            app.state.engine.knowledge.close()
 
     app = FastAPI(
         title="OpenKnowledge",
@@ -184,6 +193,105 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             corpus_version=version,
             evicted_cache_entries=evicted,
         )
+
+    # -- knowledge lifecycle -------------------------------------------------
+    @app.post("/admin/learn", dependencies=[AdminOnly])
+    async def learn(req: LearnRequest, engine: EngineDep) -> dict[str, Any]:
+        """Draft answers for changed documents. This one spends tokens."""
+        report = await engine.learn(max_documents=req.max_documents)
+        return {
+            "summary": report.summary(),
+            "added": list(report.added),
+            "changed": list(report.changed),
+            "removed": list(report.removed),
+            "drafts_created": report.drafts_created,
+            "drafts_rejected": report.drafts_rejected,
+            "drafts_superseded": report.drafts_superseded,
+            "revisions_raised": report.revisions_raised,
+            "conflicts_open": report.conflicts_open,
+            "cost_usd": round(report.cost_usd, 6),
+            "needs_review": report.needs_review,
+            "notes": report.notes,
+        }
+
+    @app.get("/admin/proposals", dependencies=[AdminOnly])
+    async def proposals(engine: EngineDep, limit: int = 50) -> dict[str, Any]:
+        """Drafted answers awaiting review, ranked by what approving them saves."""
+        from ..knowledge import rank_by_demand
+
+        pending = engine.knowledge.pending(limit=limit)
+        demand = dict(engine.store.top_questions(limit=500))
+        ranked = rank_by_demand(pending, demand=demand, cost_per_answer_usd=0.0094)
+        return {
+            "counts": engine.knowledge.counts(),
+            "pending": [
+                {
+                    "id": p.id,
+                    "question": p.question,
+                    "answer": p.answer,
+                    "cited": [c.document_id for c in p.citations],
+                    "support_ratio": round(p.support_ratio, 4),
+                    "source": p.source,
+                    "times_asked": demand.get(p.canonical_query, 0),
+                    "estimated_value_usd": round(value, 6),
+                    "supersedes": p.supersedes,
+                }
+                for p, value in ranked
+            ],
+        }
+
+    @app.post("/admin/proposals/{proposal_id}/approve", dependencies=[AdminOnly])
+    async def approve(proposal_id: str, req: ReviewRequest, engine: EngineDep) -> dict[str, Any]:
+        if not engine.approve(proposal_id, reviewer=req.reviewer):
+            raise HTTPException(404, "no draft awaiting review with that id")
+        return {"id": proposal_id, "approved": True, "pinned": True}
+
+    @app.post("/admin/proposals/{proposal_id}/reject", dependencies=[AdminOnly])
+    async def reject(proposal_id: str, req: ReviewRequest, engine: EngineDep) -> dict[str, Any]:
+        rejected = engine.knowledge.reject(proposal_id, reviewer=req.reviewer, note=req.note)
+        if rejected is None:
+            raise HTTPException(404, "no draft awaiting review with that id")
+        return {"id": proposal_id, "rejected": True}
+
+    @app.get("/admin/conflicts", dependencies=[AdminOnly])
+    async def conflicts(engine: EngineDep) -> list[dict[str, Any]]:
+        """Documents that disagree. Questions touching these are refused."""
+        return [
+            {
+                "key": c.key,
+                "unit": c.unit,
+                "overlap": round(c.overlap, 4),
+                "left": {
+                    "document": c.left_document,
+                    "value": c.left_raw,
+                    "sentence": c.left_sentence,
+                },
+                "right": {
+                    "document": c.right_document,
+                    "value": c.right_raw,
+                    "sentence": c.right_sentence,
+                },
+            }
+            for c in engine.knowledge.open_conflicts()
+        ]
+
+    @app.post("/admin/conflicts/{key}/resolve", dependencies=[AdminOnly])
+    async def resolve(key: str, req: ResolveRequest, engine: EngineDep) -> dict[str, Any]:
+        resolution = req.note or (f"authoritative: {req.keep}" if req.keep else "resolved")
+        resolved = engine.knowledge.resolve_conflict(
+            key, resolution=resolution, resolver=req.reviewer
+        )
+        if resolved is None:
+            raise HTTPException(404, "no open conflict with that key")
+        return {
+            "key": key,
+            "resolved": True,
+            "resolution": resolution,
+            "note": (
+                "Recorded. This does not edit your documents - remove or correct the "
+                "superseded text so retrieval stops seeing it."
+            ),
+        }
 
     @app.get("/admin/config", dependencies=[AdminOnly])
     async def config(engine: EngineDep) -> dict[str, Any]:

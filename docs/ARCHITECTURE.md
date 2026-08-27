@@ -22,14 +22,17 @@ One question enters. It leaves at the first tier that can answer it *and prove i
               canonicalise (fold casing, whitespace, greetings;
                         |    never touch a word that carries meaning)
                         v
+      do the documents disagree here? - yes -> refuse, naming both sides
+                        | no                  (unless a pin postdates the conflict)
+                        v
       L0  pinned answer?  ------------ yes -> return, $0
                         | no                  (access-checked)
                         v
       L1  exact cache hit? ----------- yes -> return, $0
                         | no                  (access-checked)
                         v
-      L2  semantic cache hit?  ------- yes -> return, $0      [not built yet]
-                        | no
+      L2  drafted at upload?  -------- yes -> return, $0
+                        | no                  (gate-checked, marked unreviewed)
                         v
               retrieve (BM25 today; hybrid + rerank next)
                         |
@@ -117,6 +120,8 @@ leaks documents if done casually.
 | `retrieval/grounding.py` | The gate |
 | `providers/` | `ChatProvider` protocol; Anthropic (with caching), OpenAI-compatible |
 | `cascade/router.py` | Tier ordering, escalation, pricing of each answer |
+| `knowledge/` | Ingest-time drafting, review queue, conflict detection, re-verification |
+| `evaluation/` | Golden set, scoring, baseline comparison |
 | `connectors/` | Document sources |
 | `api/` | FastAPI app, engine assembly, admin |
 

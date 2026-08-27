@@ -20,6 +20,10 @@ Honest status. "Built" means implemented and covered by tests in this repository
   OpenAI-compatible covering OpenAI, Ollama, vLLM, LM Studio, llama.cpp.
 - **Surfaces** — FastAPI chat endpoint, fail-closed admin API, web chat widget, CLI,
   Docker Compose stack, local-folder connector.
+- **Knowledge lifecycle** — FAQ drafting at ingest with gate-checked drafts served as
+  precomputed cache entries, a review queue ranked by value, free numeric conflict
+  detection, citation-anchored re-verification when documents change, and refusal on
+  contested claims including the stale-pin case. See [KNOWLEDGE.md](KNOWLEDGE.md).
 - **Evaluation harness** — golden set with a first-class safety set, scoring for accuracy,
   false answers, determinism and paraphrase consistency, cost reported alongside, and
   baseline comparison that fails CI on regressions. See [EVALUATION.md](EVALUATION.md).
@@ -29,7 +33,7 @@ Honest status. "Built" means implemented and covered by tests in this repository
 1. **Grow the golden set.** The harness is built; the shipped set covers the sample
    documents only. Real corpus, real questions, and above all more safety cases — they
    are the cheapest insurance in the project.
-2. **Semantic cache (tier L2).** Local embeddings over canonical questions, similarity
+2. **Semantic cache.** Local embeddings over canonical questions, similarity
    threshold, and a citation check before serving a near-match. This is where the free share
    grows, and it needs to be careful: a hash cannot decide two sentences mean the same thing,
    so a bad match must be catchable.

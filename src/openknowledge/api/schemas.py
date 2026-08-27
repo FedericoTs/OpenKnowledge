@@ -67,3 +67,21 @@ class ReindexResponse(BaseModel):
     chunks: int
     corpus_version: str
     evicted_cache_entries: int
+
+
+class ReviewRequest(BaseModel):
+    reviewer: str | None = None
+    note: str | None = None
+
+
+class ResolveRequest(BaseModel):
+    #: The document that is authoritative. Recorded, not enforced - the system
+    #: cannot edit your SharePoint for you, and pretending otherwise would be
+    #: worse than being explicit about it.
+    keep: str | None = None
+    note: str | None = None
+    reviewer: str | None = None
+
+
+class LearnRequest(BaseModel):
+    max_documents: int | None = None

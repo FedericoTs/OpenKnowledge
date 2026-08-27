@@ -18,6 +18,8 @@ from ..cache import AnswerStore, KeyContext, answer_key
 from ..canonical import canonicalize_query
 from ..config import Settings
 from ..costs import PricingError, Usage, cost_usd, get_price
+from ..knowledge.relevance import describe_for_user, relevant_conflicts
+from ..knowledge.store import KnowledgeStore, StoredConflict
 from ..prompts import PROMPT_VERSION, REFUSAL_TEXT, SYSTEM_PROMPT, format_context
 from ..providers.base import ChatProvider, ProviderError
 from ..retrieval.base import Chunk
@@ -58,12 +60,14 @@ class Cascade:
         settings: Settings,
         local: ChatProvider | None = None,
         frontier: ChatProvider | None = None,
+        knowledge: KnowledgeStore | None = None,
     ) -> None:
         self.store = store
         self.retriever = retriever
         self.settings = settings
         self.local = local
         self.frontier = frontier
+        self.knowledge = knowledge
 
     # -- keying -----------------------------------------------------------
     @property
@@ -124,11 +128,25 @@ class Cascade:
         key: str,
         principals: frozenset[str] | None,
     ) -> Answer:
+        # A contested claim is where the bot would otherwise be confidently
+        # wrong, so an unresolved disagreement outranks everything except a pin
+        # that has already accounted for it.
+        contested: list[StoredConflict] = []
+        if self.knowledge is not None and self.settings.block_on_conflict:
+            contested = relevant_conflicts(question, self.knowledge.open_conflicts())
+
         # L0 - a human already wrote this answer.
         pin = self.store.get_pin(canonical)
         if pin is not None:
+            # A pin written *before* the disagreement appeared was written by
+            # someone who had not seen the new document. Serving it is exactly
+            # the failure this project exists to prevent - the answer looks
+            # human-authored and authoritative, and it is out of date. A pin
+            # written after the conflict was detected is a decision about it,
+            # and wins.
+            unaccounted = [c for c in contested if c.detected_at > pin.updated_at]
             cited = {c.document_id for c in pin.citations}
-            if self.retriever.visible_to(cited, principals):
+            if not unaccounted and self.retriever.visible_to(cited, principals):
                 return Answer(
                     text=pin.answer,
                     tier=Tier.PINNED,
@@ -136,6 +154,22 @@ class Cascade:
                     cache_key=key,
                     citations=pin.citations,
                 )
+            if unaccounted:
+                log.info(
+                    "pin for %r withheld: it predates %d unresolved conflict(s)",
+                    canonical,
+                    len(unaccounted),
+                )
+
+        if contested:
+            return Answer(
+                text=describe_for_user(contested),
+                tier=Tier.CONTESTED,
+                model_id="none",
+                cache_key=key,
+                grounded=True,
+                notes=tuple(c.describe() for c in contested[:3]),
+            )
 
         # L1 - we answered this exact question, under this exact corpus.
         cached = self.store.get(key)
@@ -152,7 +186,29 @@ class Cascade:
                 )
             log.info("cache hit withheld: asker cannot access all cited sources")
 
-        # L2 (semantic cache) is not implemented yet - see ROADMAP.
+        # L2 - an answer drafted from the documents at upload time. It passed
+        # the same grounding gate a live answer does, so it is a precomputed
+        # cache entry rather than a pin: served, marked as unreviewed, and
+        # revocable. Human approval is what promotes it to a pin.
+        if self.knowledge is not None and self.settings.serve_drafts:
+            draft = self.knowledge.draft_for(canonical)
+            if draft is not None:
+                cited = {c.document_id for c in draft.citations}
+                if self.retriever.visible_to(cited, principals):
+                    return Answer(
+                        text=draft.answer,
+                        tier=Tier.DRAFT,
+                        model_id="drafted",
+                        cache_key=key,
+                        citations=draft.citations,
+                        notes=(
+                            "auto-drafted from "
+                            f"{', '.join(draft.origin_documents)} and not yet reviewed "
+                            "by a person",
+                        ),
+                    )
+
+        # The semantic cache tier is not implemented yet - see ROADMAP.
 
         # Retrieve once; every model tier below answers from this same evidence.
         hits = self.retriever.search(question, k=self.settings.retrieval_k, principals=principals)

@@ -296,3 +296,191 @@ def test_refused_is_not_counted_as_a_cache_hit() -> None:
     assert not Tier.REFUSED.is_cache_hit
     assert Tier.PINNED.is_cache_hit and Tier.EXACT_CACHE.is_cache_hit
     assert not Tier.LOCAL.is_cache_hit and not Tier.FRONTIER.is_cache_hit
+
+
+# -- drafted answers and contested claims ----------------------------------
+
+from openknowledge.knowledge import KnowledgeStore, find_conflicts  # noqa: E402
+from openknowledge.types import Citation  # noqa: E402
+
+DRAFTED = "Employees with 12 months of service get 20 weeks of fully paid leave. [hr-handbook]"
+
+
+def with_knowledge(store, retriever, settings, knowledge, *, local=None) -> Cascade:
+    return Cascade(
+        store=store,
+        retriever=retriever,
+        settings=settings,
+        local=local,
+        knowledge=knowledge,
+    )
+
+
+async def test_a_drafted_answer_is_served_and_marked_unreviewed(
+    store, retriever, settings, knowledge
+) -> None:
+    """It passed the same gate a live answer does, so it is a precomputed cache
+    entry - served, but never presented as though a person wrote it."""
+    knowledge.propose(
+        canonical_query="how much parental leave do i get",
+        question=QUESTION,
+        answer=DRAFTED,
+        citations=(Citation("hr-handbook", "HR Handbook", "20 weeks", None),),
+        origin_documents=("hr-handbook",),
+        corpus_version="c1",
+        support_ratio=0.9,
+    )
+    local = FakeProvider(replies=[GROUNDED])
+    answer = await with_knowledge(store, retriever, settings, knowledge, local=local).answer(
+        QUESTION
+    )
+
+    assert answer.tier is Tier.DRAFT
+    assert answer.needs_review
+    assert answer.cost_usd == 0.0
+    assert any("not yet reviewed" in n for n in answer.notes)
+    assert local.calls == [], "a drafted answer must not reach a model"
+
+
+async def test_serving_drafts_can_be_switched_off(store, retriever, settings, knowledge) -> None:
+    """For a posture where nothing machine-written reaches staff before sign-off."""
+    knowledge.propose(
+        canonical_query="how much parental leave do i get",
+        question=QUESTION,
+        answer=DRAFTED,
+        citations=(Citation("hr-handbook", "HR Handbook", "20 weeks", None),),
+        origin_documents=("hr-handbook",),
+        corpus_version="c1",
+    )
+    off = replace_settings(settings, serve_drafts=False)
+    local = FakeProvider(replies=[GROUNDED])
+    answer = await with_knowledge(store, retriever, off, knowledge, local=local).answer(QUESTION)
+
+    assert answer.tier is Tier.LOCAL
+    assert local.calls
+
+
+async def test_a_draft_is_access_checked_like_any_other_answer(
+    store, retriever, settings, knowledge
+) -> None:
+    knowledge.propose(
+        canonical_query="what are the executive salary bands",
+        question="What are the executive salary bands?",
+        answer="EUR 180000 to EUR 240000. [board-comp]",
+        citations=(Citation("board-comp", "Board Compensation", "bands", None),),
+        origin_documents=("board-comp",),
+        corpus_version="c1",
+    )
+    cascade = with_knowledge(
+        store, retriever, settings, knowledge, local=FakeProvider(replies=["I don't know."])
+    )
+    staff = await cascade.answer(
+        "What are the executive salary bands?", principals=frozenset({"staff"})
+    )
+    assert staff.tier is not Tier.DRAFT
+
+
+def seed_conflict(knowledge: KnowledgeStore) -> None:
+    old = Document(
+        "expenses-2025",
+        "Expenses 2025",
+        "Travel expenses require prior written approval for any amount above EUR 500.",
+    )
+    new = Document(
+        "expenses-2026",
+        "Expenses 2026",
+        "Travel expenses require prior written approval for any amount above EUR 1,000.",
+    )
+    for conflict in find_conflicts([old, new]):
+        knowledge.record_conflict(conflict)
+
+
+async def test_a_contested_claim_is_refused_rather_than_guessed(
+    store, retriever, settings, knowledge
+) -> None:
+    seed_conflict(knowledge)
+    local = FakeProvider(replies=[GROUNDED])
+    answer = await with_knowledge(store, retriever, settings, knowledge, local=local).answer(
+        "What is the approval threshold for travel expenses?"
+    )
+
+    assert answer.tier is Tier.CONTESTED
+    assert not answer.is_answerable
+    assert "EUR 500" in answer.text and "EUR 1,000" in answer.text
+    assert local.calls == [], "a contested question must not reach a model"
+
+
+async def test_questions_the_documents_agree_on_are_unaffected(
+    store, retriever, settings, knowledge
+) -> None:
+    """Blocking every question that touches a document with one bad figure
+    would make the feature intolerable."""
+    seed_conflict(knowledge)
+    local = FakeProvider(replies=[GROUNDED])
+    answer = await with_knowledge(store, retriever, settings, knowledge, local=local).answer(
+        QUESTION
+    )
+    assert answer.tier is Tier.LOCAL
+
+
+async def test_a_pin_made_before_the_conflict_is_withheld(
+    store, retriever, settings, knowledge
+) -> None:
+    """The stale-pin trap: a person pinned an answer, then a document arrived
+    that disagrees. The pin looks authoritative and is out of date."""
+    store.pin(
+        "what is the approval threshold for travel expenses",
+        "Approval is required above EUR 500.",
+        author="finance",
+    )
+    seed_conflict(knowledge)  # detected after the pin was written
+
+    answer = await with_knowledge(store, retriever, settings, knowledge).answer(
+        "What is the approval threshold for travel expenses?"
+    )
+    assert answer.tier is Tier.CONTESTED
+
+
+async def test_a_pin_made_after_the_conflict_wins(store, retriever, settings, knowledge) -> None:
+    """Pinning with the disagreement visible *is* resolving it."""
+    seed_conflict(knowledge)
+    store.pin(
+        "what is the approval threshold for travel expenses",
+        "Approval is required above EUR 1,000 per the 2026 policy.",
+        author="finance",
+    )
+    answer = await with_knowledge(store, retriever, settings, knowledge).answer(
+        "What is the approval threshold for travel expenses?"
+    )
+    assert answer.tier is Tier.PINNED
+    assert "1,000" in answer.text
+
+
+async def test_resolving_a_conflict_unblocks_the_question(
+    store, retriever, settings, knowledge
+) -> None:
+    seed_conflict(knowledge)
+    for conflict in knowledge.open_conflicts():
+        knowledge.resolve_conflict(conflict.key, resolution="2026 is authoritative")
+
+    local = FakeProvider(replies=["Approval is required above EUR 500. [expenses]"])
+    answer = await with_knowledge(store, retriever, settings, knowledge, local=local).answer(
+        "What is the approval threshold for travel expenses?"
+    )
+    assert answer.tier is not Tier.CONTESTED
+
+
+async def test_conflict_blocking_can_be_switched_off(store, retriever, settings, knowledge) -> None:
+    seed_conflict(knowledge)
+    off = replace_settings(settings, block_on_conflict=False)
+    local = FakeProvider(replies=[GROUNDED])
+    answer = await with_knowledge(store, retriever, off, knowledge, local=local).answer(
+        "What is the approval threshold for travel expenses?"
+    )
+    assert answer.tier is not Tier.CONTESTED
+
+
+async def test_a_contested_refusal_is_not_counted_as_a_cache_hit() -> None:
+    """It answers nothing, so it must not inflate the free share."""
+    assert not Tier.CONTESTED.is_cache_hit
+    assert Tier.DRAFT.is_cache_hit

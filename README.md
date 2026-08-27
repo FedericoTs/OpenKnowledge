@@ -6,9 +6,10 @@ Self-hosted. Connects to SharePoint and Google Drive. Answers in Teams, Slack, o
 widget. Runs on your own hardware, your own API keys, or both.
 
 > **Status: pre-alpha (v0.1.0).** The cost architecture, the determinism layer, the
-> grounding gate, the provider abstraction, and the evaluation harness are implemented
-> and tested. Connectors beyond a local folder, the Teams channel, and the admin UI are
-> scaffolded interfaces, not working integrations. See [ROADMAP](docs/ROADMAP.md).
+> grounding gate, the knowledge lifecycle (drafting, review, conflict detection) and the
+> evaluation harness are implemented and tested. Connectors beyond a local folder, the
+> Teams channel, and the admin UI are scaffolded interfaces, not working integrations.
+> See [ROADMAP](docs/ROADMAP.md).
 
 ---
 
@@ -47,7 +48,7 @@ and only escalates when it must:
 |---|---|---|
 | **L0 · Pinned** | An admin wrote the canonical answer. Exact, by construction. | $0 |
 | **L1 · Exact cache** | This question was answered before, under this same corpus. | $0 |
-| **L2 · Semantic cache** | A near-identical question was, and the citations still check out. | $0 |
+| **L2 · Drafted** | Answered when the document was uploaded, gate-checked, marked unreviewed. | $0 |
 | **L3 · Local model** | Self-hosted model over retrieved context. No per-token invoice. | $0 marginal |
 | **L4 · Frontier API** | The local answer failed the grounding check, or the question is hard. | full price |
 
@@ -93,6 +94,29 @@ and the local tier wins by a widening margin.
 
 Your own hit rates and hardware will differ, which is why `openknowledge costs` reports the
 blended figure from the ledger rather than from this table.
+
+### Maintenance is a one-off at upload
+
+When a document arrives or changes, OpenKnowledge drafts the FAQ from it, discards anything
+that fails the grounding gate, and puts the rest to you ranked by what approving each one
+saves. Drafting 500 documents costs about **$6.06, once** — after which those questions are
+free for as long as the document stands.
+
+It also notices when documents contradict each other. Numeric disagreements — thresholds,
+deadlines, allowances — are found with no model at all, on every re-index, for free. Prose
+changes are caught by re-asking only the approved answers that *cite* the changed document:
+**$0.075 per upload instead of $5.00** for comparing it against the whole corpus, and it
+names the claim that moved rather than pointing at two files.
+
+A contested question is refused rather than guessed:
+
+```
+Your documents disagree on this, so I won't guess:
+  - [expenses-policy] says EUR 500, [expenses-policy-2026] says EUR 1,000
+Please ask your administrator which one currently applies.
+```
+
+See [KNOWLEDGE.md](docs/KNOWLEDGE.md).
 
 ### Is it actually right?
 
@@ -154,9 +178,9 @@ Then open <http://localhost:8080> for the chat widget.
 Pin the questions people actually ask — those become free and identical forever:
 
 ```bash
-openknowledge top                     # what is asked most
-openknowledge pin "How much parental leave do I get?" "20 weeks after 12 months." \
-  --cite parental-leave --alias "what is the parental leave entitlement"
+openknowledge learn                   # draft answers from your documents
+openknowledge review                  # approve them, most valuable first
+openknowledge conflicts               # documents that disagree with each other
 openknowledge costs                   # what it has cost so far
 ```
 
@@ -181,6 +205,7 @@ src/openknowledge/
 ├── providers/       Anthropic (with prompt caching), OpenAI-compatible (incl. local)
 ├── cascade/         The router: try cheap, verify, escalate
 ├── retrieval/       Hybrid retrieval + the grounding gate
+├── knowledge/       Draft at ingest, review queue, conflict detection
 ├── evaluation/      Golden set, scoring, baseline comparison
 ├── connectors/      SharePoint / Google Drive  (interfaces only)
 ├── channels/        Web / Teams / Slack        (web only)
@@ -194,6 +219,7 @@ src/openknowledge/
 | [ARCHITECTURE.md](docs/ARCHITECTURE.md) | How the cascade fits together |
 | [COST-MODEL.md](docs/COST-MODEL.md) | The arithmetic, and how to reproduce it |
 | [DETERMINISM.md](docs/DETERMINISM.md) | What we guarantee, and what we don't |
+| [KNOWLEDGE.md](docs/KNOWLEDGE.md) | Drafting at upload, review, and contradictions |
 | [EVALUATION.md](docs/EVALUATION.md) | How correctness is measured, and what fails a run |
 | [ROADMAP.md](docs/ROADMAP.md) | What's built, what's next |
 | [adr/](docs/adr/) | Why the load-bearing decisions went the way they did |
