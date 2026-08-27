@@ -78,7 +78,7 @@ def _cmd_ask(args: argparse.Namespace) -> int:
 
     price = "free" if answer.tier.is_cache_hit else f"${answer.cost_usd:.5f}"
     print(f"\n{answer.tier.value} · {answer.model_id} · {price}")
-    if answer.is_answerable:
+    if answer.confidence is not None:
         print(f"  confidence: {_confidence_label(answer.confidence)} ({answer.confidence:.0%})")
         for reason in answer.confidence_reasons:
             print(f"    - {reason}")

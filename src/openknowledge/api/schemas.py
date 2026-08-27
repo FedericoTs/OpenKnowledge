@@ -35,10 +35,11 @@ class ChatResponse(BaseModel):
     cached: bool
     citations: list[CitationOut]
     notes: list[str] = []
-    #: How closely to read this answer, in [0, 1]. Free to compute: every input
-    #: is already produced by the gate and the retriever, so it costs no extra
-    #: model call. Not a probability - an ordering, where lower deserves a look.
-    confidence: float = 1.0
+    #: How closely to read this answer, in [0, 1], or null where there is no
+    #: answer to read. Free to compute: every input is already produced by the
+    #: gate and the retriever, so it costs no extra model call. Not a
+    #: probability - an ordering, where lower deserves a look.
+    confidence: float | None = None
     #: Why it is not 1.0, in words a reader can act on.
     confidence_reasons: list[str] = []
 
@@ -53,7 +54,7 @@ class ChatResponse(BaseModel):
             cached=answer.tier.is_cache_hit,
             # Citation is a slots dataclass, so it has no __dict__ to splat.
             citations=[CitationOut(**asdict(c)) for c in answer.citations],
-            confidence=round(answer.confidence, 3),
+            confidence=(None if answer.confidence is None else round(answer.confidence, 3)),
             confidence_reasons=list(answer.confidence_reasons),
             notes=list(answer.notes),
         )

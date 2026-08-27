@@ -71,7 +71,7 @@ class CaseResult:
     deterministic: bool = True
     paraphrase_consistent: bool = True
     cost_usd: float = 0.0
-    confidence: float = 1.0
+    confidence: float | None = None
 
     @property
     def tier(self) -> Tier:
@@ -141,9 +141,9 @@ class EvalReport:
         on a given corpus it may simply not be true - and a score that does not
         separate is worse than none, since it makes wrong answers look checked.
         """
-        answered = [r for r in self.answerable if r.answer.is_answerable]
-        passed = [r.confidence for r in answered if r.passed]
-        failed = [r.confidence for r in answered if not r.passed]
+        scored = [(r.confidence, r.passed) for r in self.answerable if r.confidence is not None]
+        passed = [c for c, ok in scored if ok]
+        failed = [c for c, ok in scored if not ok]
         if not passed or not failed:
             return None
         return sum(passed) / len(passed), sum(failed) / len(failed)

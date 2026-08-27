@@ -85,9 +85,11 @@ class Answer:
     escalated_from: Tier | None = None
     notes: tuple[str, ...] = ()
     #: How much to trust this, in [0, 1], derived from signals the cascade
-    #: already computed. 1.0 for a human-written pin, which is certain by
-    #: construction. See `retrieval/confidence.py` for what moves it.
-    confidence: float = 1.0
+    #: already computed. **None when there is no answer to trust** - a refusal
+    #: or a contested response asserts nothing, and reporting 1.0 for it would
+    #: make the one reply that deliberately says nothing look the most certain
+    #: thing in the log. See `retrieval/confidence.py` for what moves it.
+    confidence: float | None = None
     #: Why it is not 1.0. Empty when nothing counted against the answer.
     confidence_reasons: tuple[str, ...] = ()
 
