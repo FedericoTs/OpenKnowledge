@@ -302,6 +302,40 @@ Please ask your administrator which one currently applies.
 
 See [KNOWLEDGE.md](docs/KNOWLEDGE.md).
 
+### It has now been run against a real model
+
+Everything above was measured with scripted providers until Qwen3-4B (Q4_K_M) was pointed at
+the test corpus on four CPU cores — 10 documents across Markdown, Word, Excel and PDF:
+
+| | |
+|---|---:|
+| accuracy | **100.0%** (17 answerable cases) |
+| false answers | **0** (9 must-refuse cases) |
+| determinism | **100.0%** |
+| paraphrase consistency | **100.0%** |
+| cost per question | **$0.00000** |
+
+Tiers: 17 answered locally, 8 refused, 1 refused as contested — the live disagreement between
+two documents, declined rather than guessed.
+
+**What that is and is not.** The corpus and the questions were written together, which is the
+circularity that makes a benchmark flattering, so this is evidence that the *pipeline*
+behaves — retrieval finds the evidence, conditions survive, negations do not invert,
+contradictions refuse, unanswerable questions get declined — not that the product is accurate
+on your documents. It is also a 4-bit 4B model, so read it as a floor rather than a target.
+
+The golden set is checked to be capable of failing: every answerable case is fed its own
+plausible wrong answer, correctly cited, and must reject it. A test asserts this, because a
+set that passes everything might mean the model is right or might mean the set is blind.
+
+**Five runs before this one found four real bugs**, none of which 450+ unit tests had caught:
+a contested-claim gate that a wordier question could slip past, a contested refusal scored as
+a fabrication, a golden set requiring two spellings of one number at once, and figures
+matching inside larger figures. That is the argument for a live run, made concretely.
+
+See [TEST-RUN.md](docs/TEST-RUN.md) to reproduce it, including the appendix for running the
+local tier through llama.cpp with no Ollama.
+
 ### Is it actually right?
 
 Cheapness is worthless if the answers are wrong, so correctness is measured rather than

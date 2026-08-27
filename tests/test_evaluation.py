@@ -644,3 +644,32 @@ def test_a_score_that_does_not_separate_says_so() -> None:
         ]
     )
     assert "DOES NOT separate" in format_report(report)
+
+
+def test_every_shipped_case_rejects_its_own_forbidden_answer() -> None:
+    """Can this set fail at all?
+
+    A golden set that passes everything might mean the model is right, or that
+    the set cannot detect wrongness - and only one of those is worth reporting.
+    Feeding each case the plausible wrong answer it names, correctly cited,
+    distinguishes them. It costs nothing and it is the check that makes a 100%
+    run mean something.
+    """
+    root = Path(__file__).resolve().parent.parent / "evals"
+    for directory in ("golden", "golden-aveline"):
+        for case in load_cases(root / directory):
+            if case.kind != "answerable" or not case.must_not_say:
+                continue
+            cites = case.must_cite or ("hr-expenses-policy",)
+            answer = Answer(
+                text=f"The answer is {case.must_not_say[0]}. " + " ".join(f"[{d}]" for d in cites),
+                tier=Tier.LOCAL,
+                model_id="m",
+                cache_key="k",
+                grounded=True,
+                citations=tuple(
+                    Citation(document_id=d, document_title=d, snippet="x") for d in cites
+                ),
+            )
+            passed, _failures, _false = _score(case, answer)
+            assert not passed, f"{case.id} accepts its own forbidden answer"

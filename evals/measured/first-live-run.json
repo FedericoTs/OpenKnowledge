@@ -1,0 +1,26 @@
+{
+  "cases": 26,
+  "accuracy": 1.0,
+  "false_answers": 0,
+  "false_answer_rate": 0.0,
+  "determinism": 1.0,
+  "paraphrase_consistency": 1.0,
+  "cost_per_question_usd": 0.0,
+  "total_cost_usd": 0.0,
+  "free_share": 0.0,
+  "support_separation": null,
+  "tiers": {
+    "local": 17,
+    "refused": 8,
+    "contested": 1
+  },
+  "provenance": {
+    "what": "First live-model run of the golden set, on the corpus with the superseded archive copy removed.",
+    "model": "Qwen3-4B-Instruct-2507, Q4_K_M, via llama.cpp on 4 CPU cores",
+    "corpus": "evals/corpus/aveline minus archive/ - 10 documents across Markdown, Word, Excel and PDF",
+    "golden_set": "evals/golden-aveline - 26 cases, 17 answerable, 9 must-refuse, 37 wrong-answer guards, none unguarded",
+    "set_can_fail": "Every answerable case rejects its own forbidden answer; asserted by tests/test_evaluation.py.",
+    "not_evidence_of": "accuracy on real documents. The corpus and the questions were written together, which is the circularity that makes a benchmark flattering. It shows the pipeline behaves.",
+    "reproduce": "docs/TEST-RUN.md, appendix: running the local tier with no Ollama"
+  }
+}

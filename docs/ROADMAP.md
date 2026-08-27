@@ -59,6 +59,13 @@ Honest status. "Built" means implemented and covered by tests in this repository
 - **Standalone audit** — `openknowledge audit ./folder` reports where a folder's documents
   disagree with each other with no API key, no model, no database and nothing written. Exits
   non-zero on findings so it can gate CI.
+- **First live-model run** — the self-hosted tier measured end to end, not simulated.
+  Qwen3-4B (Q4_K_M) on four CPU cores over 10 documents in Markdown, Word, Excel and PDF:
+  **100% accuracy, 0 false answers, 100% determinism, 100% paraphrase consistency, $0.00000
+  per question**, with the live contradiction correctly refused and eight unanswerable
+  questions declined. The golden set is checked to be capable of failing — every answerable
+  case rejects its own forbidden answer, asserted by a test. Numbers and their caveats in
+  `evals/measured/first-live-run.json`; five runs before it found four real bugs.
 - **Configuration comparison** — `tools/compare_configs.py` runs one golden set against
   every configuration in `evals/profiles.yaml` (self-hosted, open-weight, ladder, frontier)
   and prints them side by side, each in its own data directory so a warm cache from one
@@ -76,8 +83,15 @@ Honest status. "Built" means implemented and covered by tests in this repository
 
 ## Next — makes it useful in a real company
 
-1. **A real run.** Every cost lever is now built and measured; not one *answer-side* number
-   is, because no model has been called. Draft yield, gate pass rate, the escalation rate
+1. **A real run against a paid tier.** The self-hosted tier is now measured — see below —
+   but the open-weight and frontier rungs are not, so the escalation rate the whole cost
+   model turns on is still assumed. That needs an API key.
+
+   Everything else is ready: `tools/compare_configs.py` runs all four configurations from
+   one command and skips the ones whose keys are missing. See [TEST-RUN.md](TEST-RUN.md).
+
+   ~~Every cost lever is now built and measured; not one *answer-side* number
+   is, because no model has been called.~~ Draft yield, gate pass rate, the escalation rate
    the whole cost model now turns on, and whether an open-weight rung actually grounds
    answers are all assumed. **Everything needed to do it now ships**: a synthetic corpus
    built around traps (`evals/corpus/aveline`), a 26-case golden set with a nine-case safety
