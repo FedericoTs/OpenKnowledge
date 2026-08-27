@@ -30,14 +30,14 @@
 @media (prefers-color-scheme: light) {
   :root:not([data-theme="dark"]) {
     --ground:#f7f8f6; --raised:#fff; --sunk:#0d1210;
-    --ink:#14201b; --muted:#5d6a63; --faint:#8a938d; --line:#e0e5e1; --line-soft:#ebefec;
+    --ink:#14201b; --muted:#5d6a63; --faint:#7c8781; --line:#e0e5e1; --line-soft:#ebefec;
     --green:#2c6a58; --green-dim:#4e9480; --green-glow:#2c6a5814;
     --amber:#9a6a2c; --red:#a8473a;
   }
 }
 :root[data-theme="light"] {
   --ground:#f7f8f6; --raised:#fff; --sunk:#0d1210;
-  --ink:#14201b; --muted:#5d6a63; --faint:#8a938d; --line:#e0e5e1; --line-soft:#ebefec;
+  --ink:#14201b; --muted:#5d6a63; --faint:#7c8781; --line:#e0e5e1; --line-soft:#ebefec;
   --green:#2c6a58; --green-dim:#4e9480; --green-glow:#2c6a5814;
   --amber:#9a6a2c; --red:#a8473a;
 }
@@ -54,6 +54,11 @@ img,svg { max-width:100%; }
 
 .shell { width:100%; max-width:1080px; margin:0 auto; padding:0 24px; }
 .col { max-width:680px; }
+/* A grid or flex item defaults to min-width:auto, so one unbreakable line -
+   the install command, a wide table - pushes its track past the viewport and
+   the whole page scrolls sideways on a phone. Everything that can hold a code
+   block or a table gets min-width:0 so the scroll stays inside it. */
+.step, .step > div, .row, .row > *, .metrics div, .grid2 > *, .col { min-width:0; }
 .eyebrow { font-size:11px; font-weight:600; letter-spacing:.14em; text-transform:uppercase;
            color:var(--green-dim); margin:0 0 14px; font-family:var(--sans); }
 h1,h2,h3 { font-family:var(--serif); font-weight:400; letter-spacing:-.015em;
@@ -80,11 +85,15 @@ nav .nav-links a:hover { color:var(--ink); }
 @media (max-width:720px){ .nav-links a.hide-sm{display:none;} }
 
 /* -- hero --------------------------------------------------------------- */
-.hero { padding:88px 0 72px; }
-.hero h1 { max-width:15ch; margin-bottom:22px; }
-.hero .lede { max-width:52ch; margin-bottom:30px; }
+/* Centred, because the artifact below it - the real terminal output - wants
+   the full column width, so a two-column hero would have to shrink the one
+   thing on the page worth looking at. Centring the copy makes the space beside
+   it read as chosen rather than left over. */
+.hero { padding:96px 0 76px; text-align:center; }
+.hero h1 { max-width:17ch; margin:0 auto 22px; }
+.hero .lede { max-width:56ch; margin:0 auto 32px; }
 .hero em { font-style:italic; color:var(--ink); }
-.actions { display:flex; gap:12px; flex-wrap:wrap; align-items:center; }
+.actions { display:flex; gap:12px; flex-wrap:wrap; align-items:center; justify-content:center; }
 .btn { display:inline-flex; align-items:center; gap:8px; padding:12px 20px; border-radius:8px;
        font-size:15px; font-weight:600; text-decoration:none; border:1px solid transparent;
        transition:background .15s ease,border-color .15s ease; }
@@ -92,8 +101,8 @@ nav .nav-links a:hover { color:var(--ink); }
 .btn-primary:hover { background:var(--ink); }
 .btn-ghost { border-color:var(--line); color:var(--ink); }
 .btn-ghost:hover { border-color:var(--green); }
-.trust { margin-top:22px; font-size:13px; color:var(--faint);
-         display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+.trust { margin-top:24px; font-size:13px; color:var(--faint);
+         display:flex; gap:8px; flex-wrap:wrap; align-items:center; justify-content:center; }
 .trust span { display:inline-flex; align-items:center; gap:7px; }
 .dot { width:3px; height:3px; border-radius:50%; background:var(--faint); }
 
@@ -105,12 +114,17 @@ nav .nav-links a:hover { color:var(--ink); }
 .terminal .bar i { width:9px; height:9px; border-radius:50%; background:#2b3733; display:block; }
 .terminal .bar b { margin-left:6px; font-family:var(--mono); font-size:11.5px; font-weight:500;
                    color:#7d8a84; letter-spacing:.02em; }
-.terminal pre { margin:0; padding:20px; overflow-x:auto; font-family:var(--mono);
-                font-size:12.5px; line-height:1.62; color:#c8d3ce; }
-.terminal .cmd { color:var(--green); }
-.terminal .hit { color:var(--amber); }
+.terminal pre { margin:0; padding:20px; font-family:var(--mono);
+                font-size:12.5px; line-height:1.62; color:#c8d3ce;
+                white-space:pre-wrap; overflow-wrap:anywhere; }
+/* Fixed, not themed: the terminal stays dark in both themes, so the light
+   theme's darker accents - picked for contrast on paper - would be almost
+   unreadable in here. */
+.terminal .cmd { color:#6fbfa4; }
+.terminal .hit { color:#d9a566; }
 .terminal .quiet { color:#6e7a74; }
-.hero-term { margin-top:56px; }
+.hero-term { margin-top:60px; text-align:left; }
+.hero-term .bar b { font-size:11.5px; }
 
 pre.plain { background:var(--raised); border:1px solid var(--line); border-radius:10px;
             padding:16px 18px; overflow-x:auto; font-family:var(--mono); font-size:13px;
@@ -181,6 +195,11 @@ tbody tr.highlight td.n { color:var(--green); font-weight:600; }
 .step p { font-size:14.5px; color:var(--muted); }
 
 /* -- contact ------------------------------------------------------------ */
+/* Side by side where there is room: the form is the point of the section, and
+   stacked under a paragraph on a 1080px page it reads as an afterthought. */
+.contact-grid { display:grid; grid-template-columns:minmax(0,0.92fr) minmax(0,1.08fr);
+                gap:56px; align-items:start; }
+@media (max-width:900px){ .contact-grid { grid-template-columns:1fr; gap:32px; } }
 .card { background:var(--raised); border:1px solid var(--line); border-radius:14px; padding:28px; }
 .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
 @media (max-width:620px){ .grid2{grid-template-columns:1fr;} }
@@ -457,7 +476,7 @@ openknowledge model use qwen3:30b --context 131072</code></pre>
   </div>
 </div></section>
 
-<section id="contact"><div class="shell">
+<section id="contact"><div class="shell"><div class="contact-grid">
   <div class="col">
     <p class="eyebrow">Get in touch</p>
     <h2>Tell us you exist.</h2>
@@ -468,7 +487,7 @@ openknowledge model use qwen3:30b --context 131072</code></pre>
     </p>
   </div>
 
-  <div class="col">
+  <div>
   <form class="card" id="contact-form" method="post" action="/api/contact">
     <div class="grid2">
       <div class="field">
@@ -488,10 +507,10 @@ openknowledge model use qwen3:30b --context 131072</code></pre>
       <div class="field">
         <label for="interest">What brought you here?</label>
         <select id="interest" name="interest">
-          <option value="audit">Contradictions in our documents</option>
+          <option value="audit">Document contradictions</option>
           <option value="cost">What our chatbot costs</option>
-          <option value="private">Keeping documents off third-party infrastructure</option>
-          <option value="compliance">Traceability and record-keeping obligations</option>
+          <option value="private">Documents stay private</option>
+          <option value="compliance">Audit trail and records</option>
           <option value="other">Something else</option>
         </select>
       </div>
@@ -511,7 +530,7 @@ openknowledge model use qwen3:30b --context 131072</code></pre>
     </p>
   </form>
   </div>
-</div></section>
+</div></div></section>
 
 <footer><div class="shell">
   <div class="footlinks">

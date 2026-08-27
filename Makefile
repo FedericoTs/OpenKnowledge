@@ -1,4 +1,4 @@
-.PHONY: help install test lint fmt typecheck check serve index costs learn review conflicts eval eval-conflicts eval-safety docker clean
+.PHONY: help install test test-browser lint fmt typecheck check serve index costs learn review conflicts eval eval-conflicts eval-safety docker clean
 
 help:
 	@grep -E '^[a-z-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
@@ -8,6 +8,10 @@ install:  ## create the venv and install with dev extras
 
 test:  ## run the test suite
 	uv run pytest -q
+
+test-browser:  ## also check the public page in a real browser
+	uv pip install -e ".[dev,browser]" && uv run playwright install chromium
+	uv run pytest tests/test_website_layout.py -q
 
 lint:  ## check formatting and lint rules
 	uv run ruff check src tests tools

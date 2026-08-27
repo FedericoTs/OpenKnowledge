@@ -47,6 +47,14 @@ opendataloader = ["opendataloader-pdf>=2.5"]
 # from the provider's own usage response, and an estimator in that path would
 # put a guess into the ledger.
 measure = ["tiktoken>=0.7"]
+# Browser-driven checks on the public page: horizontal overflow at phone widths,
+# fonts that 404, contrast in both themes. None of those are visible from the
+# HTML, and all three have been real. An extra rather than a dev dependency
+# because it also needs a browser installed; without it those tests skip and
+# the rest of the suite is unaffected.
+#
+#     uv pip install -e ".[dev,browser]" && playwright install chromium
+browser = ["playwright>=1.40"]
 dev = [
   "pytest>=8.3",
   "tiktoken>=0.7",

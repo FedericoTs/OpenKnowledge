@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+from urllib.parse import urljoin
 
 import pytest
 from fastapi.testclient import TestClient
@@ -260,3 +261,31 @@ def test_the_page_offers_an_installer_that_is_there(page: str) -> None:
     claimed = re.search(r"the script is (\d+) lines", page)
     assert claimed is not None
     assert int(claimed.group(1)) == len(script.read_text().splitlines())
+
+
+def test_the_pages_own_fonts_are_served(client: TestClient, page: str) -> None:
+    """The page says it makes no third-party requests. That needs the fonts local.
+
+    They were 404ing when the site was first run: the page loaded, looked
+    roughly right in system faces, and nothing in the suite noticed - which is
+    the whole reason this checks what a browser would actually fetch rather than
+    what the CSS says.
+    """
+    referenced = set(re.findall(r"url\('([^']+\.woff2)'\)", page))
+    assert referenced, "the page no longer references any local font"
+
+    for reference in sorted(referenced):
+        # The page is served at /site with no trailing slash, so a browser
+        # resolves a relative url() against the parent - /fonts/x, not
+        # /site/fonts/x. Checking the path we hoped for instead of the one a
+        # browser asks for is exactly how these 404'd unnoticed.
+        resolved = urljoin("http://testserver/site", reference)
+        response = client.get(resolved)
+        assert response.status_code == 200, f"the page asks for {resolved} and gets a 404"
+        assert response.headers["content-type"] == "font/woff2"
+        assert len(response.content) > 1000
+
+
+def test_the_font_route_cannot_be_walked_out_of(client: TestClient) -> None:
+    for name in ("../index.html", "..%2findex.html", "../../../etc/passwd", "README.md"):
+        assert client.get(f"/site/fonts/{name}").status_code == 404

@@ -16,6 +16,7 @@ into a required query parameter.
 from __future__ import annotations
 
 import logging
+import re
 import secrets
 import time
 from collections.abc import AsyncIterator
@@ -24,7 +25,7 @@ from pathlib import Path
 from typing import Annotated, Any
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse
 
 from ..cache import citations_for
 from ..canonical import canonicalize_query
@@ -150,6 +151,36 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             if page is None:  # pragma: no cover - packaging fallback
                 return "<h1>OpenKnowledge</h1><p>Site page not found.</p>"
             return page.read_text(encoding="utf-8")
+
+        # Both paths, because the page is served at /site with no trailing
+        # slash: a browser resolves its relative `fonts/x.woff2` against the
+        # parent and asks for /fonts/x.woff2. The /site/fonts/ form is what a
+        # static host serving the same folder would use. Registering only one
+        # of them is how these 404'd silently the first time - the page still
+        # rendered, in fallback faces, and looked fine.
+        @app.get("/fonts/{name}", include_in_schema=False)
+        @app.get("/site/fonts/{name}", include_in_schema=False)
+        async def site_font(name: str) -> FileResponse:
+            """The page's three typefaces, served from here rather than a CDN.
+
+            The page claims it makes no third-party requests, and that claim is
+            only true if the fonts come from the same origin.
+
+            Deliberately narrow: one extension, no separators, no dots, so the
+            name cannot walk out of the folder whatever is asked for.
+            """
+            page = _find_site()
+            stem, _, suffix = name.rpartition(".")
+            if page is None or suffix != "woff2" or not re.fullmatch(r"[a-z0-9-]+", stem):
+                raise HTTPException(status_code=404, detail="not found")
+            font = page.parent / "fonts" / name
+            if not font.is_file():
+                raise HTTPException(status_code=404, detail="not found")
+            return FileResponse(
+                font,
+                media_type="font/woff2",
+                headers={"Cache-Control": "public, max-age=31536000, immutable"},
+            )
 
         @app.post("/api/contact", response_model=ContactResponse, status_code=201)
         async def contact(req: ContactRequest, request: Request) -> ContactResponse:
