@@ -330,3 +330,28 @@ def test_an_unrecorded_window_checks_nothing() -> None:
     with pytest.raises(ProviderError) as raised:
         asyncio.run(provider.complete(system="s" * 400, context="c" * 99_000, question="q"))
     assert "window" not in str(raised.value)  # it failed on the connection, not the fit
+
+
+def test_download_progress_is_not_gated_on_having_a_terminal(
+    base_url: str,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Reported from Git Bash: `model use` printed nothing at all.
+
+    The progress line was only emitted when stderr.isatty(), and MinTTY is a
+    named pipe, so Python reports False there - making a five-gigabyte download
+    completely silent on the platform least able to tell it apart from a hung
+    command. Rewriting a line in place needs a terminal; saying something does
+    not, and only the first is conditional now.
+    """
+    from openknowledge.cli import main
+
+    monkeypatch.setenv("OK_LOCAL_BASE_URL", base_url)
+    assert main(["model", "use", "qwen3:14b", "--env-file", str(tmp_path / ".env")]) == 0
+
+    # capsys makes stderr a pipe, which is exactly the condition that silenced it.
+    progress = capsys.readouterr().err
+    assert "%" in progress, f"no progress reached a non-terminal stderr: {progress!r}"
+    assert "pulling" in progress

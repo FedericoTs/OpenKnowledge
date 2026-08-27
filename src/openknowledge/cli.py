@@ -529,15 +529,36 @@ def _cmd_model(args: argparse.Namespace) -> int:
         return 0
 
     # --- use ---------------------------------------------------------------
+    # Rewriting one line in place needs a terminal; *saying something* does not.
+    # Gating the whole report on isatty made `model use` completely silent under
+    # Git Bash, where MinTTY is a named pipe and Python reports isatty() False -
+    # so a five-gigabyte download looked like a hung command on the one platform
+    # least able to tell. Progress is now unconditional; only the redraw is not.
+    redraw = sys.stderr.isatty()
+    last_step = -1
+
     def report(status: str, done: int, total: int) -> None:
-        """One line, rewritten in place, so a long download does not look hung."""
+        nonlocal last_step
         if total:
             gb = f"{done / 1_000_000_000:.1f} of {total / 1_000_000_000:.1f} GB"
-            line = f"  {status}: {gb} ({done * 100 // total}%)"
+            percent = done * 100 // total
+            line = f"  {status}: {gb} ({percent}%)"
         else:
+            percent = -1
             line = f"  {status}"
-        # Pad to clear whatever the previous, longer line left behind.
-        print(f"\r{line:<64}", end="", file=sys.stderr, flush=True)
+
+        if redraw:
+            # Padded, to clear whatever the previous, longer line left behind.
+            print(f"\r{line:<64}", end="", file=sys.stderr, flush=True)
+            return
+
+        # No redraw available: one line every ten percent, so it is neither
+        # silent nor thousands of lines of scroll.
+        step = percent // 10
+        if step == last_step:
+            return
+        last_step = step
+        print(line, file=sys.stderr, flush=True)
 
     try:
         result = local_models.switch(
@@ -545,13 +566,13 @@ def _cmd_model(args: argparse.Namespace) -> int:
             args.model,
             context=args.context,
             allow_download=not args.no_download,
-            on_progress=report if sys.stderr.isatty() else None,
+            on_progress=report,
         )
     except local_models.ModelError as exc:
         print(f"\nerror: {exc}", file=sys.stderr)
         return 1
     finally:
-        if sys.stderr.isatty():
+        if redraw:
             print("\r" + " " * 64 + "\r", end="", file=sys.stderr, flush=True)
 
     values = {"OK_LOCAL_MODEL": result.model, "OK_LOCAL_ENABLED": "true"}
