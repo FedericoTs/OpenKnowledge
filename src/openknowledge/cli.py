@@ -571,6 +571,16 @@ def _cmd_model(args: argparse.Namespace) -> int:
     except local_models.ModelError as exc:
         print(f"\nerror: {exc}", file=sys.stderr)
         return 1
+    except KeyboardInterrupt:
+        # Interrupting a download is a normal thing to do, not a crash. Say what
+        # survives it, because "did I just lose four gigabytes" is the question.
+        print(
+            f"\nstopped. {args.model} was not switched to; anything already "
+            f"downloaded is kept, so `ollama pull {args.model}` resumes rather "
+            "than starting over.",
+            file=sys.stderr,
+        )
+        return 130
     finally:
         if redraw:
             print("\r" + " " * 64 + "\r", end="", file=sys.stderr, flush=True)

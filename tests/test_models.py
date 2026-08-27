@@ -355,3 +355,32 @@ def test_download_progress_is_not_gated_on_having_a_terminal(
     progress = capsys.readouterr().err
     assert "%" in progress, f"no progress reached a non-terminal stderr: {progress!r}"
     assert "pulling" in progress
+
+
+def test_interrupting_a_download_says_what_survives_it(
+    base_url: str,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Ctrl-C during a five-gigabyte pull is normal, not a crash.
+
+    A traceback here reads as "something went wrong and you have probably lost
+    it all", when in fact Ollama keeps every block already fetched.
+    """
+    from openknowledge import models as local_models
+    from openknowledge.cli import main
+
+    monkeypatch.setenv("OK_LOCAL_BASE_URL", base_url)
+
+    def interrupted(*_: object, **__: object) -> None:
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(local_models, "pull", interrupted)
+    code = main(["model", "use", "qwen3:14b", "--env-file", str(tmp_path / ".env")])
+
+    assert code == 130  # the conventional exit status for an interrupt
+    message = capsys.readouterr().err
+    assert "stopped" in message
+    assert "resumes rather than starting over" in message
+    assert not (tmp_path / ".env").exists(), "an interrupted switch must record nothing"
