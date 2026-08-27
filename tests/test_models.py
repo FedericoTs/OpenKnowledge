@@ -534,10 +534,9 @@ def test_a_timeout_never_reports_an_empty_reason() -> None:
     async def timing_out(*_: object, **__: object) -> None:
         raise httpx.ReadTimeout("")
 
-    with pytest.raises(ProviderError) as raised:
-        with pytest.MonkeyPatch.context() as patch:
-            patch.setattr(httpx.AsyncClient, "post", timing_out)
-            asyncio.run(provider.complete(system="s", context="c", question="q"))
+    with pytest.raises(ProviderError) as raised, pytest.MonkeyPatch.context() as patch:
+        patch.setattr(httpx.AsyncClient, "post", timing_out)
+        asyncio.run(provider.complete(system="s", context="c", question="q"))
 
     message = str(raised.value)
     assert message.rstrip().endswith(".") or "ReadTimeout" in message
