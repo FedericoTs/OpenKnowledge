@@ -28,7 +28,9 @@ model carrying ``num_ctx``, which is what ``--context`` builds.
 from __future__ import annotations
 
 import json
+import os
 import re
+import tempfile
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -437,12 +439,18 @@ def switch(
 # --- persistence -----------------------------------------------------------
 
 
-def write_env(path: Path, values: dict[str, str]) -> list[str]:
+def write_env(path: Path, values: dict[str, str], *, private: bool = False) -> list[str]:
     """Set ``values`` in a dotenv file, leaving every other line exactly as it was.
 
     An operator's .env has their comments and their ordering in it. Rewriting it
     from the settings object would silently drop both, so this edits in place and
     appends only what is genuinely new.
+
+    The write is atomic - a temp file beside the target, then rename - so two
+    writers cannot leave a half-file or silently drop each other's keys.
+    ``private`` restricts the file to its owner *before* any content lands in
+    it: a token written under umask 022 is world-readable, and a bearer token
+    any local account can read is not a secret.
     """
     lines = path.read_text().splitlines() if path.exists() else []
     remaining = dict(values)
@@ -460,7 +468,21 @@ def write_env(path: Path, values: dict[str, str]) -> list[str]:
         lines.append(f"{key}={value}")
         changed.append(key)
 
-    path.write_text("\n".join(lines).rstrip("\n") + "\n")
+    content = "\n".join(lines).rstrip("\n") + "\n"
+    descriptor, temp_name = tempfile.mkstemp(dir=str(path.parent), prefix=f".{path.name}.")
+    try:
+        if private:
+            os.fchmod(descriptor, 0o600)
+        elif path.exists():
+            os.fchmod(descriptor, path.stat().st_mode & 0o777)
+        with os.fdopen(descriptor, "w") as handle:
+            handle.write(content)
+        os.replace(temp_name, path)
+    except BaseException:
+        os.unlink(temp_name)
+        raise
+    if private:
+        os.chmod(path, 0o600)
     return changed
 
 

@@ -158,6 +158,18 @@ class Settings(BaseSettings):
     # -- generation ------------------------------------------------------
     max_answer_tokens: int = Field(default=1500, ge=64)
 
+    # -- serving ------------------------------------------------------------
+    #: The interface `serve` bound, recorded by the CLI so the app can decide
+    #: whether the loopback Host allowlist applies. Not a way to choose the
+    #: bind - that is serve's --host flag.
+    bind_host: str = "127.0.0.1"
+    #: Host headers accepted when serving loopback. "testserver" is what test
+    #: clients send; the rest are the names a local browser can legitimately
+    #: use. Extend it if you put a local reverse proxy in front.
+    trusted_hosts: list[str] = Field(
+        default_factory=lambda: ["127.0.0.1", "localhost", "::1", "testserver"]
+    )
+
     # -- website -----------------------------------------------------------
     #: Serve the marketing page at /site and accept its contact form at
     #: /api/contact. **Off by default**: a running answer engine has no business

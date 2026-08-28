@@ -15,6 +15,7 @@ into a required query parameter.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import re
@@ -28,6 +29,7 @@ from typing import Annotated, Any
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, Response, StreamingResponse
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from ..assets import find_asset
 from ..cache import citations_for
@@ -109,28 +111,40 @@ _FAVICON = (
 
 
 def _provision_admin_token(settings: Settings) -> None:
-    """In app mode, mint the admin token instead of shipping a dead API.
+    """In app mode - and only there - mint the admin token.
 
     On a server, admin-disabled-until-someone-sets-a-token is a security
-    stance: a deliberate act enables the write surface. On a desktop install
-    there is no someone - the management UI this token guards would simply
-    never work, and "set OK_ADMIN_TOKEN" is not an instruction a double-click
-    user can follow. So when state lives in the per-user app directory, a
-    token is generated once, persisted next to the rest of the state, and
-    printed by `openknowledge token` when something needs it.
+    stance: a deliberate act enables the write surface. That stance holds for
+    project mode AND for OK_STATE_DIR overrides - an operator pointing state
+    at /srv/openknowledge is running a server, and minting there would
+    silently enable every admin write behind their back. Only the per-user
+    app directory means "a desktop install with nobody to set variables",
+    which is the one place a dead admin API helps no one.
 
-    Project mode is deliberately untouched: every server deployment keeps the
-    fail-closed behaviour it was written with.
+    The token file is owner-only before the secret touches it, and an
+    existing token in the file wins over minting a new one, so two processes
+    starting together converge instead of diverging.
     """
     from ..models import write_env
     from ..paths import state_paths
 
     state = state_paths()
-    if settings.admin_token or state.mode == "project":
+    if settings.admin_token or state.mode != "app":
         return
-    token = secrets.token_urlsafe(32)
+
     state.root.mkdir(parents=True, exist_ok=True)
-    write_env(state.env_file, {"OK_ADMIN_TOKEN": token})
+    with contextlib.suppress(OSError):  # some filesystems refuse; not fatal
+        state.root.chmod(0o700)
+
+    # Another process may have minted between our settings load and now.
+    if state.env_file.is_file():
+        for line in state.env_file.read_text().splitlines():
+            if line.startswith("OK_ADMIN_TOKEN=") and line.split("=", 1)[1].strip():
+                settings.admin_token = line.split("=", 1)[1].strip()
+                return
+
+    token = secrets.token_urlsafe(32)
+    write_env(state.env_file, {"OK_ADMIN_TOKEN": token}, private=True)
     settings.admin_token = token
     log.info(
         "admin token generated and stored in %s (`openknowledge token` prints it)",
@@ -216,6 +230,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         lifespan=lifespan,
     )
     app.state.settings = resolved
+
+    # A browser will happily point an attacker's domain at 127.0.0.1 (DNS
+    # rebinding) and then fetch this server from a webpage. The Host header
+    # survives that trick, so when serving loopback - the personal-machine
+    # case - only loopback names are accepted. A deployment that binds a
+    # network interface set OK_BIND_HOST itself and keeps full control via
+    # OK_TRUSTED_HOSTS.
+    if resolved.bind_host in ("127.0.0.1", "localhost", "::1"):
+        app.add_middleware(TrustedHostMiddleware, allowed_hosts=resolved.trusted_hosts)
 
     # -- public --------------------------------------------------------------
     @app.get("/", response_class=HTMLResponse, include_in_schema=False)

@@ -30,8 +30,16 @@ def _engine() -> Any:
 
 
 def _cmd_serve(args: argparse.Namespace) -> int:
+    import os
+
     import uvicorn
 
+    if args.host == "127.0.0.1":
+        # The default changed from 0.0.0.0; anyone who relied on the old one
+        # deserves one plain line saying so rather than a silent disappearance
+        # from their network.
+        print("serving this machine only; pass --host 0.0.0.0 to serve the network")
+    os.environ["OK_BIND_HOST"] = args.host
     uvicorn.run("openknowledge.api.app:app", host=args.host, port=args.port, reload=args.reload)
     return 0
 

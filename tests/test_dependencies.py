@@ -30,6 +30,12 @@ DISTRIBUTION_OF = {
     "pydantic_settings": "pydantic-settings",
 }
 
+#: Modules whose distribution is a hard dependency of one we declare, pinned
+#: by it tightly enough that declaring our own bound would only invite skew.
+#: FastAPI is versioned against starlette minor-by-minor; importing what it
+#: guarantees is safer than second-guessing its pin.
+PROVIDED_BY = {"starlette": "fastapi"}
+
 #: Imports that are deliberately optional: declared in an extra, and imported
 #: only behind a guard that degrades cleanly when the package is absent.
 OPTIONAL = {
@@ -70,6 +76,11 @@ def test_every_import_in_src_is_a_declared_dependency() -> None:
             continue
         if module in OPTIONAL:
             continue  # covered by the extras assertions below
+        if module in PROVIDED_BY:
+            if PROVIDED_BY[module] in declared:
+                continue
+            problems.append(f"{module} rides on {PROVIDED_BY[module]}, which is no longer declared")
+            continue
         distribution = DISTRIBUTION_OF.get(module, module).lower()
         if distribution not in declared:
             problems.append(f"{module} (used in {places[0]}) is not in [project.dependencies]")
