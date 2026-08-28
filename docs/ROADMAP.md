@@ -147,8 +147,18 @@ Honest status. "Built" means implemented and covered by tests in this repository
   case-insensitive executable-name collision invisible on Linux, then
   llama.cpp's release layout change — and produced a 63 MB
   `OpenKnowledge-Setup-0.1.0.exe`, silent-installed it on windows-latest,
-  and ran the installed app. Unsigned so far: SmartScreen consequences and
-  the signing plan are in [WINDOWS.md](WINDOWS.md).
+  and ran the installed app. A dispatch-only e2e job then runs the whole
+  product from that installer on a real Windows machine — true first run,
+  nothing overridden — and its first green run is recorded in
+  `evals/measured/windows-e2e-first-run.json`: serving 24s after launch
+  (2.6 GB downloaded and hash-verified inside that), an uploaded document
+  answered by the real model in 28.4s at $0 — "The monthly pet cleaning
+  fee is EUR 15 [pet-policy]." — and the same question again byte-identical
+  from the exact cache. Getting there took two more real Windows bugs: the
+  frozen Tk progress window can die natively (Tcl_Panic aborts below
+  Python's reach; progress is now console-first), and `os.fchmod` does not
+  exist on Windows (guarded). Unsigned so far: SmartScreen consequences
+  and the signing plan are in [WINDOWS.md](WINDOWS.md).
 - **Website** — a single self-contained page (`web/site/`) leading with the free audit,
   quoting only numbers this repository produces, and stating what the project cannot do yet.
   It fetches nothing from any other host, asserted by a test. Its contact form posts to the

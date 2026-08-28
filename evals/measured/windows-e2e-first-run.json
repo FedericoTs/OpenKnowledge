@@ -1,0 +1,48 @@
+{
+  "what": "First end-to-end run of the shipped Windows installer on a real Windows machine: silent install, true first launch (app mode, no overrides), real model download against the pinned hashes, real llama-server inference, one uploaded document, one question answered, the same question answered again from cache.",
+  "when": "2026-08-28",
+  "where": {
+    "machine": "GitHub Actions windows-latest (Microsoft Windows Server 2025 10.0.26100, Azure westus, 4 vCPU, no GPU - llama.cpp win-vulkan build on its CPU path)",
+    "workflow_run": "https://github.com/FedericoTs/OpenKnowledge/actions/runs/33162828481",
+    "artifact_installed": "OpenKnowledge-Setup-0.1.0.exe (sha256 of artifact zip: c563e9ff8b98d2cfda0eeb8afc77374c3d3f690302501c8ece1df4e865595807)",
+    "commit": "986fec47da2c70a1174d6add52b78632d4c2f3e7"
+  },
+  "measured": {
+    "seconds_from_launch_to_serving": 24,
+    "note_on_serving_time": "Includes downloading and SHA-256-verifying 2,581,387,744 bytes of models and loading both llama-servers. The download rode Azure-to-CDN bandwidth; a home connection will dominate this number, and the download resumes if interrupted.",
+    "chat_model_load_seconds": 4.6,
+    "first_answer": {
+      "question": "What is the monthly pet cleaning fee?",
+      "answer": "The monthly pet cleaning fee is EUR 15 [pet-policy].",
+      "tier": "local",
+      "grounded": true,
+      "cost_usd": 0,
+      "seconds": 28.4,
+      "llama_timings": "prompt 551 tokens at 22.0 tok/s prefill, 15 tokens generated at 7.8 tok/s, on 2 threads"
+    },
+    "second_answer": {
+      "tier": "exact",
+      "cached": true,
+      "identical_bytes": true,
+      "seconds_approx": 0.06
+    }
+  },
+  "asserted_by_the_run": [
+    "installer places OpenKnowledgeApp.exe and llama/llama-server.exe where the launcher looks",
+    "app-mode provisioning minted OK_ADMIN_TOKEN into the per-user .env and enabled uploads, with no environment overrides",
+    "both models downloaded, hash-verified against the manifest, and loaded",
+    "POST /documents indexed the upload immediately (1 document, 1 chunk, embeddings computed)",
+    "the answer contains the fact, is grounded, and cost exactly zero",
+    "the same question asked twice returned byte-identical answers, the second from the exact cache"
+  ],
+  "failures_on_the_way_recorded_because_each_was_real": [
+    "run 5: launcher died natively in under a second with empty logs - the frozen Tk progress window (Tcl_Panic aborts below Python); fixed by console-first progress reporting",
+    "run 5 (latent, found by inspection while diagnosing): os.fchmod does not exist on Windows Python 3.12 and app-mode token provisioning called it; guarded",
+    "runs 1-2 (installer job): case-insensitive executable name collision, then llama.cpp's release layout change - see the roadmap entry"
+  ],
+  "caveats": [
+    "One question over one document is a smoke of the shipped artifact, not an accuracy claim; accuracy claims live in the golden-set runs.",
+    "The runner has no GPU and no interactive desktop: the Vulkan GPU path, the tray icon, the Tk first-run window of the windowed exe, and SmartScreen behaviour remain unexercised.",
+    "The runner's session is not a consumer desktop; a hands-on install on a physical Windows machine is still worth one afternoon."
+  ]
+}

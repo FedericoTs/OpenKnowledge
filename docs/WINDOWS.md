@@ -77,6 +77,16 @@ installed app runs. The PyInstaller spec also builds and smoke-tests on
 Linux, which catches import-graph and data-file mistakes early; only the
 Windows run proves the Windows build.
 
+On demand, an end-to-end job runs the whole product from the installer on
+a real Windows machine: true first run, models downloaded and verified,
+a document uploaded, a question answered by the local model, the same
+question answered again byte-identically from cache. The first green run
+is recorded in `evals/measured/windows-e2e-first-run.json` — serving 24
+seconds after launch and a grounded $0 answer in 28.4 seconds on 4 CPU
+cores. The 24 seconds rode the CI machine's bandwidth; on a home
+connection the 2.6 GB download dominates first-run time, and it resumes
+if interrupted.
+
 `fetch-llama.ps1` resolves llama.cpp's latest release at build time and
 fails loudly if the `*bin-win-vulkan-x64.zip` asset or `llama-server.exe`
 inside it disappears; the tag it shipped is recorded in
