@@ -36,8 +36,16 @@ from ..cache import citations_for
 from ..canonical import canonicalize_query
 from ..config import Settings, load_settings
 from ..contacts import ContactError, ContactStore, clean
+from ..paths import state_paths
 from ..providers.base import Message
 from .engine import Engine, build_engine
+from .runtime_settings import (
+    EDITABLE,
+    SettingsChangeError,
+    needs_rebuild,
+    to_env_value,
+    validate_changes,
+)
 from .schemas import (
     ChatRequest,
     ChatResponse,
@@ -351,112 +359,116 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "upload_enabled": engine.settings.upload_enabled,
         }
 
-    if resolved.upload_enabled:
+    def require_uploads(engine: EngineDep) -> None:
+        """Checked per request, not at route registration, so the settings
+        surface can turn uploads on and off without a restart."""
+        if not engine.settings.upload_enabled:
+            raise HTTPException(status_code=404, detail="uploads are not enabled")
 
-        @app.get("/documents")
-        async def list_documents(engine: EngineDep) -> dict[str, Any]:
-            """What is in the documents folder, as the folder sees it.
+    @app.get("/documents", dependencies=[Depends(require_uploads)])
+    async def list_documents(engine: EngineDep) -> dict[str, Any]:
+        """What is in the documents folder, as the folder sees it.
 
-            The corpus tier already tells any asker the indexed titles, so a
-            filename listing raises nothing new - and it shows the files that
-            did NOT index, with the reason, which is where "I uploaded it and
-            it knows nothing" gets diagnosed.
-            """
-            from ..documents import skip_reason
+        The corpus tier already tells any asker the indexed titles, so a
+        filename listing raises nothing new - and it shows the files that
+        did NOT index, with the reason, which is where "I uploaded it and
+        it knows nothing" gets diagnosed.
+        """
+        from ..documents import skip_reason
 
-            root = Path(engine.settings.documents_dir)
-            rows = []
-            if root.is_dir():
-                for path in sorted(root.rglob("*")):
-                    if not path.is_file():
-                        continue
-                    rows.append(
-                        {
-                            "name": str(path.relative_to(root)),
-                            "size": path.stat().st_size,
-                            "skipped": skip_reason(path),
-                        }
-                    )
-            return {"documents_dir": str(root), "files": rows}
-
-        @app.post("/documents", status_code=201)
-        async def upload_documents(
-            engine: EngineDep, files: Annotated[list[UploadFile], File()]
-        ) -> dict[str, Any]:
-            """Accept documents and make them knowledge in the same breath.
-
-            The whole batch is written first and the corpus re-indexed once -
-            re-indexing is free by construction (no model call), so a drop of
-            forty files costs one scan, not forty. The response says what a
-            person needs to trust it: what was stored, what was refused and
-            why, and what the corpus looks like now.
-            """
-            limit = engine.settings.upload_max_mb * 1_000_000
-            root = Path(engine.settings.documents_dir)
-            root.mkdir(parents=True, exist_ok=True)
-
-            stored: list[dict[str, Any]] = []
-            skipped: list[dict[str, str]] = []
-            for upload in files:
-                name = _safe_document_name(upload.filename or "")
-                if name is None:
-                    skipped.append(
-                        {"name": upload.filename or "(unnamed)", "reason": "unusable file name"}
-                    )
+        root = Path(engine.settings.documents_dir)
+        rows = []
+        if root.is_dir():
+            for path in sorted(root.rglob("*")):
+                if not path.is_file():
                     continue
-                reason = _upload_skip_reason(name)
-                if reason is not None:
-                    skipped.append({"name": name, "reason": reason})
-                    continue
-                data = await upload.read(limit + 1)
-                if len(data) > limit:
-                    skipped.append(
-                        {
-                            "name": name,
-                            "reason": f"larger than the {engine.settings.upload_max_mb} MB "
-                            "limit; a corpus document this size is usually a scan, which "
-                            "cannot be read anyway",
-                        }
-                    )
-                    continue
-                if not data:
-                    skipped.append({"name": name, "reason": "the file is empty"})
-                    continue
-                target = root / name
-                replaced = target.exists()
-                target.write_bytes(data)
-                stored.append({"name": name, "bytes": len(data), "replaced": replaced})
+                rows.append(
+                    {
+                        "name": str(path.relative_to(root)),
+                        "size": path.stat().st_size,
+                        "skipped": skip_reason(path),
+                    }
+                )
+        return {"documents_dir": str(root), "files": rows}
 
-            corpus: dict[str, Any] = {}
-            if stored:
-                documents, chunks, version, _ = engine.reindex()
-                corpus = {
-                    "documents": documents,
-                    "chunks": chunks,
-                    "corpus_version": version,
-                    "conflicts_open": (engine.last_scan.conflicts_open if engine.last_scan else 0),
-                }
-            return {"stored": stored, "skipped": skipped, "corpus": corpus}
+    @app.post("/documents", status_code=201, dependencies=[Depends(require_uploads)])
+    async def upload_documents(
+        engine: EngineDep, files: Annotated[list[UploadFile], File()]
+    ) -> dict[str, Any]:
+        """Accept documents and make them knowledge in the same breath.
 
-        @app.delete("/documents/{name:path}")
-        async def delete_document(name: str, engine: EngineDep) -> dict[str, Any]:
-            safe = _safe_document_name(name)
-            if safe is None:
-                raise HTTPException(status_code=400, detail="unusable file name")
-            target = Path(engine.settings.documents_dir) / safe
-            if not target.is_file():
-                raise HTTPException(status_code=404, detail=f"no document called {safe!r}")
-            target.unlink()
-            documents, chunks, version, evicted = engine.reindex()
-            return {
-                "deleted": safe,
-                "corpus": {
-                    "documents": documents,
-                    "chunks": chunks,
-                    "corpus_version": version,
-                    "answers_evicted": evicted,
-                },
+        The whole batch is written first and the corpus re-indexed once -
+        re-indexing is free by construction (no model call), so a drop of
+        forty files costs one scan, not forty. The response says what a
+        person needs to trust it: what was stored, what was refused and
+        why, and what the corpus looks like now.
+        """
+        limit = engine.settings.upload_max_mb * 1_000_000
+        root = Path(engine.settings.documents_dir)
+        root.mkdir(parents=True, exist_ok=True)
+
+        stored: list[dict[str, Any]] = []
+        skipped: list[dict[str, str]] = []
+        for upload in files:
+            name = _safe_document_name(upload.filename or "")
+            if name is None:
+                skipped.append(
+                    {"name": upload.filename or "(unnamed)", "reason": "unusable file name"}
+                )
+                continue
+            reason = _upload_skip_reason(name)
+            if reason is not None:
+                skipped.append({"name": name, "reason": reason})
+                continue
+            data = await upload.read(limit + 1)
+            if len(data) > limit:
+                skipped.append(
+                    {
+                        "name": name,
+                        "reason": f"larger than the {engine.settings.upload_max_mb} MB "
+                        "limit; a corpus document this size is usually a scan, which "
+                        "cannot be read anyway",
+                    }
+                )
+                continue
+            if not data:
+                skipped.append({"name": name, "reason": "the file is empty"})
+                continue
+            target = root / name
+            replaced = target.exists()
+            target.write_bytes(data)
+            stored.append({"name": name, "bytes": len(data), "replaced": replaced})
+
+        corpus: dict[str, Any] = {}
+        if stored:
+            documents, chunks, version, _ = engine.reindex()
+            corpus = {
+                "documents": documents,
+                "chunks": chunks,
+                "corpus_version": version,
+                "conflicts_open": (engine.last_scan.conflicts_open if engine.last_scan else 0),
             }
+        return {"stored": stored, "skipped": skipped, "corpus": corpus}
+
+    @app.delete("/documents/{name:path}", dependencies=[Depends(require_uploads)])
+    async def delete_document(name: str, engine: EngineDep) -> dict[str, Any]:
+        safe = _safe_document_name(name)
+        if safe is None:
+            raise HTTPException(status_code=400, detail="unusable file name")
+        target = Path(engine.settings.documents_dir) / safe
+        if not target.is_file():
+            raise HTTPException(status_code=404, detail=f"no document called {safe!r}")
+        target.unlink()
+        documents, chunks, version, evicted = engine.reindex()
+        return {
+            "deleted": safe,
+            "corpus": {
+                "documents": documents,
+                "chunks": chunks,
+                "corpus_version": version,
+                "answers_evicted": evicted,
+            },
+        }
 
     if resolved.website_enabled:
 
@@ -695,6 +707,72 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "Recorded. This does not edit your documents - remove or correct the "
                 "superseded text so retrieval stops seeing it."
             ),
+        }
+
+    @app.get("/admin/settings", dependencies=[AdminOnly])
+    async def get_settings(engine: EngineDep) -> dict[str, Any]:
+        """The editable settings, their current values, and how each applies."""
+        s = engine.settings
+        return {
+            "settings": {
+                key: {"value": getattr(s, key), "applies": how} for key, how in EDITABLE.items()
+            },
+            "persists_to": str(state_paths().env_file),
+        }
+
+    @app.put("/admin/settings", dependencies=[AdminOnly])
+    async def put_settings(changes: dict[str, Any], request: Request) -> dict[str, Any]:
+        """Apply and persist a set of changes, saying exactly what happened.
+
+        Live fields take effect on the next request because the running
+        objects read the settings instance rather than copies of it. Rebuild
+        fields swap in a freshly built engine inside this request - the old
+        one is closed only after the new one exists, so a failed rebuild
+        leaves the server answering exactly as before. Everything applied is
+        also written to the state dotenv, so a restart agrees with the page.
+        """
+        from ..models import write_env
+
+        try:
+            validated = validate_changes(changes)
+        except SettingsChangeError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+        settings: Settings = request.app.state.settings
+        previous = {key: getattr(settings, key) for key in validated}
+        for key, value in validated.items():
+            setattr(settings, key, value)
+
+        rebuilt = False
+        if needs_rebuild(validated):
+            try:
+                fresh = build_engine(settings)
+            except Exception as exc:
+                # The new configuration could not even be built; put the old
+                # values back and say so rather than serving a half-state.
+                for key, value in previous.items():
+                    setattr(settings, key, value)
+                raise HTTPException(
+                    status_code=422, detail=f"these settings do not build: {exc}"
+                ) from exc
+            old_engine: Engine = request.app.state.engine
+            request.app.state.engine = fresh
+            old_engine.store.close()
+            old_engine.knowledge.close()
+            _warm_the_model_in_the_background(settings)
+            rebuilt = True
+
+        state = state_paths()
+        state.root.mkdir(parents=True, exist_ok=True)
+        written = write_env(
+            state.env_file,
+            {f"OK_{key.upper()}": to_env_value(value) for key, value in validated.items()},
+        )
+        return {
+            "applied": validated,
+            "engine_rebuilt": rebuilt,
+            "persisted": written,
+            "persists_to": str(state.env_file),
         }
 
     @app.get("/admin/config", dependencies=[AdminOnly])
