@@ -134,6 +134,11 @@ class OpenAICompatProvider:
             headers["Authorization"] = f"Bearer {self._api_key}"
         return headers
 
+    def _url(self) -> str:
+        """The completions endpoint. One seam, so a dialect that shapes its
+        URL differently (Azure's deployments path) overrides this alone."""
+        return f"{self.base_url}/chat/completions"
+
     async def stream(
         self,
         *,
@@ -181,7 +186,7 @@ class OpenAICompatProvider:
                 httpx.AsyncClient(timeout=self._timeout) as client,
                 client.stream(
                     "POST",
-                    f"{self.base_url}/chat/completions",
+                    self._url(),
                     json=payload,
                     headers=self._headers(),
                 ) as response,
@@ -252,9 +257,7 @@ class OpenAICompatProvider:
 
         try:
             async with httpx.AsyncClient(timeout=self._timeout) as client:
-                resp = await client.post(
-                    f"{self.base_url}/chat/completions", json=payload, headers=self._headers()
-                )
+                resp = await client.post(self._url(), json=payload, headers=self._headers())
                 resp.raise_for_status()
                 data = resp.json()
         except httpx.TimeoutException as exc:

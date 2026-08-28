@@ -16,6 +16,7 @@ from ..connectors import LocalFilesConnector
 from ..knowledge import IngestReport, KnowledgeStore, draft_for_documents, scan_documents
 from ..knowledge.reverify import reverify_changed_documents
 from ..providers.anthropic_provider import AnthropicProvider
+from ..providers.azure_openai import AzureOpenAIProvider
 from ..providers.base import ChatProvider
 from ..providers.openai_compat import OpenAICompatProvider
 from ..retrieval import BM25Retriever
@@ -182,6 +183,37 @@ def _build_frontier(settings: Settings) -> ChatProvider | None:
             effort=settings.escalation_effort,
         )
 
+    if settings.escalation_provider == "azure":
+        missing = [
+            name
+            for name, value in (
+                ("OK_AZURE_OPENAI_ENDPOINT", settings.azure_openai_endpoint),
+                ("OK_AZURE_OPENAI_DEPLOYMENT", settings.azure_openai_deployment),
+                ("OK_AZURE_OPENAI_API_KEY", settings.azure_openai_api_key),
+            )
+            if not value
+        ]
+        if missing:
+            log.warning(
+                "escalation is enabled but %s is unset; staying local", " and ".join(missing)
+            )
+            return None
+        if (settings.azure_openai_input_per_mtok is None) != (
+            settings.azure_openai_output_per_mtok is None
+        ):
+            log.warning(
+                "only one of OK_AZURE_OPENAI_INPUT_PER_MTOK/OK_AZURE_OPENAI_OUTPUT_PER_MTOK "
+                "is set; ignoring both - costs will be flagged as uncounted, not guessed"
+            )
+        return AzureOpenAIProvider(
+            endpoint=settings.azure_openai_endpoint,
+            deployment=settings.azure_openai_deployment,
+            api_key=settings.azure_openai_api_key,
+            api_version=settings.azure_openai_api_version,
+            input_per_mtok=settings.azure_openai_input_per_mtok,
+            output_per_mtok=settings.azure_openai_output_per_mtok,
+        )
+
     if not settings.openai_api_key:
         log.warning("escalation is enabled but OK_OPENAI_API_KEY is unset; staying local")
         return None
@@ -227,7 +259,9 @@ def _build_ladder(settings: Settings, local: ChatProvider | None) -> Ladder:
 
     frontier = _build_frontier(settings)
     if frontier is not None:
-        rungs.append(Rung(name=settings.escalation_model, provider=frontier, tier=Tier.FRONTIER))
+        # The provider knows its own name; for Azure that is the deployment,
+        # not escalation_model, and the ladder description should say so.
+        rungs.append(Rung(name=frontier.model_id, provider=frontier, tier=Tier.FRONTIER))
     return Ladder(tuple(rungs))
 
 

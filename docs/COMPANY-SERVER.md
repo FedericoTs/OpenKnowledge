@@ -101,12 +101,16 @@ later.
    HR entries in the sidebar, and no writes into the folder - one rule,
    enforced everywhere the documents surface. The deepest rule wins for
    its subtree; an unruled folder stays open to everyone.
-3. **Escalation on the company's own AI subscription.** When the local
-   model cannot answer, the ladder can escalate to **Azure OpenAI in the
-   company's tenant** — IT-approved, data stays in-tenant, per-token
-   billing, and it slots into the existing escalation ladder as
-   configuration. Honest note: a **Microsoft 365 Copilot seat is not a
-   callable model API** — Microsoft does not offer "use my Copilot licence
-   as a completion endpoint", so the corporate-sanctioned route is Azure
-   OpenAI (same models, same tenant boundary). If Microsoft ever opens a
-   Copilot inference API, the provider seam is ready for it.
+3. **Escalation on the company's own AI subscription.** Ships: when the
+   local model cannot ground an answer, the ladder escalates to **Azure
+   OpenAI in the company's tenant** — IT-approved, data stays in-tenant,
+   per-token billing on the company's own agreement, graded by the same
+   grounding gate and cached like every other answer. Setup is five
+   settings and a deployment name: [AZURE-OPENAI.md](AZURE-OPENAI.md).
+   Costs use the price *you* state from your own Azure price sheet;
+   unstated, every call is flagged "cost not counted" rather than
+   guessed. Honest note, still: a **Microsoft 365 Copilot seat is not a
+   callable model API** — Microsoft does not offer "use my Copilot
+   licence as a completion endpoint", so the corporate-sanctioned route
+   is Azure OpenAI (same models, same tenant boundary). If Microsoft
+   ever opens a Copilot inference API, the provider seam is ready for it.

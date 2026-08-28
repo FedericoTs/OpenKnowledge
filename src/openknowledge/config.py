@@ -133,12 +133,29 @@ class Settings(BaseSettings):
     # -- escalation tier -------------------------------------------------
     #: Off by default. Nothing leaves the machine until an operator opts in.
     escalation_enabled: bool = False
-    escalation_provider: str = Field(default="anthropic", pattern="^(anthropic|openai_compat)$")
+    escalation_provider: str = Field(
+        default="anthropic", pattern="^(anthropic|openai_compat|azure)$"
+    )
     escalation_model: str = "claude-opus-5"
     escalation_base_url: str = "https://api.openai.com/v1"
     escalation_effort: str = Field(default="low", pattern="^(low|medium|high|xhigh|max)$")
     anthropic_api_key: str | None = None
     openai_api_key: str | None = None
+
+    # -- escalation via Azure OpenAI (docs/AZURE-OPENAI.md) ----------------
+    #: The company's own tenant: same models, same compliance boundary,
+    #: per-token billing on the company's agreement. This is what "use our
+    #: Copilot subscription" translates to - a Copilot seat itself is not a
+    #: callable model API. Used when escalation_provider is "azure".
+    azure_openai_endpoint: str = ""  # https://<resource>.openai.azure.com
+    azure_openai_deployment: str = ""  # the company's name for the model it provisioned
+    azure_openai_api_key: str | None = None
+    azure_openai_api_version: str = "2024-06-01"
+    #: Your prices, from your own Azure price sheet - they vary by region and
+    #: agreement, so shipping a number here would be inventing one. Unset,
+    #: every escalated call's cost is flagged as uncounted, never guessed.
+    azure_openai_input_per_mtok: float | None = Field(default=None, ge=0.0)
+    azure_openai_output_per_mtok: float | None = Field(default=None, ge=0.0)
 
     # -- reranking --------------------------------------------------------
     #: Retrieve this many candidates, then rerank down to `retrieval_k`. Free and

@@ -63,6 +63,7 @@ EDITABLE: dict[str, str] = {
     "escalation_provider": "rebuild",
     "escalation_model": "rebuild",
     "escalation_effort": "rebuild",
+    "azure_openai_deployment": "rebuild",
     "budget_daily_usd": "rebuild",
     "budget_expected_questions_per_day": "rebuild",
 }

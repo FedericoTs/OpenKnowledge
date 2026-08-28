@@ -781,6 +781,12 @@ def _price(usage: Usage, provider: ChatProvider) -> tuple[float, tuple[str, ...]
     """
     tier = getattr(provider, "tier", "")
     self_hosted = getattr(provider, "self_hosted", True)
+    # A provider may carry its own price - an Azure deployment is billed on
+    # the company's own agreement, so the operator's stated number is the
+    # only honest one, and it wins over any table lookup.
+    override = getattr(provider, "price_override", None)
+    if override is not None:
+        return cost_usd(usage, override), ()
     model_id = "local" if tier == "local" and self_hosted else provider.model_id
     try:
         return cost_usd(usage, get_price(model_id)), ()

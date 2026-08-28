@@ -274,13 +274,18 @@ Honest status. "Built" means implemented and covered by tests in this repository
      holds everywhere at once - answers, every cache tier, the corpus
      listing, the sidebar, uploads and deletes. Still ahead: scoping
      ("answer from HR/ only").
-   - **Escalate on the company's Azure OpenAI tenant.** Slots into the
-     existing ladder as configuration plus Azure's auth header. Stated
-     honestly: a Microsoft 365 Copilot seat is not a callable completion
-     API, so "use our Copilot subscription" translates to Azure OpenAI in
-     the same tenant - same models, same data boundary, per-token billing.
-     The provider seam is ready if Microsoft ever opens a Copilot
-     inference API.
+   - **Escalate on the company's Azure OpenAI tenant.** Built - and it
+     was exactly the size claimed: a thin dialect over the existing
+     adapter (deployments URL, api-version, api-key header) behind
+     `OK_ESCALATION_PROVIDER=azure`, setup documented in
+     [AZURE-OPENAI.md](AZURE-OPENAI.md). The ledger uses the price the
+     operator states from their own Azure agreement, and flags calls
+     "cost not counted" rather than guessing when none is stated.
+     Stated honestly, as before: a Microsoft 365 Copilot seat is not a
+     callable completion API, so "use our Copilot subscription"
+     translates to Azure OpenAI in the same tenant - same models, same
+     data boundary, per-token billing. The provider seam is ready if
+     Microsoft ever opens a Copilot inference API.
 
 12. **Let llama.cpp size the GPU offload.** The desktop app now runs one
    slot (`--parallel 1`) and falls back to CPU (`-ngl 0`) when a GPU cannot
