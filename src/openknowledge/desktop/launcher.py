@@ -1,4 +1,4 @@
-"""From a double-click to a chatbot: provision, spawn, serve, sit in the tray.
+"""From a double-click to a chatbot - with first run living in the browser.
 
 The order of operations is the contract:
 
@@ -9,9 +9,17 @@ The order of operations is the contract:
    no longer manages.
 2. **Provision** - the plan's keys land in the state ``.env`` through the
    same atomic writer everything else uses.
-3. **Models** - downloaded and SHA-verified before any server starts.
-4. **llama-servers** - one for chat, one for embeddings, loopback only.
-5. **The app** - the same FastAPI app the CLI serves, on 127.0.0.1.
+3. **Serve immediately** - the same FastAPI app the CLI serves, on
+   127.0.0.1, before any model exists. The browser opens at once.
+4. **First run in the page** - when models are missing, the widget hands
+   over to ``/setup``: the person consents to the 2.6 GB download, watches
+   progress, and a connection that keeps dropping ends in a Resume button,
+   never a native dialog and never a relaunch. The downloader retries and
+   resumes by itself; the field test that shaped this was a laptop whose
+   connection died every ~190 MB.
+5. **Swap in the engine** - once models are on disk the llama-servers start
+   and a freshly built engine replaces the one that booted without them,
+   exactly the way the settings page swaps engines.
 6. **Tray** - where available; a plain wait-for-Ctrl+C otherwise.
 
 If OpenKnowledge is already serving on the app port, the launcher opens the
@@ -34,10 +42,15 @@ import httpx
 from ..models import write_env
 from ..paths import StatePaths, state_paths
 from . import llama
-from .download import DownloadError
-from .firstrun import fetch_models
+from .download import (
+    DownloadError,
+    TransientDownloadError,
+    already_verified,
+    ensure_model,
+)
 from .llama import LlamaError, LlamaServer
 from .manifest import CHAT_MODEL, EMBEDDING_MODEL, ModelFile
+from .setup import STATUS
 
 APP_PORT = 8080
 CHAT_PORT = 8091
@@ -131,6 +144,123 @@ def models_needed(plan: LaunchPlan) -> tuple[ModelFile, ...]:
     return tuple(needed)
 
 
+class ConsoleProgress:
+    """One redrawn console line per file - visible when run from a terminal."""
+
+    def __init__(self) -> None:
+        self._last = ""
+
+    def update(self, filename: str, done: int, total: int) -> None:
+        line = f"{filename}: {done / 1_000_000:,.0f} / {total / 1_000_000:,.0f} MB"
+        if line != self._last:
+            print("\r" + line.ljust(len(self._last)), end="", flush=True)
+            self._last = line
+
+    def finish(self) -> None:
+        if self._last:
+            print(flush=True)
+            self._last = ""
+
+
+def _first_run(
+    exe: Path,
+    needed: tuple[ModelFile, ...],
+    models_dir: Path,
+    state: StatePaths,
+    servers: list[LlamaServer],
+    stop: threading.Event,
+) -> None:
+    """Download (with consent), start llama-servers, swap the engine in.
+
+    Runs on a background thread while the app already serves the setup page.
+    Every state change lands in setup.STATUS, which is what the page shows.
+    """
+    console = ConsoleProgress()
+    missing = [m for m in needed if not already_verified(m, models_dir)]
+
+    if missing:
+        STATUS.set_waiting(needed)
+        if not STATUS.wait_for_proceed(stop):
+            return
+        STATUS.set_downloading()
+        for model in needed:
+            if already_verified(model, models_dir):
+                STATUS.progress(model.filename, model.size_bytes, model.size_bytes)
+
+        def report(model: ModelFile, done: int, total: int) -> None:
+            STATUS.progress(model.filename, done, total)
+            console.update(model.filename, done, total)
+
+        for model in missing:
+            while not stop.is_set():
+                try:
+                    ensure_model(model, models_dir, progress=report)
+                    console.finish()
+                    break
+                except TransientDownloadError as error:
+                    # The downloader already retried with resume; reaching
+                    # here means the network needs a human moment. The page
+                    # shows Resume; nothing is lost while it waits.
+                    console.finish()
+                    STATUS.set_stalled(str(error))
+                    print(str(error), file=sys.stderr)
+                    if not STATUS.wait_for_proceed(stop):
+                        return
+                    STATUS.set_downloading()
+                except DownloadError as error:
+                    console.finish()
+                    STATUS.set_failed(str(error))
+                    print(str(error), file=sys.stderr)
+                    return
+            if stop.is_set():
+                return
+
+    STATUS.set_starting("loading the chat and embedding models")
+    log_dir = state.data_dir / "logs"
+    ports = {CHAT_MODEL.purpose: CHAT_PORT, EMBEDDING_MODEL.purpose: EMBED_PORT}
+    try:
+        for model in needed:
+            servers.append(
+                llama.spawn(exe, models_dir / model.filename, model, ports[model.purpose], log_dir)
+            )
+        for server in servers:
+            llama.wait_ready(server)
+    except LlamaError as error:
+        STATUS.set_failed(str(error))
+        print(str(error), file=sys.stderr)
+        llama.terminate(servers)
+        servers.clear()
+        return
+
+    try:
+        _swap_running_engine()
+    except Exception as error:  # a bad engine build must not kill the page
+        STATUS.set_failed(f"models are running but the engine did not rebuild: {error}")
+        print(f"engine rebuild failed: {error}", file=sys.stderr)
+        return
+
+    STATUS.set_ready()
+    print("first run complete - models ready", flush=True)
+
+
+def _swap_running_engine() -> None:
+    """Rebuild the served app's engine now that the models answer.
+
+    The same build-first-then-swap the settings page uses: the old engine
+    keeps serving until the new one exists.
+    """
+    from ..api import app as app_module
+    from ..api.engine import build_engine
+
+    application = app_module.app
+    fresh = build_engine(application.state.settings)
+    old = application.state.engine
+    application.state.engine = fresh
+    old.store.close()
+    old.knowledge.close()
+    app_module._warm_the_model_in_the_background(application.state.settings)
+
+
 def _already_serving(port: int) -> bool:
     try:
         with httpx.Client(timeout=2.0) as client:
@@ -142,16 +272,10 @@ def _already_serving(port: int) -> bool:
 
 def _fail(message: str) -> int:
     print(message, file=sys.stderr)
-    try:
-        import tkinter
-        from tkinter import messagebox
+    if sys.platform == "win32":  # pragma: no cover - native message box
+        import ctypes
 
-        root = tkinter.Tk()
-        root.withdraw()
-        messagebox.showerror("OpenKnowledge", message)
-        root.destroy()
-    except Exception:
-        pass
+        ctypes.windll.user32.MessageBoxW(None, message, "OpenKnowledge", 0x10)
     return 1
 
 
@@ -239,7 +363,8 @@ def main() -> int:
     if _already_serving(APP_PORT):
         webbrowser.open(f"http://127.0.0.1:{APP_PORT}/")
         print(
-            f"OpenKnowledge is already running on port {APP_PORT}; opened the browser.", flush=True
+            f"OpenKnowledge is already running on port {APP_PORT}; opened the browser.",
+            flush=True,
         )
         return 0
 
@@ -255,32 +380,7 @@ def main() -> int:
 
     needed = models_needed(plan)
     servers: list[LlamaServer] = []
-    if needed:
-        exe = llama.find_llama_server()
-        if exe is None:
-            return _fail(
-                "The bundled llama-server was not found. Reinstalling OpenKnowledge "
-                "restores it, or set OK_LLAMA_SERVER to a llama-server executable."
-            )
-        try:
-            fetch_models(needed, models_dir)
-        except DownloadError as error:
-            return _fail(str(error))
-
-        log_dir = state.data_dir / "logs"
-        ports = {CHAT_MODEL.purpose: CHAT_PORT, EMBEDDING_MODEL.purpose: EMBED_PORT}
-        try:
-            for model in needed:
-                servers.append(
-                    llama.spawn(
-                        exe, models_dir / model.filename, model, ports[model.purpose], log_dir
-                    )
-                )
-            for server in servers:
-                llama.wait_ready(server)
-        except LlamaError as error:
-            llama.terminate(servers)
-            return _fail(str(error))
+    on_quit = threading.Event()
 
     web_server, web_thread = _serve_app(state)
     try:
@@ -288,14 +388,34 @@ def main() -> int:
             return _fail(
                 f"The web server did not come up. The state and logs are under {state.data_dir}."
             )
+
+        if needed:
+            exe = llama.find_llama_server()
+            if exe is None:
+                message = (
+                    "The bundled llama-server was not found. Reinstalling OpenKnowledge "
+                    "restores it, or set OK_LLAMA_SERVER to a llama-server executable."
+                )
+                STATUS.set_failed(message)
+                print(message, file=sys.stderr)
+            else:
+                threading.Thread(
+                    target=_first_run,
+                    args=(exe, needed, models_dir, state, servers, on_quit),
+                    name="openknowledge-first-run",
+                    daemon=True,
+                ).start()
+        else:
+            STATUS.set_ready()
+
         url = f"http://127.0.0.1:{APP_PORT}/"
         print(f"OpenKnowledge is serving at {url}", flush=True)
         webbrowser.open(url)
 
-        on_quit = threading.Event()
         _tray_or_wait(state, on_quit)
         return 0
     finally:
+        on_quit.set()
         web_server.should_exit = True  # type: ignore[attr-defined]
         web_thread.join(timeout=10)
         llama.terminate(servers)

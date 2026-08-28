@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OpenKnowledge · First run</title>
+<style>
+  :root { --bg:#f4f4ef; --card:#fff; --ink:#1c1c1a; --quiet:#6b6b64;
+          --accent:#10523c; --bad:#8a2f22; --line:#e2e2da; }
+  * { box-sizing:border-box; margin:0; }
+  body { font:15px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif;
+         background:var(--bg); color:var(--ink);
+         display:grid; place-items:center; min-height:100vh; padding:24px; }
+  main { background:var(--card); border:1px solid var(--line); border-radius:10px;
+         max-width:560px; width:100%; padding:28px; }
+  h1 { font-size:20px; margin-bottom:6px; }
+  p  { color:var(--quiet); margin-bottom:14px; }
+  .file { margin:14px 0; }
+  .file .name { display:flex; justify-content:space-between; font-size:13px; margin-bottom:5px; }
+  .bar { height:8px; background:var(--line); border-radius:4px; overflow:hidden; }
+  .bar > div { height:100%; width:0%; background:var(--accent); transition:width .4s; }
+  button { background:var(--accent); color:#fff; border:0; border-radius:7px;
+           padding:10px 18px; font-size:15px; cursor:pointer; }
+  button:disabled { opacity:.5; cursor:default; }
+  .note { font-size:13px; color:var(--quiet); margin-top:14px; }
+  .bad { color:var(--bad); }
+  #state-line { min-height:1.4em; margin-top:10px; font-size:14px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>OpenKnowledge</h1>
+  <p id="lead">Checking what this machine already has…</p>
+  <div id="files"></div>
+  <div id="state-line"></div>
+  <button id="go" hidden>Download models</button>
+  <p class="note">Downloaded once and verified against pinned SHA-256 hashes —
+  the exact files the project's accuracy numbers were measured on. A dropped
+  connection retries and resumes by itself; nothing starts over. Your documents
+  and questions never leave this machine.</p>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+const MB = (n) => (n / 1e6).toFixed(0);
+
+function render(body) {
+  const files = $('files');
+  files.textContent = '';
+  for (const f of body.files) {
+    const box = document.createElement('div'); box.className = 'file';
+    const name = document.createElement('div'); name.className = 'name';
+    const label = document.createElement('span'); label.textContent = f.filename;
+    const count = document.createElement('span');
+    count.textContent = MB(f.done) + ' / ' + MB(f.total) + ' MB';
+    name.append(label, count);
+    const bar = document.createElement('div'); bar.className = 'bar';
+    const fill = document.createElement('div');
+    fill.style.width = (100 * f.done / Math.max(f.total, 1)) + '%';
+    bar.appendChild(fill);
+    box.append(name, bar);
+    files.appendChild(box);
+  }
+
+  const go = $('go'), lead = $('lead'), line = $('state-line');
+  go.hidden = true; line.className = '';
+  if (body.state === 'waiting') {
+    lead.textContent = 'This app answers from models that run on this machine. '
+      + 'First run downloads them - about 2.6 GB, once.';
+    line.textContent = body.message;
+    go.hidden = false; go.textContent = 'Download models'; go.disabled = false;
+  } else if (body.state === 'downloading') {
+    lead.textContent = 'Downloading. You can leave this page open or come back later.';
+    line.textContent = '';
+  } else if (body.state === 'stalled') {
+    lead.textContent = 'The connection kept dropping. Everything received is saved.';
+    line.textContent = body.message; line.className = 'bad';
+    go.hidden = false; go.textContent = 'Resume'; go.disabled = false;
+  } else if (body.state === 'starting') {
+    lead.textContent = 'Models are on disk. Starting the local servers…';
+    line.textContent = body.message;
+  } else if (body.state === 'failed') {
+    lead.textContent = 'First run could not finish.';
+    line.textContent = body.message; line.className = 'bad';
+  } else { // ready
+    lead.textContent = 'Ready.';
+    location.replace('/');
+  }
+}
+
+$('go').onclick = async () => {
+  $('go').disabled = true;
+  const r = await fetch('/setup/download', { method: 'POST' });
+  render(await r.json());
+};
+
+async function poll() {
+  try {
+    const r = await fetch('/setup/status');
+    render(await r.json());
+  } catch (e) { /* server restarting - keep polling */ }
+  setTimeout(poll, 1000);
+}
+poll();
+</script>
+</body>
+</html>

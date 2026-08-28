@@ -18,6 +18,7 @@ from pathlib import Path
 
 import pytest
 
+from openknowledge.desktop import download as download_module
 from openknowledge.desktop import llama
 from openknowledge.desktop.download import DownloadError, ensure_model
 from openknowledge.desktop.launcher import (
@@ -72,12 +73,22 @@ def _fake_model(sha256: str | None = None, size: int | None = None) -> ModelFile
 class _CdnHandler(BaseHTTPRequestHandler):
     content: bytes = _CONTENT
     ignore_range = False
+    #: While positive, each request promises the full body, delivers half,
+    #: and hangs up - the shape of a stalled connection as the client sees it.
+    fail_first = 0
+    #: When set, every request gets this status and an empty body.
+    status_override: int | None = None
     ranges_seen: list[str] = []
 
     def do_GET(self) -> None:  # noqa: N802 - http.server API
         cls = type(self)
         header = self.headers.get("Range") or ""
         cls.ranges_seen.append(header)
+        if cls.status_override is not None:
+            self.send_response(cls.status_override)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
         start = 0
         if header and not cls.ignore_range:
             start = int(header.removeprefix("bytes=").split("-")[0])
@@ -87,10 +98,22 @@ class _CdnHandler(BaseHTTPRequestHandler):
         body = cls.content[start:]
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
+        if cls.fail_first > 0:
+            cls.fail_first -= 1
+            self.wfile.write(body[: max(1, len(body) // 2)])
+            self.wfile.flush()
+            self.connection.close()
+            return
         self.wfile.write(body)
 
     def log_message(self, *args: object) -> None:  # keep test output clean
         pass
+
+
+@pytest.fixture(autouse=True)
+def no_backoff(monkeypatch):
+    """Retries are the product; waiting between them is not the test's job."""
+    monkeypatch.setattr(download_module, "_BACKOFF_SECONDS", (0.0,))
 
 
 @pytest.fixture()
@@ -98,6 +121,8 @@ def cdn():
     class Handler(_CdnHandler):
         content = _CONTENT
         ignore_range = False
+        fail_first = 0
+        status_override: int | None = None
         ranges_seen: list[str] = []
 
     server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
@@ -152,14 +177,57 @@ def test_hash_mismatch_refuses_and_discards(tmp_path: Path, cdn) -> None:
     assert not (tmp_path / "fake-model.gguf.part").exists(), "wrong bytes must not survive"
 
 
-def test_short_body_fails_but_keeps_bytes_for_resume(tmp_path: Path, cdn) -> None:
+def test_short_body_retries_then_fails_keeping_bytes(tmp_path: Path, cdn) -> None:
+    """A server that always closes early exhausts the retries; the final
+    error names the attempts and the partial bytes survive for next launch."""
     base_url, handler = cdn
     handler.content = _CONTENT[:60_000]
     model = _fake_model()
-    with pytest.raises(DownloadError, match="server sent"):
+    with pytest.raises(DownloadError, match="still failing after"):
         ensure_model(model, tmp_path, base_url=base_url)
+    assert len(handler.ranges_seen) == download_module._ATTEMPTS
     part = tmp_path / "fake-model.gguf.part"
     assert part.stat().st_size == 60_000, "partial bytes are the resume point, keep them"
+
+
+def test_a_stalled_download_retries_and_resumes_by_itself(tmp_path: Path, cdn, monkeypatch) -> None:
+    """The first field report: a read timeout at 58% shown to a person as a
+    dialog. A transient failure must retry with resume, not ask for help.
+
+    The chunk size shrinks so the test has real-file proportions: chunks
+    must land before the stall, or there is no progress to resume from -
+    at 1 MB chunks over a 100 KB fixture the failure arrives before the
+    first yield, which is not the shape of a 2.5 GB download."""
+    base_url, handler = cdn
+    handler.fail_first = 2
+    monkeypatch.setattr(download_module, "_CHUNK", 16_384)
+    model = _fake_model()
+    path = ensure_model(model, tmp_path, base_url=base_url)
+    assert path.read_bytes() == _CONTENT, "the retries must converge on the right bytes"
+    assert len(handler.ranges_seen) == 3, "two stalls, then the request that finished"
+    assert handler.ranges_seen[0] == ""
+    assert all(r.startswith("bytes=") for r in handler.ranges_seen[1:]), (
+        "every retry must resume, never restart"
+    )
+
+
+def test_a_permanent_error_is_not_retried(tmp_path: Path, cdn) -> None:
+    """A 404 is the manifest's problem, not the network's - retrying would
+    only turn a clear error into a slow one."""
+    base_url, handler = cdn
+    handler.status_override = 404
+    with pytest.raises(DownloadError, match="HTTP 404"):
+        ensure_model(_fake_model(), tmp_path, base_url=base_url)
+    assert len(handler.ranges_seen) == 1, "a permanent error must fail once, loudly"
+
+
+def test_a_server_error_is_retried(tmp_path: Path, cdn) -> None:
+    """A 503 is the server's bad afternoon; the retries must outlast it."""
+    base_url, handler = cdn
+    handler.status_override = 503
+    with pytest.raises(DownloadError, match="still failing after"):
+        ensure_model(_fake_model(), tmp_path, base_url=base_url)
+    assert len(handler.ranges_seen) == download_module._ATTEMPTS
 
 
 def test_right_size_wrong_bytes_is_redownloaded(tmp_path: Path, cdn) -> None:
@@ -300,44 +368,68 @@ def test_read_env_file_reads_what_write_env_writes(tmp_path: Path) -> None:
     assert read_env_file(tmp_path / "absent.env") == {}
 
 
-def test_progress_callback_reaches_the_reporter(tmp_path: Path, cdn) -> None:
-    """fetch_models wires download progress through to a reporter."""
-    base_url, _ = cdn
-    from openknowledge.desktop import firstrun
+def test_setup_status_walks_the_first_run() -> None:
+    """The browser-first first run: waiting needs consent, stalls need a
+    click on Resume, and only the setup thread moves the state forward."""
+    from openknowledge.desktop.setup import SetupStatus
 
-    seen: list[tuple[str, int, int]] = []
+    status = SetupStatus()
+    assert status.snapshot()["state"] == "ready"
+    assert not status.request_proceed(), "nothing to consent to yet"
 
-    class Recorder:
-        def update(self, model: ModelFile, done: int, total: int, position: str) -> None:
-            seen.append((position, done, total))
+    model = _fake_model()
+    status.set_waiting((model,))
+    body = status.snapshot()
+    assert body["state"] == "waiting"
+    assert body["files"] == [{"filename": model.filename, "done": 0, "total": model.size_bytes}]
 
-        def close(self) -> None:
-            seen.append(("closed", 0, 0))
+    assert status.request_proceed(), "the Download button must land"
+    stop = threading.Event()
+    assert status.wait_for_proceed(stop), "the signal must be received"
 
-    real_ensure = firstrun.ensure_model
+    status.set_downloading()
+    status.progress(model.filename, 1234, model.size_bytes)
+    assert status.snapshot()["files"][0]["done"] == 1234
 
-    def patched(model: ModelFile, into: Path, progress=None):  # type: ignore[no-untyped-def]
-        return real_ensure(model, into, progress, base_url=base_url)
+    status.set_stalled("the connection kept dropping")
+    assert status.snapshot()["state"] == "stalled"
+    assert status.request_proceed(), "Resume must land too"
 
-    reporter = Recorder()
-    original_make, firstrun.make_reporter = firstrun.make_reporter, lambda: reporter
-    firstrun.ensure_model = patched
-    try:
-        firstrun.fetch_models((_fake_model(),), tmp_path)
-    finally:
-        firstrun.make_reporter = original_make
-        firstrun.ensure_model = real_ensure
-    assert seen[-1][0] == "closed"
-    mid = [s for s in seen if s[0] == "model 1 of 1"]
-    assert mid and mid[-1][1] == len(_CONTENT), "the bar must reach the end"
+    status.set_starting("loading models")
+    assert not status.request_proceed(), "no button applies while starting"
+    status.set_ready()
+    assert status.snapshot() == {"state": "ready", "message": "", "files": []}
 
 
-def test_console_reporter_survives_no_tty(capsys) -> None:
-    from openknowledge.desktop.firstrun import ConsoleReporter
+def test_wait_for_proceed_yields_to_shutdown() -> None:
+    """Quitting the app while the page waits for consent must not hang."""
+    from openknowledge.desktop.setup import SetupStatus
 
-    reporter = ConsoleReporter()
-    reporter.update(_fake_model(), 0, 100, "model 1 of 1")
-    reporter.update(_fake_model(), 100, 100, "model 1 of 1")
-    reporter.close()
+    status = SetupStatus()
+    status.set_waiting((_fake_model(),))
+    stop = threading.Event()
+    stop.set()
+    assert status.wait_for_proceed(stop) is False
+
+
+def test_console_progress_prints(capsys) -> None:
+    from openknowledge.desktop.launcher import ConsoleProgress
+
+    console = ConsoleProgress()
+    console.update("fake-model.gguf", 0, 100)
+    console.update("fake-model.gguf", 100, 100)
+    console.finish()
     out = capsys.readouterr().out
     assert "fake-model.gguf" in out
+
+
+def test_already_verified_requires_size_and_marker(tmp_path: Path, cdn) -> None:
+    from openknowledge.desktop.download import already_verified
+
+    base_url, _ = cdn
+    model = _fake_model()
+    assert not already_verified(model, tmp_path)
+    ensure_model(model, tmp_path, base_url=base_url)
+    assert already_verified(model, tmp_path)
+    (tmp_path / (model.filename + ".sha256-ok")).unlink()
+    assert not already_verified(model, tmp_path), "no marker, no trust"

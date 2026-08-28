@@ -120,6 +120,14 @@ function refreshCorpusLine() {
 }
 refreshCorpusLine();
 
+// The desktop app's first run happens in the browser: while models are
+// still being consented to, downloaded or loaded, the chat hands over to
+// the setup page. On a server deployment the status is always "ready" and
+// this never fires.
+fetch('/setup/status').then(r => r.json()).then(body => {
+  if (body.state && body.state !== 'ready') location.replace('/setup');
+}).catch(() => {});
+
 // Drag a file anywhere onto the page and it becomes knowledge. The report the
 // server sends back is shown as a message in the conversation, because that is
 // where the person is looking - including what was refused, and why.

@@ -156,9 +156,16 @@ Honest status. "Built" means implemented and covered by tests in this repository
   fee is EUR 15 [pet-policy]." — and the same question again byte-identical
   from the exact cache. Getting there took two more real Windows bugs: the
   frozen Tk progress window can die natively (Tcl_Panic aborts below
-  Python's reach; progress is now console-first), and `os.fchmod` does not
-  exist on Windows (guarded). Unsigned so far: SmartScreen consequences
-  and the signing plan are in [WINDOWS.md](WINDOWS.md).
+  Python's reach), and `os.fchmod` does not exist on Windows (guarded).
+  The first hands-on install then reshaped first run entirely: the app now
+  serves before any model exists, the browser asks consent for the 2.6 GB
+  download and shows live progress, stalls retry and resume themselves
+  (the field laptop's connection died every ~190 MB and each relaunch
+  banked the progress), a dead connection ends in a Resume button rather
+  than a native dialog, and the engine is swapped in live once the models
+  answer - tkinter left the bundle entirely, deleting the native-crash
+  class with it. Unsigned so far: SmartScreen consequences and the
+  signing plan are in [WINDOWS.md](WINDOWS.md).
 - **Website** — a single self-contained page (`web/site/`) leading with the free audit,
   quoting only numbers this repository produces, and stating what the project cannot do yet.
   It fetches nothing from any other host, asserted by a test. Its contact form posts to the

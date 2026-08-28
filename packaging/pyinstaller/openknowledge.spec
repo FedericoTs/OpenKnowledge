@@ -40,7 +40,10 @@ common = dict(
     pathex=[str(ROOT / "src")],
     datas=datas,
     hiddenimports=hiddenimports,
-    excludes=["pytest", "playwright"],
+    # tkinter is excluded deliberately: nothing imports it since first run
+    # moved into the browser, and a frozen Tk whose Tcl files are mis-bundled
+    # dies by native abort - a class of crash worth deleting, not fixing.
+    excludes=["pytest", "playwright", "tkinter"],
     noarchive=False,
 )
 

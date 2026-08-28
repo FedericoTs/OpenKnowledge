@@ -17,6 +17,7 @@ rules here are the ones a person would want if the download died at 94%:
 from __future__ import annotations
 
 import hashlib
+import time
 from collections.abc import Callable
 from pathlib import Path
 
@@ -32,6 +33,31 @@ _CHUNK = 1024 * 1024
 
 class DownloadError(Exception):
     """A model could not be fetched or failed verification."""
+
+
+class TransientDownloadError(DownloadError):
+    """A network hiccup - a stall, a dropped connection, a 5xx - that is
+    worth retrying with resume rather than showing a person a dialog."""
+
+
+#: A home download of 2.5 GB meets stalled Wi-Fi, sleeping routers and CDN
+#: hiccups; the first field report was a read timeout at 58% handed to the
+#: person as "run again". Every retry resumes from the bytes already saved,
+#: so attempts are cheap and each one makes forward progress.
+_ATTEMPTS = 6
+_BACKOFF_SECONDS = (1.0, 2.0, 4.0, 8.0, 16.0)
+
+
+def already_verified(model: ModelFile, into: Path) -> bool:
+    """True when the file is present, the right size, and marked verified."""
+    final = into / model.filename
+    marker = into / (model.filename + ".sha256-ok")
+    return (
+        final.is_file()
+        and final.stat().st_size == model.size_bytes
+        and marker.is_file()
+        and marker.read_text().strip() == model.sha256
+    )
 
 
 def ensure_model(
@@ -65,7 +91,20 @@ def ensure_model(
         url = base_url.rstrip("/") + "/" + model.filename
 
     part = into / (model.filename + ".part")
-    digest = _download(model, url, part, progress)
+    digest = ""
+    for attempt in range(1, _ATTEMPTS + 1):
+        try:
+            digest = _download(model, url, part, progress)
+            break
+        except TransientDownloadError as error:
+            if attempt == _ATTEMPTS:
+                saved = part.stat().st_size if part.is_file() else 0
+                raise TransientDownloadError(
+                    f"{model.filename}: still failing after {_ATTEMPTS} attempts "
+                    f"({error}). {saved:,} bytes are saved; launching again resumes "
+                    "from there."
+                ) from error
+            time.sleep(_BACKOFF_SECONDS[min(attempt - 1, len(_BACKOFF_SECONDS) - 1)])
 
     if digest != model.sha256:
         part.unlink(missing_ok=True)
@@ -113,6 +152,11 @@ def _download(model: ModelFile, url: str, part: Path, progress: Progress | None)
                 hasher = hashlib.sha256()
                 done = 0
                 part.unlink(missing_ok=True)
+            elif response.status_code >= 500:
+                # The server's problem, not the manifest's - retryable.
+                raise TransientDownloadError(
+                    f"{model.filename}: HTTP {response.status_code} from {url}"
+                )
             elif response.status_code not in (200, 206):
                 raise DownloadError(f"{model.filename}: HTTP {response.status_code} from {url}")
             mode = "ab" if done else "wb"
@@ -124,15 +168,15 @@ def _download(model: ModelFile, url: str, part: Path, progress: Progress | None)
                     if progress is not None:
                         progress(model, done, model.size_bytes)
     except httpx.HTTPError as exc:
-        raise DownloadError(
-            f"{model.filename}: download interrupted after {done:,} bytes ({exc}). "
-            "Run again - it resumes from here."
+        raise TransientDownloadError(
+            f"{model.filename}: download interrupted after {done:,} bytes ({exc})"
         ) from exc
 
     if done != model.size_bytes:
-        raise DownloadError(
-            f"{model.filename}: server sent {done:,} bytes, the manifest pins "
-            f"{model.size_bytes:,}. Partial data kept for resume."
+        # The connection closed early without an exception - same hiccup,
+        # same remedy: the partial bytes are the resume point.
+        raise TransientDownloadError(
+            f"{model.filename}: server sent {done:,} bytes, the manifest pins {model.size_bytes:,}"
         )
     return hasher.hexdigest()
 

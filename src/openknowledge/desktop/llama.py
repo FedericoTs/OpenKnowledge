@@ -114,7 +114,7 @@ def spawn(
     return LlamaServer(process=process, port=port, purpose=model.purpose, log_path=log_path)
 
 
-def wait_ready(server: LlamaServer, timeout_seconds: float = 180.0) -> None:
+def wait_ready(server: LlamaServer, timeout_seconds: float = 420.0) -> None:
     """Block until the server answers, or explain why it never will.
 
     llama-server exposes ``/health`` and returns 503 while the model loads;

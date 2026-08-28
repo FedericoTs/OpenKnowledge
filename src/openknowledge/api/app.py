@@ -36,6 +36,7 @@ from ..cache import citations_for
 from ..canonical import canonicalize_query
 from ..config import Settings, load_settings
 from ..contacts import ContactError, ContactStore, clean
+from ..desktop import setup as first_run
 from ..paths import state_paths
 from ..providers.base import Message
 from .engine import Engine, build_engine
@@ -344,6 +345,28 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             # which would un-stream the stream.
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
+
+    # ---- first run: the desktop app's setup, surfaced in the browser ------
+    # On a plain server deployment nothing touches first_run.STATUS and
+    # /setup/status reports "ready" forever; the widget then never redirects.
+
+    @app.get("/setup", response_class=HTMLResponse, include_in_schema=False)
+    async def setup_page() -> str:
+        page = find_asset("setup/index.html")
+        if page is None:  # pragma: no cover - packaging fallback
+            return "<h1>OpenKnowledge</h1><p>Setup page not found.</p>"
+        return page.read_text(encoding="utf-8")
+
+    @app.get("/setup/status")
+    async def setup_status() -> dict[str, Any]:
+        return first_run.STATUS.snapshot()
+
+    @app.post("/setup/download")
+    async def setup_download() -> dict[str, Any]:
+        """The Download or Resume button. Consent is the point: 2.6 GB is
+        not a surprise to spring on someone's connection."""
+        first_run.STATUS.request_proceed()
+        return first_run.STATUS.snapshot()
 
     @app.get("/manage", response_class=HTMLResponse, include_in_schema=False)
     async def manage() -> str:

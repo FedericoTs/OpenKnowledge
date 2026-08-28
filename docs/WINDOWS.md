@@ -29,22 +29,28 @@ the from-source path and works on Windows too.
 
 ## What the first launch does
 
-1. Downloads the two models the project's numbers were measured on, about
-   **2.6 GB, once**:
+1. The app serves immediately and opens your browser at
+   `http://127.0.0.1:8080` — before any model exists. The chat page hands
+   over to a setup page that **asks before downloading anything**.
+2. One click downloads the two models the project's numbers were measured
+   on, with live progress in the page:
 
    | file | size | license | role |
    |---|---|---|---|
    | Qwen3-4B-Instruct-2507 Q4_K_M | 2.5 GB | Apache-2.0 | chat |
    | nomic-embed-text-v1.5 Q4_K_M | 84 MB | Apache-2.0 | retrieval |
 
-   Each download is verified against a SHA-256 pinned in
+   Each file is verified against a SHA-256 pinned in
    `src/openknowledge/desktop/manifest.py` — the exact bytes behind the
-   published accuracy figures. A mismatch is refused, not warned about. An
-   interrupted download **resumes** where it stopped on the next launch.
-2. Starts two `llama-server` processes on loopback (chat on 8091,
-   embeddings on 8092) and the app itself on `http://127.0.0.1:8080` —
-   this machine only; nothing is exposed to the network.
-3. Creates your state under `%LOCALAPPDATA%\OpenKnowledge`: documents,
+   published accuracy figures; a mismatch is refused, not warned about.
+   A dropped connection **retries and resumes by itself**; a connection
+   that keeps dying ends in a Resume button in the page, never a native
+   dialog and never a relaunch. (The first field test was a laptop whose
+   connection died every ~190 MB; this design is its direct product.)
+3. The local inference servers start — the page says so while the 2.5 GB
+   model loads, which can take minutes on a laptop disk — and the chat
+   activates the moment they answer.
+4. Your state lives under `%LOCALAPPDATA%\OpenKnowledge`: documents,
    database, settings, models, logs. `openknowledge paths` prints every
    location and why it was chosen.
 
@@ -67,10 +73,10 @@ artifact; the same three commands work on any Windows machine:
 uv venv --python 3.12; uv pip install -e ".[desktop,packaging,anthropic]"
 uv run pyinstaller packaging/pyinstaller/openknowledge.spec
 powershell -File packaging/windows/fetch-llama.ps1
-iscc /DAppVersion=0.1.0 packaging/windows/installer.iss
+iscc /DAppVersion=0.1.1 packaging/windows/installer.iss
 ```
 
-Output: `dist/installer/OpenKnowledge-Setup-0.1.0.exe`. CI additionally
+Output: `dist/installer/OpenKnowledge-Setup-0.1.1.exe`. CI additionally
 runs the frozen executables — `paths`, `--version`, a real `serve` with a
 `/healthz` probe — and installs the installer silently, checking the
 installed app runs. The PyInstaller spec also builds and smoke-tests on

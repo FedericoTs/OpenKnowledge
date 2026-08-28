@@ -151,3 +151,48 @@ def test_the_manage_page_only_calls_endpoints_that_exist(client) -> None:
             or path.startswith(route.split("{")[0].rstrip("/"))
             for route in routes
         ), f"the manage page calls {path}, which no route serves"
+
+
+# --- the first-run setup surface --------------------------------------------
+
+
+def test_setup_status_is_ready_on_a_server(client) -> None:
+    """On a plain deployment nothing drives first-run state: the status is
+    ready forever and the widget never redirects anyone to /setup."""
+    c, _, _ = client
+    body = c.get("/setup/status").json()
+    assert body == {"state": "ready", "message": "", "files": []}
+    assert c.post("/setup/download").status_code == 200
+
+
+def test_setup_page_and_widget_handoff(client) -> None:
+    """The setup page is served, calls only endpoints that exist, and the
+    widget checks /setup/status so a first run hands over to /setup."""
+    import re
+
+    c, _, _ = client
+    page = c.get("/setup").text
+    assert "Download models" in page and "/setup/status" in page
+
+    routes = {getattr(r, "path", "") for r in c.app.routes}
+    for path in set(re.findall(r"""fetch\('(/[a-z/]+)'""", page)):
+        assert path in routes, f"the setup page calls {path}, which no route serves"
+
+    widget = c.get("/").text
+    assert "/setup/status" in widget and "'/setup'" in widget
+
+
+def test_setup_download_signals_a_waiting_first_run(client, monkeypatch) -> None:
+    """The Download button must reach the launcher's setup thread."""
+    from openknowledge.desktop import setup as setup_module
+
+    c, _, _ = client
+    fresh = setup_module.SetupStatus()
+    monkeypatch.setattr(setup_module, "STATUS", fresh)
+
+    from openknowledge.desktop.manifest import CHAT_MODEL
+
+    fresh.set_waiting((CHAT_MODEL,))
+    assert c.get("/setup/status").json()["state"] == "waiting"
+    c.post("/setup/download")
+    assert fresh._proceed.is_set(), "the click must land as the proceed signal"

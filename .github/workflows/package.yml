@@ -190,33 +190,60 @@ jobs:
             throw "the launcher died at startup (exit $($p.ExitCode))"
           }
 
-          $deadline = (Get-Date).AddMinutes(20)
+          # The app must serve within seconds now - first run happens in the
+          # browser AFTER serving, not before it.
           $started = Get-Date
           $ok = $false
-          while ((Get-Date) -lt $deadline) {
+          foreach ($i in 1..120) {
             if ($p.HasExited) {
               Write-Host "launcher exited with code $($p.ExitCode) before serving"
               Dump-Logs
-              throw "the launcher died mid-first-run (exit $($p.ExitCode))"
+              throw "the launcher died at startup (exit $($p.ExitCode))"
             }
             try {
               $r = Invoke-RestMethod -Uri "http://127.0.0.1:8080/healthz" -TimeoutSec 3
               if ($r.status -eq "ok") { $ok = $true; break }
-            } catch {
-              $waited = [math]::Round(((Get-Date) - $started).TotalSeconds)
-              if ($waited % 30 -lt 5) { Write-Host "still preparing (${waited}s; models download and load on first run)" }
-              Start-Sleep -Seconds 5
-            }
+            } catch { Start-Sleep -Milliseconds 500 }
           }
-          if (-not $ok) { Dump-Logs; throw "the installed app never reached serving" }
-          $ready = [math]::Round(((Get-Date) - $started).TotalSeconds)
+          if (-not $ok) { Dump-Logs; throw "the app did not serve within a minute" }
+          $serving = [math]::Round(((Get-Date) - $started).TotalSeconds)
+          Write-Host "serving after ${serving}s (before any model exists)"
+
           $h = Invoke-RestMethod -Uri "http://127.0.0.1:8080/healthz"
           if (-not $h.upload_enabled) { throw "app-mode provisioning did not enable uploads" }
           $env_file = "$env:LOCALAPPDATA\OpenKnowledge\.env"
           if (-not (Select-String -Path $env_file -Pattern "OK_ADMIN_TOKEN" -Quiet)) {
             throw "no admin token was minted into $env_file"
           }
-          Write-Host "serving after ${ready}s; corpus=$($h.corpus_version) uploads=$($h.upload_enabled)"
+
+          # First run asks before downloading; the click is a POST.
+          $s = Invoke-RestMethod -Uri "http://127.0.0.1:8080/setup/status"
+          if ($s.state -ne "waiting") { throw "first run should wait for consent, got '$($s.state)'" }
+          Invoke-RestMethod -Uri "http://127.0.0.1:8080/setup/download" -Method Post | Out-Null
+          Write-Host "consented; downloading in the app"
+
+          $deadline = (Get-Date).AddMinutes(20)
+          while ((Get-Date) -lt $deadline) {
+            if ($p.HasExited) {
+              Write-Host "launcher exited with code $($p.ExitCode) during first run"
+              Dump-Logs
+              throw "the launcher died mid-first-run (exit $($p.ExitCode))"
+            }
+            $s = Invoke-RestMethod -Uri "http://127.0.0.1:8080/setup/status" -TimeoutSec 3
+            if ($s.state -eq "ready") { break }
+            if ($s.state -eq "failed") { Dump-Logs; throw "first run failed: $($s.message)" }
+            if ($s.state -eq "stalled") {
+              Write-Host "stalled ($($s.message)); pressing Resume"
+              Invoke-RestMethod -Uri "http://127.0.0.1:8080/setup/download" -Method Post | Out-Null
+            }
+            $done = ($s.files | Measure-Object -Property done -Sum).Sum
+            $waited = [math]::Round(((Get-Date) - $started).TotalSeconds)
+            if ($waited % 30 -lt 5) { Write-Host "state=$($s.state) bytes=$done (${waited}s)" }
+            Start-Sleep -Seconds 5
+          }
+          if ($s.state -ne "ready") { Dump-Logs; throw "first run never reached ready" }
+          $ready = [math]::Round(((Get-Date) - $started).TotalSeconds)
+          Write-Host "first run complete after ${ready}s"
 
           Set-Content -Path pet-policy.md -Value @"
           # Office Pets Policy
