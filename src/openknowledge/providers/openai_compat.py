@@ -77,6 +77,13 @@ class OpenAICompatProvider:
         self.self_hosted = is_self_hosted(base_url) if self_hosted is None else self_hosted
         self._api_key = api_key
         self._timeout = timeout
+        #: Parameters this endpoint has refused, learned from its own 400s.
+        #: Reasoning-family models (gpt-5*, o*) reject `max_tokens` in favour
+        #: of `max_completion_tokens` and reject any pinned `temperature` -
+        #: and Azure hides the model behind a deployment name, so the family
+        #: cannot be known up front. The first refusal teaches the dialect;
+        #: every later call speaks it directly.
+        self._unsupported: set[str] = set()
 
     def _check_fit(self, prompt_chars: int, max_tokens: int) -> None:
         """Decide locally whether the prompt fits, rather than finding out remotely.
@@ -139,6 +146,64 @@ class OpenAICompatProvider:
         URL differently (Azure's deployments path) overrides this alone."""
         return f"{self.base_url}/chat/completions"
 
+    def _payload(
+        self, messages: list[dict[str, str]], max_tokens: int, *, stream: bool
+    ) -> dict[str, object]:
+        payload: dict[str, object] = {"model": self.model_id, "messages": messages}
+        if "max_tokens" in self._unsupported:
+            # A model that wants `max_completion_tokens` is a reasoning model,
+            # and its thinking spends from the same budget as the answer - a
+            # cap sized for the answer alone yields an empty reply that
+            # stopped on "length". The headroom is for the thinking.
+            payload["max_completion_tokens"] = max_tokens + 1500
+        else:
+            payload["max_tokens"] = max_tokens
+        if "temperature" not in self._unsupported:
+            payload["temperature"] = 0
+        if "seed" not in self._unsupported:
+            payload["seed"] = 0  # honoured by some backends; harmless where it is not
+        if stream:
+            payload["stream"] = True
+            # Ask for usage in the final chunk; servers that predate the option
+            # ignore it rather than erroring.
+            payload["stream_options"] = {"include_usage": True}
+        return payload
+
+    def _learn_from_rejection(self, body: str) -> bool:
+        """Read a 400's own diagnosis; True when a retry now makes sense.
+
+        OpenAI-dialect servers name the offender: ``code`` is
+        ``unsupported_parameter`` or ``unsupported_value`` and ``param`` says
+        which. That is treated as the API stating its dialect, recorded, and
+        retried once per parameter - never guessed from a model name, because
+        an Azure deployment name reveals nothing about what is behind it.
+        """
+        try:
+            error = json.loads(body).get("error") or {}
+        except ValueError:
+            return False
+        if error.get("code") not in ("unsupported_parameter", "unsupported_value"):
+            return False
+        param = error.get("param")
+        if not isinstance(param, str) or not param:
+            return False
+        # `max_completion_tokens` refused means the *replacement* is wrong -
+        # do not record the original as fine again; give up instead.
+        if param in self._unsupported or param == "max_completion_tokens":
+            return False
+        self._unsupported.add(param)
+        return True
+
+    @staticmethod
+    def _empty_length_error(model_id: str, text: str, stop_reason: str | None) -> None:
+        if text or stop_reason != "length":
+            return
+        raise ProviderError(
+            f"{model_id}: the reply came back empty because the token budget ran "
+            "out before any answer text - on a reasoning model the thinking "
+            "spends from the same budget. Raise OK_MAX_ANSWER_TOKENS."
+        )
+
     async def stream(
         self,
         *,
@@ -166,34 +231,37 @@ class OpenAICompatProvider:
             len(system) + len(context) + len(question) + sum(len(m.content) for m in history),
             max_tokens,
         )
-        payload = {
-            "model": self.model_id,
-            "messages": self._messages(system, context, question, history),
-            "max_tokens": max_tokens,
-            "temperature": 0,
-            "seed": 0,
-            "stream": True,
-            # Ask for usage in the final chunk; servers that predate the option
-            # ignore it rather than erroring.
-            "stream_options": {"include_usage": True},
-        }
+        messages = self._messages(system, context, question, history)
 
         collected: list[str] = []
         usage = Usage()
         stop_reason: str | None = None
         try:
-            async with (
-                httpx.AsyncClient(timeout=self._timeout) as client,
-                client.stream(
-                    "POST",
-                    self._url(),
-                    json=payload,
-                    headers=self._headers(),
-                ) as response,
-            ):
-                if response.status_code != 200:
-                    body = (await response.aread()).decode("utf-8", "replace")[:300]
-                    raise ProviderError(f"{self.model_id}: HTTP {response.status_code}: {body}")
+            async with httpx.AsyncClient(timeout=self._timeout) as client:
+                for _ in range(3):
+                    payload = self._payload(messages, max_tokens, stream=True)
+                    response = await client.send(
+                        client.build_request(
+                            "POST", self._url(), json=payload, headers=self._headers()
+                        ),
+                        stream=True,
+                    )
+                    if response.status_code == 200:
+                        break
+                    body = (await response.aread()).decode("utf-8", "replace")
+                    await response.aclose()
+                    # A 400 naming an unsupported parameter is the endpoint
+                    # teaching its dialect; adopt it and try again.
+                    if response.status_code == 400 and self._learn_from_rejection(body):
+                        last_refusal = body
+                        continue
+                    raise ProviderError(
+                        f"{self.model_id}: HTTP {response.status_code}: {body[:300]}"
+                    )
+                else:
+                    raise ProviderError(
+                        f"{self.model_id}: kept rejecting adapted requests: {last_refusal[:300]}"
+                    )
                 async for line in response.aiter_lines():
                     if not line.startswith("data:"):
                         continue
@@ -219,6 +287,7 @@ class OpenAICompatProvider:
                         if delta:
                             collected.append(delta)
                             yield delta
+                await response.aclose()
         except httpx.TimeoutException as exc:
             raise ProviderError(
                 f"{self.model_id}: no response within {self._timeout:.0f}s "
@@ -227,8 +296,10 @@ class OpenAICompatProvider:
         except httpx.HTTPError as exc:
             raise ProviderError(f"{self.model_id}: {exc or type(exc).__name__}") from exc
 
+        text = "".join(collected).strip()
+        self._empty_length_error(self.model_id, text, stop_reason)
         yield Completion(
-            text="".join(collected).strip(),
+            text=text,
             usage=usage,
             model_id=self.model_id,
             stop_reason=stop_reason,
@@ -247,18 +318,30 @@ class OpenAICompatProvider:
             len(system) + len(context) + len(question) + sum(len(m.content) for m in history),
             max_tokens,
         )
-        payload = {
-            "model": self.model_id,
-            "messages": self._messages(system, context, question, history),
-            "max_tokens": max_tokens,
-            "temperature": 0,
-            "seed": 0,  # honoured by some backends; harmless where it is not
-        }
+        messages = self._messages(system, context, question, history)
 
         try:
             async with httpx.AsyncClient(timeout=self._timeout) as client:
-                resp = await client.post(self._url(), json=payload, headers=self._headers())
-                resp.raise_for_status()
+                for _ in range(3):
+                    payload = self._payload(messages, max_tokens, stream=False)
+                    resp = await client.post(self._url(), json=payload, headers=self._headers())
+                    if resp.status_code == 200:
+                        break
+                    # A 400 naming an unsupported parameter is the endpoint
+                    # teaching its dialect; adopt it and try again. Every
+                    # other failure keeps the body: "400 Bad Request" without
+                    # Azure's own sentence naming the parameter is a blank
+                    # where the reason should be.
+                    if resp.status_code == 400 and self._learn_from_rejection(resp.text):
+                        last_refusal = resp.text
+                        continue
+                    raise ProviderError(
+                        f"{self.model_id}: HTTP {resp.status_code}: {resp.text[:300]}"
+                    )
+                else:
+                    raise ProviderError(
+                        f"{self.model_id}: kept rejecting adapted requests: {last_refusal[:300]}"
+                    )
                 data = resp.json()
         except httpx.TimeoutException as exc:
             # httpx timeouts stringify to "", which reached an operator as
@@ -289,6 +372,7 @@ class OpenAICompatProvider:
             input_tokens=int(raw_usage.get("prompt_tokens", 0)),
             output_tokens=int(raw_usage.get("completion_tokens", 0)),
         )
+        self._empty_length_error(self.model_id, text.strip(), choice.get("finish_reason"))
         return Completion(
             text=text.strip(),
             usage=usage,

@@ -85,6 +85,38 @@ Worth pairing with the budget governor: `OK_BUDGET_DAILY_USD` caps what
 escalation may spend over a rolling day, and a question the ceiling
 blocks is refused with the reason, never answered ungrounded.
 
+## 4. Reasoning-family deployments (gpt-5\*, o\*)
+
+The newest model families speak a slightly different dialect: they refuse
+`max_tokens` in favour of `max_completion_tokens`, and refuse a pinned
+`temperature`. A deployment name reveals nothing about what is behind it,
+so OpenKnowledge does not guess - the first refusal from the endpoint
+names the parameter, the provider adopts the dialect and retries, and
+every later call speaks it directly. Nothing to configure.
+
+Two things are worth knowing anyway:
+
+- **Point the API at the `v1` surface.** The gpt-5 family is reached
+  through Azure's next-generation path, which tracks the latest API
+  instead of a dated version:
+
+  ```sh
+  OK_AZURE_OPENAI_API_VERSION=v1
+  ```
+
+  If your region still rejects that path, the error will say so - a
+  recent dated preview from the deployment's own page works too.
+
+- **The thinking is billed as output.** A reasoning model spends tokens
+  thinking before it answers, from the same budget and at the output
+  rate, so the ledger will show more output tokens than the answer's
+  length suggests. That is the real cost, honestly counted - and if the
+  budget runs out mid-thought the reply comes back empty; the error
+  names `OK_MAX_ANSWER_TOKENS` as the lever.
+
+Determinism is unaffected either way: byte-identical serving comes from
+the answer cache, not from the model's temperature.
+
 ## When it does not work
 
 | You see | It means | Fix |

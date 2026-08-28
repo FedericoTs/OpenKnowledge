@@ -44,9 +44,18 @@ class AzureOpenAIProvider(OpenAICompatProvider):
         input_per_mtok: float | None = None,
         output_per_mtok: float | None = None,
     ) -> None:
+        # `v1` selects Azure's next-generation surface: one un-versioned path
+        # that tracks the latest API, with the deployment named in the body
+        # rather than the URL. It is what the newest model families (gpt-5*)
+        # are reached through; dated api-versions keep working for the rest.
+        v1 = api_version == "v1"
         super().__init__(
             model_id=deployment,
-            base_url=f"{endpoint.rstrip('/')}/openai/deployments/{deployment}",
+            base_url=(
+                f"{endpoint.rstrip('/')}/openai/v1"
+                if v1
+                else f"{endpoint.rstrip('/')}/openai/deployments/{deployment}"
+            ),
             api_key=api_key,
             tier="frontier",
             # Azure bills per token whatever the hostname looks like.
@@ -71,4 +80,6 @@ class AzureOpenAIProvider(OpenAICompatProvider):
         return {"Content-Type": "application/json", "api-key": self._api_key or ""}
 
     def _url(self) -> str:
+        if self.api_version == "v1":
+            return f"{self.base_url}/chat/completions"
         return f"{self.base_url}/chat/completions?api-version={self.api_version}"

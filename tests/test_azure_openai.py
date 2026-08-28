@@ -29,10 +29,19 @@ ANSWER = "Meals are reimbursed up to EUR 45 per day. [expenses-policy]"
 
 
 class FakeAzure:
-    """A loopback server speaking Azure OpenAI's chat-completions dialect."""
+    """A loopback server speaking Azure OpenAI's chat-completions dialect.
 
-    def __init__(self) -> None:
+    ``reasoning=True`` makes it behave like a gpt-5-family deployment: it
+    refuses `max_tokens` (naming `max_completion_tokens`) and refuses a
+    pinned `temperature`, one 400 at a time, exactly the way the live
+    service teaches its dialect. ``empty_length=True`` answers with no text
+    and finish_reason "length" - the reasoning-budget failure shape.
+    """
+
+    def __init__(self, *, reasoning: bool = False, empty_length: bool = False) -> None:
         self.requests: list[dict] = []
+        self.reasoning = reasoning
+        self.empty_length = empty_length
         fake = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -52,10 +61,52 @@ class FakeAzure:
                         "payload": payload,
                     }
                 )
-                if payload.get("stream"):
+                if fake.reasoning and "max_tokens" in payload:
+                    self._reject("unsupported_parameter", "max_tokens")
+                elif fake.reasoning and "temperature" in payload:
+                    self._reject("unsupported_value", "temperature")
+                elif fake.empty_length:
+                    self._empty_length()
+                elif payload.get("stream"):
                     self._stream()
                 else:
                     self._complete()
+
+            def _reject(self, code: str, param: str) -> None:
+                body = json.dumps(
+                    {
+                        "error": {
+                            "message": f"Unsupported: {param!r} is not supported with this model.",
+                            "type": "invalid_request_error",
+                            "param": param,
+                            "code": code,
+                        }
+                    }
+                ).encode()
+                self.send_response(400)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def _empty_length(self) -> None:
+                body = json.dumps(
+                    {
+                        "choices": [
+                            {
+                                "index": 0,
+                                "message": {"role": "assistant", "content": ""},
+                                "finish_reason": "length",
+                            }
+                        ],
+                        "usage": {"prompt_tokens": 812, "completion_tokens": 1500},
+                    }
+                ).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
 
             def _complete(self) -> None:
                 body = json.dumps(
@@ -246,3 +297,70 @@ def test_an_escalated_answer_is_grounded_billed_and_then_cached(azure, tmp_path)
         assert len([r for r in azure.requests if not r["payload"].get("stream")]) == 1, (
             "the second ask must not reach Azure at all"
         )
+
+
+# -- reasoning-family deployments (gpt-5*, o*) -------------------------------
+
+
+@pytest.fixture
+def reasoning_azure():
+    fake = FakeAzure(reasoning=True)
+    yield fake
+    fake.close()
+
+
+async def test_a_reasoning_deployment_teaches_its_dialect(reasoning_azure) -> None:
+    """gpt-5-family refuses `max_tokens` and a pinned temperature. The 400s
+    name the offender, the provider adopts the dialect and retries - and the
+    next call speaks it directly, no wasted round trips."""
+    provider = _provider(reasoning_azure)
+    completion = await provider.complete(system="s", context="c", question="q", max_tokens=350)
+    assert completion.text == ANSWER
+
+    payloads = [r["payload"] for r in reasoning_azure.requests]
+    assert len(payloads) == 3  # refused max_tokens, refused temperature, accepted
+    final = payloads[-1]
+    assert "max_tokens" not in final and "temperature" not in final
+    # The thinking spends from the same budget as the answer; headroom is
+    # what stops a 350-token cap from producing an empty reply.
+    assert final["max_completion_tokens"] == 350 + 1500
+
+    await provider.complete(system="s", context="c", question="q", max_tokens=350)
+    assert len(reasoning_azure.requests) == 4  # exactly one more - remembered
+
+
+async def test_the_stream_path_learns_the_same_dialect(reasoning_azure) -> None:
+    deltas: list[str] = []
+    final = None
+    async for event in _provider(reasoning_azure).stream(system="s", context="c", question="q"):
+        if isinstance(event, str):
+            deltas.append(event)
+        else:
+            final = event
+    assert final is not None and "EUR 45" in final.text
+    accepted = reasoning_azure.requests[-1]["payload"]
+    assert accepted["stream"] is True
+    assert "max_tokens" not in accepted and "max_completion_tokens" in accepted
+
+
+async def test_an_empty_reply_that_ran_out_of_budget_names_the_fix() -> None:
+    from openknowledge.providers.base import ProviderError
+
+    fake = FakeAzure(empty_length=True)
+    try:
+        with pytest.raises(ProviderError, match="OK_MAX_ANSWER_TOKENS"):
+            await _provider(fake).complete(system="s", context="c", question="q")
+    finally:
+        fake.close()
+
+
+async def test_v1_selects_the_unversioned_path(azure) -> None:
+    completion = await _provider(azure, api_version="v1").complete(
+        system="s", context="c", question="q"
+    )
+    sent = azure.requests[0]
+    assert sent["path"] == "/openai/v1/chat/completions"
+    assert sent["query"] == {}
+    assert sent["payload"]["model"] == "kb-answers"
+    assert sent["api_key"] == "azure-key-1"
+    assert completion.text == ANSWER
