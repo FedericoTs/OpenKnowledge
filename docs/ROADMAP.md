@@ -257,8 +257,10 @@ Honest status. "Built" means implemented and covered by tests in this repository
    - **Sign in with Entra ID (Microsoft company credentials).** OIDC login
      on the server; the session's user and group ids become the
      ``principals`` the retrieval and cache ACL machinery already enforces -
-     the lock exists, this adds the badge reader. Needs a real tenant to
-     test against.
+     the lock exists, this adds the badge reader. Designed in
+     [ENTRA-SIGNIN.md](ENTRA-SIGNIN.md): generic OIDC tested against a
+     fake IdP in CI, Entra documented first; only Microsoft's half of the
+     flow needs a real tenant to verify.
    - **Folders as categories.** The visible-structure half is built:
      the sidebar groups documents under their folders with counts (loose
      files under "Unfiled"), uploads pick a destination folder - or name

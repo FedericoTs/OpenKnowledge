@@ -86,6 +86,8 @@ later.
    person's identity and group memberships. Those groups feed the ACL
    machinery that already exists inside retrieval and the cache — the
    enforcement layer is built and tested; the login in front of it is not.
+   The full design — flow, sessions, what CI can prove without a tenant
+   and what cannot — is written down in [ENTRA-SIGNIN.md](ENTRA-SIGNIN.md).
 2. **Folders as categories, permissions per folder.** The categories half
    ships today: subfolders index, the sidebar groups documents under
    their folders, and uploads choose a destination folder (or create
