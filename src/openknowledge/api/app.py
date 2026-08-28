@@ -27,6 +27,7 @@ from typing import Annotated, Any
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, Response
 
+from ..assets import find_asset
 from ..cache import citations_for
 from ..canonical import canonicalize_query
 from ..config import Settings, load_settings
@@ -48,14 +49,7 @@ log = logging.getLogger(__name__)
 
 
 def _find_widget() -> Path | None:
-    """Locate the widget in a source checkout or an installed layout."""
-    here = Path(__file__).resolve()
-    candidates = [
-        here.parents[3] / "web" / "widget" / "index.html",  # source checkout
-        here.parents[2] / "web" / "widget" / "index.html",
-        Path("/app/web/widget/index.html"),  # container image
-    ]
-    return next((c for c in candidates if c.is_file()), None)
+    return find_asset("widget/index.html")
 
 
 def get_engine(request: Request) -> Engine:
@@ -88,13 +82,7 @@ AdminOnly = Depends(require_admin)
 
 
 def _find_site() -> Path | None:
-    for candidate in (
-        Path(__file__).resolve().parents[3] / "web" / "site" / "index.html",
-        Path("/app/web/site/index.html"),  # container image
-    ):
-        if candidate.is_file():
-            return candidate
-    return None
+    return find_asset("site/index.html")
 
 
 def _contact_store(app: FastAPI, settings: Settings) -> ContactStore:
@@ -115,6 +103,36 @@ _FAVICON = (
     'stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>'
     "</svg>"
 )
+
+
+def _provision_admin_token(settings: Settings) -> None:
+    """In app mode, mint the admin token instead of shipping a dead API.
+
+    On a server, admin-disabled-until-someone-sets-a-token is a security
+    stance: a deliberate act enables the write surface. On a desktop install
+    there is no someone - the management UI this token guards would simply
+    never work, and "set OK_ADMIN_TOKEN" is not an instruction a double-click
+    user can follow. So when state lives in the per-user app directory, a
+    token is generated once, persisted next to the rest of the state, and
+    printed by `openknowledge token` when something needs it.
+
+    Project mode is deliberately untouched: every server deployment keeps the
+    fail-closed behaviour it was written with.
+    """
+    from ..models import write_env
+    from ..paths import state_paths
+
+    state = state_paths()
+    if settings.admin_token or state.mode == "project":
+        return
+    token = secrets.token_urlsafe(32)
+    state.root.mkdir(parents=True, exist_ok=True)
+    write_env(state.env_file, {"OK_ADMIN_TOKEN": token})
+    settings.admin_token = token
+    log.info(
+        "admin token generated and stored in %s (`openknowledge token` prints it)",
+        state.env_file,
+    )
 
 
 def _warn_if_the_model_is_unreachable(settings: Settings) -> None:
@@ -148,6 +166,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        _provision_admin_token(app.state.settings)
         app.state.engine = build_engine(app.state.settings)
         _warn_if_the_model_is_unreachable(app.state.settings)
         try:

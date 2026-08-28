@@ -19,6 +19,7 @@ from typing import Any
 from .canonical import canonicalize_query
 from .config import load_settings
 from .costs import load_price_table
+from .paths import state_paths
 from .types import Tier
 
 
@@ -449,6 +450,50 @@ def _cmd_contacts(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_paths(_: argparse.Namespace) -> int:
+    """Where state lives for this invocation, and which rule decided it.
+
+    The single most useful thing to ask a machine that is behaving oddly. Every
+    location is printed with whether it exists yet, so "it lost my documents"
+    and "it is reading a different .env than I edited" answer themselves.
+    """
+    settings = load_settings()
+    state = state_paths()
+
+    def show(label: str, path: Path | str) -> None:
+        target = Path(path)
+        print(f"  {label:<12} {target}  {'' if target.exists() else '(not created yet)'}")
+
+    print(f"mode: {state.mode}", end="")
+    print(
+        {
+            "project": "  (the working directory carries this deployment)",
+            "app": "  (no project here; state lives in the per-user data directory)",
+            "override": "  (OK_STATE_DIR is set)",
+        }.get(state.mode, "")
+    )
+    show("env file", state.env_file)
+    show("data", settings.data_dir)
+    show("documents", settings.documents_dir)
+    show("contacts", Path(settings.data_dir) / settings.contacts_db)
+    show("vectors", Path(settings.data_dir) / settings.vectors_db)
+    return 0
+
+
+def _cmd_token(_: argparse.Namespace) -> int:
+    """Print the admin token, for whatever needs to call the admin API."""
+    settings = load_settings()
+    if not settings.admin_token:
+        print(
+            "No admin token is set. On a server, set OK_ADMIN_TOKEN to enable the "
+            "admin API; a desktop install generates one the first time it serves.",
+            file=sys.stderr,
+        )
+        return 1
+    print(settings.admin_token)
+    return 0
+
+
 def _cmd_pricing(_: argparse.Namespace) -> int:
     prices = list(load_price_table().values())
     width = max((len(p.model_id) for p in prices), default=20) + 2
@@ -610,7 +655,8 @@ def _cmd_model(args: argparse.Namespace) -> int:
     values = {"OK_LOCAL_MODEL": result.model, "OK_LOCAL_ENABLED": "true"}
     if result.context:
         values["OK_LOCAL_CONTEXT_TOKENS"] = str(result.context)
-    env = Path(args.env_file)
+    env = Path(args.env_file) if args.env_file else state_paths().env_file
+    env.parent.mkdir(parents=True, exist_ok=True)
     written = local_models.write_env(env, values)
 
     if result.pulled:
@@ -676,7 +722,16 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
 
     p = sub.add_parser("serve", help="run the HTTP server and chat widget")
-    p.add_argument("--host", default="0.0.0.0")  # noqa: S104 - container default
+    # This machine only. Binding every interface was the old default, which on
+    # a personal machine means a firewall prompt and LAN exposure of a server
+    # whose admin API is only a bearer token away. Anything that genuinely
+    # serves a network - the container does - asks for 0.0.0.0 explicitly, and
+    # the Dockerfile already does.
+    p.add_argument(
+        "--host",
+        default="127.0.0.1",
+        help="interface to bind (default: this machine only; use 0.0.0.0 to serve the network)",
+    )
     p.add_argument("--port", type=int, default=8080)
     p.add_argument("--reload", action="store_true")
     p.set_defaults(func=_cmd_serve)
@@ -860,18 +915,33 @@ def build_parser() -> argparse.ArgumentParser:
             "one; nothing is then recorded, and no prompt is checked for fit"
         ),
     )
-    q.add_argument("--env-file", default=".env", help="where to record it (default: .env)")
+    q.add_argument(
+        "--env-file",
+        default=None,
+        help="where to record it (default: the resolved state directory's .env)",
+    )
     q.set_defaults(func=_cmd_model)
 
     p = sub.add_parser("pricing", help="show the model price table")
     p.set_defaults(func=_cmd_pricing)
+
+    p = sub.add_parser("paths", help="where state lives for this invocation, and why")
+    p.set_defaults(func=_cmd_paths)
+
+    p = sub.add_parser("token", help="print the admin API token")
+    p.set_defaults(func=_cmd_token)
 
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    return int(args.func(args))
+    try:
+        return int(args.func(args))
+    except BrokenPipeError:
+        # `openknowledge something | head` closes our stdout mid-print. That is
+        # the reader saying "enough", not an error worth a traceback.
+        return 0
 
 
 if __name__ == "__main__":  # pragma: no cover

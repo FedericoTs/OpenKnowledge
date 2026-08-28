@@ -309,6 +309,14 @@ openknowledge eval --dry-run
 Uninstalling is `rm -rf ~/Documents/Projects/OpenKnowledge`. There is nothing
 anywhere else.
 
+Run from *outside* a checkout — which is what the coming desktop build does —
+state moves to your platform's per-user data directory instead
+(`%LOCALAPPDATA%\OpenKnowledge` on Windows, `~/Library/Application
+Support/OpenKnowledge` on macOS, `~/.local/share/OpenKnowledge` on Linux), so
+databases never scatter across whatever folder was current at launch.
+`openknowledge paths` prints exactly where everything lives for the way you are
+running it, and why.
+
 ---
 
 ## If something goes wrong
@@ -321,6 +329,7 @@ anywhere else.
 | Answers are refusals | the grounding gate is working | check `openknowledge conflicts` — two documents may disagree |
 | `the prompt needs about N tokens and the window is M` | window too small | `openknowledge model use <model> --context <bigger>` |
 | A PDF contributed nothing | scanned images | there is no OCR; `openknowledge index` names every file it skipped |
+| It's reading different files than I edited | two installs, two state dirs | `openknowledge paths` shows which `.env`, data and documents this invocation uses |
 
 Everything the system does is designed to be checkable rather than trusted:
 `openknowledge costs` reports what it actually spent from the ledger,

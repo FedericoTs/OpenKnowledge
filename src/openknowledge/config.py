@@ -187,4 +187,25 @@ class Settings(BaseSettings):
 
 
 def load_settings() -> Settings:
-    return Settings()
+    """Settings, with state located by how the process is being run.
+
+    Field defaults stay CWD-relative because that is correct for the audience
+    that has a CWD worth speaking of - a checkout, a server directory, the
+    container. When the working directory carries no deployment (the
+    double-clicked-app case), state must not scatter across whatever folder
+    was current at launch, so the unset paths are pointed at the platform's
+    per-user data directory instead. Anything the operator set - environment,
+    dotenv, either - always wins; only genuine defaults are relocated.
+    """
+    from .paths import state_paths
+
+    state = state_paths()
+    env_file = state.env_file if state.env_file.is_file() else None
+    settings = Settings(_env_file=env_file)  # type: ignore[call-arg]
+    if state.mode != "project":
+        provided = settings.model_fields_set
+        if "data_dir" not in provided:
+            settings.data_dir = str(state.data_dir)
+        if "documents_dir" not in provided:
+            settings.documents_dir = str(state.documents_dir)
+    return settings

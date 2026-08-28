@@ -1,0 +1,11 @@
+# Line endings are normative: the Windows CI leg checks out with whatever the
+# runner's autocrlf says, and tests that compare file text against command
+# output must not depend on that. Binary assets are protected from any
+# translation at all.
+* text=auto eol=lf
+*.woff2 binary
+*.png binary
+*.pdf binary
+*.docx binary
+*.xlsx binary
+*.pptx binary

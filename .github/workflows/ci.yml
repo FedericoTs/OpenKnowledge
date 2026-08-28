@@ -52,6 +52,25 @@ jobs:
       - name: Contradiction detection holds its precision and recall
         run: uv run openknowledge eval-conflicts
 
+  # The product's final deliverable is a Windows install, and "the suite is
+  # green" meant nothing about Windows until it ran there: every path,
+  # process-spawn and file-locking difference is invisible from Linux. Tests
+  # only - lint and types are platform-independent and already run above.
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install
+        run: uv venv --python 3.12 && uv pip install -e ".[dev,anthropic]"
+
+      - name: Test
+        run: uv run pytest -q
+
   docker:
     runs-on: ubuntu-latest
     steps:
