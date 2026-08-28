@@ -6,6 +6,10 @@ removes every trace of it.
 
 Times are for a first run on a normal laptop.
 
+On Windows there is also an installer — no terminal, no Python — described
+in [WINDOWS.md](WINDOWS.md). This page is the from-source path, and it works
+on Windows too.
+
 ---
 
 ## 0. What you need

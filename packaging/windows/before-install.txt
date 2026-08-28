@@ -1,0 +1,20 @@
+OpenKnowledge answers questions from your documents, on this machine.
+
+What this installer does:
+
+  - Installs OpenKnowledge for your user account only. No administrator
+    rights, no services, nothing outside your own profile.
+  - Includes llama.cpp's inference server (MIT license), which runs the
+    models: on your GPU where a Vulkan driver exists, on your CPU otherwise.
+
+What happens on first launch:
+
+  - The app downloads the two models it answers with, about 2.6 GB once:
+      Qwen3-4B-Instruct-2507 (Apache-2.0), the chat model
+      nomic-embed-text-v1.5 (Apache-2.0), the retrieval model
+    Both are verified against pinned SHA-256 hashes - the exact files the
+    project's published accuracy numbers were measured on.
+  - A private data folder is created under your user profile. Your
+    documents never leave this machine; nothing phones home.
+
+The chatbot then opens in your browser and lives in the system tray.

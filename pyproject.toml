@@ -56,6 +56,12 @@ anthropic = ["anthropic>=0.40"]
 # core dependency because it needs a JVM - which the container has and a bare
 # pip install does not. Without it the pdfplumber backend is used.
 opendataloader = ["opendataloader-pdf>=2.5"]
+# The tray icon of the desktop app. An extra because a server has no tray:
+# the launcher degrades to a plain wait loop when these are absent.
+desktop = ["pystray>=0.19.5", "pillow>=10"]
+# Building the desktop bundle (`packaging/pyinstaller/openknowledge.spec`).
+# Not dev: nothing in the test suite needs it.
+packaging = ["pyinstaller>=6.11"]
 # Counting tokens without calling a model, for `tools/measure_prompts.py`.
 # Deliberately not a runtime dependency: the running system takes token counts
 # from the provider's own usage response, and an estimator in that path would

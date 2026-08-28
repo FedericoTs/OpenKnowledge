@@ -41,6 +41,8 @@ PROVIDED_BY = {"starlette": "fastapi"}
 OPTIONAL = {
     "anthropic": "anthropic",
     "opendataloader_pdf": "opendataloader-pdf",
+    "pystray": "pystray",
+    "PIL": "pillow",
 }
 
 

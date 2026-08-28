@@ -127,6 +127,23 @@ Honest status. "Built" means implemented and covered by tests in this repository
   app actually serves. Driven live in a real browser: the settings save
   correctly rejected a whole batch over one bad null before the fix, and the
   re-drive persisted `OK_RETRIEVAL_K=5` to the state `.env`.
+- **Desktop app** — `openknowledge desktop` goes from a double-click to a
+  serving chatbot: the two measured models downloaded once with resume and
+  pinned SHA-256s (the exact bytes the accuracy numbers were produced on — a
+  mismatch is refused, not warned about), two bundled llama.cpp servers
+  spawned on loopback, the same FastAPI app on 127.0.0.1, a tray icon that
+  degrades to a console loop where no tray exists. The launch plan is a pure
+  function over the persisted state: an endpoint someone re-pointed at their
+  own Ollama is never overwritten and never spawned over, and a dead
+  llama-server reports the tail of its own log instead of "timeout".
+  PyInstaller builds one folder holding both executables (windowed launcher,
+  console CLI); the bundle is built and its frozen `serve`, `/`, `/manage`
+  and `paths` verified on Linux in development, and the Package CI workflow
+  does the same on windows-latest — plus `fetch-llama.ps1` (llama.cpp
+  win-vulkan: GPU via Vulkan, runtime-dispatched CPU otherwise), the Inno
+  Setup per-user installer, a silent install, and a run of the installed
+  app — gating every packaging change. Unsigned so far: SmartScreen
+  consequences and the signing plan are in [WINDOWS.md](WINDOWS.md).
 - **Website** — a single self-contained page (`web/site/`) leading with the free audit,
   quoting only numbers this repository produces, and stating what the project cannot do yet.
   It fetches nothing from any other host, asserted by a test. Its contact form posts to the
@@ -193,11 +210,13 @@ Honest status. "Built" means implemented and covered by tests in this repository
    the contextual-retrieval idea is prepending each chunk's heading trail before
    embedding it - the chunker already carries the trail for a different reason.
    Worth measuring against the golden set like everything else.
-7. **The Windows installer.** PyInstaller onedir + Inno Setup around the app,
-   llama.cpp's win-vulkan build (one artifact: Vulkan GPU + runtime-dispatched CPU
-   variants) serving chat and embeddings in router mode, first-run model download,
-   code signing. The foundations it needs (state location, asset resolution, bind,
-   token) are built; the packaging itself is not.
+7. **Signing the Windows installer.** The installer itself now builds and
+   smoke-tests in CI — what remains is identity. Azure Trusted Signing
+   (~$10/month, reputation attaches to the verified identity) or a classic
+   OV certificate (~$200–400/year, reputation builds per-certificate), then
+   one `signtool` step in `package.yml`. Until then SmartScreen shows
+   "unrecognized app" and some AV products distrust young unsigned
+   PyInstaller binaries on reputation alone. See [WINDOWS.md](WINDOWS.md).
 8. **SharePoint connector.** Microsoft Graph enumeration via `delta` (changes only, never
    a full rescan), `Sites.Selected` for least privilege, text extraction, and — the real
    work — mapping item permissions, including group expansion and inheritance, onto

@@ -4,6 +4,7 @@
 # translation at all.
 * text=auto eol=lf
 *.woff2 binary
+*.ico binary
 *.png binary
 *.pdf binary
 *.docx binary

@@ -1,0 +1,118 @@
+# Builds the Windows deliverable: the PyInstaller bundle, the bundled
+# llama.cpp server, and the Inno Setup installer - then smoke-tests the
+# frozen executables on a real Windows machine before anything is published.
+#
+# "The suite is green" says nothing about a frozen bundle: PyInstaller's
+# import graph, data-file collection and console behaviour fail in ways no
+# test imports can see. So this job runs the built .exe itself: `paths`,
+# `--version`, and an actual serve with a /healthz probe.
+#
+# Runs on packaging changes and on demand - not on every push, because a
+# full Windows build is minutes, and the packaging inputs are exactly the
+# paths listed below.
+
+name: Package
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["main"]
+    paths:
+      - "packaging/**"
+      - "src/openknowledge/desktop/**"
+      - "pyproject.toml"
+      - "web/**"
+      - ".github/workflows/package.yml"
+  pull_request:
+    paths:
+      - "packaging/**"
+      - "src/openknowledge/desktop/**"
+      - "pyproject.toml"
+      - ".github/workflows/package.yml"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows-installer:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install
+        run: uv venv --python 3.12 && uv pip install -e ".[desktop,packaging,anthropic]"
+
+      - name: Build the bundle
+        run: uv run pyinstaller packaging/pyinstaller/openknowledge.spec --noconfirm
+
+      - name: The frozen CLI runs
+        shell: pwsh
+        run: |
+          $env:OK_STATE_DIR = "$env:TEMP\ok-smoke"
+          & dist\OpenKnowledge\openknowledge.exe --version
+          & dist\OpenKnowledge\openknowledge.exe paths
+          if ($LASTEXITCODE -ne 0) { throw "paths exited $LASTEXITCODE" }
+
+      - name: The frozen server serves
+        shell: pwsh
+        run: |
+          $env:OK_STATE_DIR = "$env:TEMP\ok-smoke"
+          $p = Start-Process -FilePath dist\OpenKnowledge\openknowledge.exe `
+            -ArgumentList "serve","--port","18095" -PassThru -NoNewWindow `
+            -RedirectStandardOutput serve-out.log -RedirectStandardError serve-err.log
+          $ok = $false
+          foreach ($i in 1..60) {
+            try {
+              $r = Invoke-RestMethod -Uri "http://127.0.0.1:18095/healthz" -TimeoutSec 2
+              if ($r.status -eq "ok") { $ok = $true; break }
+            } catch { Start-Sleep -Milliseconds 500 }
+          }
+          $widget = (Invoke-WebRequest -Uri "http://127.0.0.1:18095/" -TimeoutSec 5).Content
+          $manage = (Invoke-WebRequest -Uri "http://127.0.0.1:18095/manage" -TimeoutSec 5).Content
+          Stop-Process -Id $p.Id -Force
+          if (-not $ok) { Get-Content serve-out.log, serve-err.log; throw "healthz never answered" }
+          if ($widget -notmatch "OpenKnowledge") { throw "widget page did not serve" }
+          if ($manage -notmatch "Manage") { throw "manage page did not serve" }
+
+      - name: Bundle llama.cpp (win-vulkan)
+        shell: pwsh
+        run: powershell -ExecutionPolicy Bypass -File packaging/windows/fetch-llama.ps1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Read the version
+        id: version
+        shell: pwsh
+        run: |
+          $v = uv run python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])"
+          "version=$v" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      - name: Build the installer
+        shell: pwsh
+        run: |
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" `
+            /DAppVersion=${{ steps.version.outputs.version }} `
+            packaging\windows\installer.iss
+
+      - name: The installer installs, the installed app answers
+        shell: pwsh
+        run: |
+          $setup = Get-ChildItem dist\installer\OpenKnowledge-Setup-*.exe | Select-Object -First 1
+          Start-Process -FilePath $setup.FullName -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART" -Wait
+          $app = "$env:LOCALAPPDATA\Programs\OpenKnowledge"
+          if (-not (Test-Path "$app\OpenKnowledge.exe")) { throw "windowed exe missing after install" }
+          if (-not (Test-Path "$app\llama\llama-server.exe")) { throw "llama-server missing after install" }
+          $env:OK_STATE_DIR = "$env:TEMP\ok-installed"
+          & "$app\openknowledge.exe" paths
+          if ($LASTEXITCODE -ne 0) { throw "installed CLI exited $LASTEXITCODE" }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: OpenKnowledge-Setup
+          path: dist/installer/OpenKnowledge-Setup-*.exe
+          if-no-files-found: error

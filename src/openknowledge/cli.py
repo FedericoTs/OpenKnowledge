@@ -44,6 +44,12 @@ def _cmd_serve(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_desktop(_: argparse.Namespace) -> int:
+    from .desktop.launcher import main as desktop_main
+
+    return desktop_main()
+
+
 def _cmd_index(_: argparse.Namespace) -> int:
     engine = _engine()
     documents, chunks, version, evicted = engine.reindex()
@@ -743,6 +749,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--port", type=int, default=8080)
     p.add_argument("--reload", action="store_true")
     p.set_defaults(func=_cmd_serve)
+
+    p = sub.add_parser(
+        "desktop",
+        help="run as the desktop app: download models, start llama-server, serve, tray",
+    )
+    p.set_defaults(func=_cmd_desktop)
 
     p = sub.add_parser("index", help="re-read the document folder")
     p.set_defaults(func=_cmd_index)
