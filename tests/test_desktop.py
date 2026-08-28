@@ -433,3 +433,72 @@ def test_already_verified_requires_size_and_marker(tmp_path: Path, cdn) -> None:
     assert already_verified(model, tmp_path)
     (tmp_path / (model.filename + ".sha256-ok")).unlink()
     assert not already_verified(model, tmp_path), "no marker, no trust"
+
+
+def test_spawn_asks_for_one_slot_and_carries_extra_args(tmp_path: Path, monkeypatch) -> None:
+    """Field lesson: llama-server's default four slots quadruple the KV
+    buffer, and a laptop iGPU refused exactly that 1 GiB allocation. One
+    slot is all this app uses; extra_args is the CPU-fallback channel."""
+    captured: list[list[str]] = []
+
+    class FakeProcess:
+        def poll(self):
+            return None
+
+    def fake_popen(args, **kwargs):  # type: ignore[no-untyped-def]
+        captured.append(list(args))
+        return FakeProcess()
+
+    monkeypatch.setattr(llama.subprocess, "Popen", fake_popen)
+    model = _fake_model()
+    llama.spawn(tmp_path / "llama-server", tmp_path / model.filename, model, 18400, tmp_path)
+    llama.spawn(
+        tmp_path / "llama-server",
+        tmp_path / model.filename,
+        model,
+        18401,
+        tmp_path,
+        extra_args=("-ngl", "0"),
+    )
+    first, second = captured
+    assert [
+        first[first.index("--parallel")],
+        first[first.index("--parallel") + 1],
+    ] == ["--parallel", "1"]
+    assert second[-2:] == ["-ngl", "0"] or ("-ngl" in second and "0" in second)
+
+
+def test_gpu_out_of_memory_falls_back_to_cpu(tmp_path: Path, monkeypatch) -> None:
+    """A GPU that cannot hold the model must not end first run: the same
+    server is retried with every layer on the CPU, and the page says so."""
+    from openknowledge.desktop import launcher
+
+    calls: list[tuple[str, tuple[str, ...]]] = []
+    terminated: list[object] = []
+
+    class FakeServer:
+        def __init__(self, tag: str) -> None:
+            self.tag = tag
+
+    def fake_spawn(exe, model_path, model, port, log_dir, extra_args=()):  # type: ignore[no-untyped-def]
+        calls.append(("spawn", tuple(extra_args)))
+        return FakeServer("cpu" if extra_args else "gpu")
+
+    def fake_wait_ready(server, timeout_seconds=420.0):  # type: ignore[no-untyped-def]
+        if server.tag == "gpu":
+            raise llama.LlamaError(
+                "llama-server (chat) exited with code 1 while loading. Log tail:\n"
+                "ggml_vulkan: vk::Device::allocateMemory: ErrorOutOfDeviceMemory"
+            )
+
+    monkeypatch.setattr(launcher.llama, "spawn", fake_spawn)
+    monkeypatch.setattr(launcher.llama, "wait_ready", fake_wait_ready)
+    monkeypatch.setattr(launcher.llama, "terminate", lambda servers: terminated.extend(servers))
+
+    model = _fake_model()
+    server = launcher._start_with_cpu_fallback(
+        tmp_path / "llama-server", tmp_path / model.filename, model, 18402, tmp_path
+    )
+    assert server.tag == "cpu", "the CPU retry must be what actually serves"
+    assert calls == [("spawn", ()), ("spawn", ("-ngl", "0"))]
+    assert len(terminated) == 1 and terminated[0].tag == "gpu"

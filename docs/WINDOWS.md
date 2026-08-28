@@ -73,10 +73,10 @@ artifact; the same three commands work on any Windows machine:
 uv venv --python 3.12; uv pip install -e ".[desktop,packaging,anthropic]"
 uv run pyinstaller packaging/pyinstaller/openknowledge.spec
 powershell -File packaging/windows/fetch-llama.ps1
-iscc /DAppVersion=0.1.1 packaging/windows/installer.iss
+iscc /DAppVersion=0.1.2 packaging/windows/installer.iss
 ```
 
-Output: `dist/installer/OpenKnowledge-Setup-0.1.1.exe`. CI additionally
+Output: `dist/installer/OpenKnowledge-Setup-0.1.2.exe`. CI additionally
 runs the frozen executables — `paths`, `--version`, a real `serve` with a
 `/healthz` probe — and installs the installer silently, checking the
 installed app runs. The PyInstaller spec also builds and smoke-tests on

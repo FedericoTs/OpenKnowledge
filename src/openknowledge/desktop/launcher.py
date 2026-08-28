@@ -221,10 +221,10 @@ def _first_run(
     try:
         for model in needed:
             servers.append(
-                llama.spawn(exe, models_dir / model.filename, model, ports[model.purpose], log_dir)
+                _start_with_cpu_fallback(
+                    exe, models_dir / model.filename, model, ports[model.purpose], log_dir
+                )
             )
-        for server in servers:
-            llama.wait_ready(server)
     except LlamaError as error:
         STATUS.set_failed(str(error))
         print(str(error), file=sys.stderr)
@@ -241,6 +241,42 @@ def _first_run(
 
     STATUS.set_ready()
     print("first run complete - models ready", flush=True)
+
+
+def _start_with_cpu_fallback(
+    exe: Path,
+    model_path: Path,
+    model: ModelFile,
+    port: int,
+    log_dir: Path,
+) -> LlamaServer:
+    """Start a llama-server; if the GPU cannot hold the model, run it on CPU.
+
+    Field lesson: an integrated GPU's Vulkan heap refused the KV allocation
+    (ErrorOutOfDeviceMemory) on a laptop whose CPU had loaded the same model
+    happily minutes earlier. GPU-or-nothing is the wrong default for a
+    desktop app - ``-ngl 0`` keeps every layer on the CPU, where system RAM
+    is the limit, and the page says which mode it ended up in.
+    """
+    server: LlamaServer | None = None
+    try:
+        server = llama.spawn(exe, model_path, model, port, log_dir)
+        llama.wait_ready(server)
+        return server
+    except LlamaError as first_error:
+        if server is not None:
+            llama.terminate([server])
+        STATUS.set_starting(
+            f"the GPU could not hold the {model.purpose} model "
+            "(out of device memory); retrying on CPU"
+        )
+        print(
+            f"{model.purpose}: GPU start failed ({first_error}); retrying on CPU",
+            file=sys.stderr,
+        )
+        server = llama.spawn(exe, model_path, model, port, log_dir, extra_args=("-ngl", "0"))
+        llama.wait_ready(server)
+        return server
 
 
 def _swap_running_engine() -> None:

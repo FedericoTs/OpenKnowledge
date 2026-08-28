@@ -75,6 +75,7 @@ def spawn(
     model: ModelFile,
     port: int,
     log_dir: Path,
+    extra_args: tuple[str, ...] = (),
 ) -> LlamaServer:
     """Start one llama-server for ``model`` and return the handle.
 
@@ -83,6 +84,14 @@ def spawn(
     Ollama derived-model workaround, loopback host, no web UI. Embedding
     servers get ``--embedding``; pooling comes from the model's own
     metadata.
+
+    ``--parallel 1`` is a field lesson: llama-server defaults to four slots,
+    each with the full context, and the resulting KV buffer - a single 1 GiB
+    Vulkan allocation for the chat model - is exactly what a laptop's
+    integrated GPU refused. This app serializes its requests through the
+    cascade anyway; one slot quarters that allocation. ``extra_args`` is how
+    the launcher retries on CPU (``-ngl 0``) when a GPU cannot hold the
+    model.
     """
     args = [
         str(exe),
@@ -94,7 +103,10 @@ def spawn(
         str(port),
         "-c",
         str(model.context_tokens),
+        "--parallel",
+        "1",
         "--no-webui",
+        *extra_args,
     ]
     if model.purpose == "embedding":
         args.append("--embedding")
