@@ -142,8 +142,13 @@ Honest status. "Built" means implemented and covered by tests in this repository
   does the same on windows-latest — plus `fetch-llama.ps1` (llama.cpp
   win-vulkan: GPU via Vulkan, runtime-dispatched CPU otherwise), the Inno
   Setup per-user installer, a silent install, and a run of the installed
-  app — gating every packaging change. Unsigned so far: SmartScreen
-  consequences and the signing plan are in [WINDOWS.md](WINDOWS.md).
+  app — gating every packaging change. The first green run needed three
+  attempts, each failure a real bug the run itself caught: a
+  case-insensitive executable-name collision invisible on Linux, then
+  llama.cpp's release layout change — and produced a 63 MB
+  `OpenKnowledge-Setup-0.1.0.exe`, silent-installed it on windows-latest,
+  and ran the installed app. Unsigned so far: SmartScreen consequences and
+  the signing plan are in [WINDOWS.md](WINDOWS.md).
 - **Website** — a single self-contained page (`web/site/`) leading with the free audit,
   quoting only numbers this repository produces, and stating what the project cannot do yet.
   It fetches nothing from any other host, asserted by a test. Its contact form posts to the

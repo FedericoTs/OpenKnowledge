@@ -68,7 +68,13 @@ if (-not $server) {
 }
 
 New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
-Copy-Item -Path (Join-Path $server.DirectoryName "*") -Destination $OutDir -Recurse -Force
+# The archive ships llama.cpp's whole toolbox - benches, converters, a TTS
+# demo, two dozen executables. The app needs exactly one server and its
+# libraries; shipping the rest would multiply the installed size and hand
+# antivirus scanners a pile of extra unsigned executables to distrust.
+Get-ChildItem -Path $server.DirectoryName -File | Where-Object {
+    $_.Extension -eq ".dll" -or $_.Name -eq "llama-server.exe"
+} | Copy-Item -Destination $OutDir -Force
 
 if (-not (Test-Path (Join-Path $OutDir "llama-server.exe"))) {
     throw "copy failed: llama-server.exe missing from $OutDir"
