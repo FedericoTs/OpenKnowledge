@@ -144,6 +144,9 @@ class HybridRetriever:
     def describe_document(self, document_id: str) -> tuple[str, str] | None:
         return self.lexical.describe_document(document_id)
 
+    def document_ids(self) -> frozenset[str]:
+        return self.lexical.document_ids()
+
     @property
     def chunks(self) -> list[Chunk]:
         return self.lexical._chunks  # noqa: SLF001 - one object, split for clarity

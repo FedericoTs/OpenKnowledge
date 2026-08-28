@@ -309,3 +309,10 @@ def test_the_fused_score_is_comparable_across_retrievers() -> None:
     assert [s.chunk.document_id for s in fused] == ["d1", "l1"]
     assert [s.score for s in fused] == [1.0, 0.5], "kept an incomparable score"
     assert fused[0].score > fused[1].score, "fused score must fall with position"
+
+
+def test_document_ids_are_delegated_like_the_rest_of_the_surface() -> None:
+    """The eval preflight asks the retriever for document_ids; a hybrid
+    configuration crashed it because only the lexical half answered."""
+    retriever = build(embedder=StubEmbedder())
+    assert retriever.document_ids() == {"expenses", "security", "facilities"}
