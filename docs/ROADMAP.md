@@ -251,6 +251,15 @@ Honest status. "Built" means implemented and covered by tests in this repository
    works from the identity Teams already has. Teams is a standard channel, so messages are
    free and unmetered.
 
+11. **Let llama.cpp size the GPU offload.** The desktop app now runs one
+   slot (`--parallel 1`) and falls back to CPU (`-ngl 0`) when a GPU cannot
+   hold the model - the field fix for an integrated GPU refusing the KV
+   allocation. llama.cpp ships its own memory-fitting machinery
+   (`llama-fit-params`, and newer servers can size offload against the
+   device heap); adopting it would replace the binary GPU-or-CPU choice
+   with "as many layers as actually fit". Worth doing when it stabilizes;
+   the fallback stays as the floor either way.
+
 ### Known gaps in document parsing
 
 - **No OCR.** A scanned PDF is reported and indexed as nothing.
