@@ -90,11 +90,16 @@ jobs:
           $env:OK_AUTH_MODE = "oidc"
           $env:OK_OIDC_CLIENT_ID = "smoke"
           & dist\OpenKnowledge\openknowledge.exe serve --port 18096 2> auth-smoke.log
+          # The exe MUST exit non-zero here - that is the smoke passing - so
+          # the step owns its own exit code rather than inheriting the exe's.
+          $code = $LASTEXITCODE
           $log = Get-Content auth-smoke.log -Raw
+          if ($code -eq 0) { throw "half-configured sign-in served anyway" }
           if ($log -notmatch "OK_OIDC_ISSUER") {
             Write-Host $log
             throw "expected the missing-issuer config error; the auth module may be absent from the bundle"
           }
+          $global:LASTEXITCODE = 0
 
       - name: The frozen server serves
         shell: pwsh
