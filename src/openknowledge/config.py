@@ -179,6 +179,18 @@ class Settings(BaseSettings):
         default_factory=lambda: ["127.0.0.1", "localhost", "::1", "testserver"]
     )
 
+    # -- uploads ------------------------------------------------------------
+    #: Accept documents over HTTP (the widget's drag-and-drop, POST /documents).
+    #: **Off by default** for the same reason the website is: a running answer
+    #: engine has no business accepting writes unless somebody asked it to.
+    #: A desktop (app-mode) install turns it on at first serve and records the
+    #: choice, because drag-and-drop IS how documents arrive there and there is
+    #: nobody to set variables; an explicit false is always respected.
+    upload_enabled: bool = False
+    #: Per-file ceiling. A corpus document larger than this is almost always a
+    #: scan, which the parser cannot read anyway.
+    upload_max_mb: int = Field(default=25, ge=1, le=500)
+
     # -- website -----------------------------------------------------------
     #: Serve the marketing page at /site and accept its contact form at
     #: /api/contact. **Off by default**: a running answer engine has no business

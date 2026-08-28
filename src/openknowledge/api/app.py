@@ -27,7 +27,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated, Any
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from fastapi import Depends, FastAPI, File, Header, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, Response, StreamingResponse
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
@@ -110,6 +110,28 @@ _FAVICON = (
 )
 
 
+def _safe_document_name(raw: str) -> str | None:
+    """A filename that cannot leave the documents folder, or None.
+
+    Browsers send bare names, but nothing forces a client to: "../../etc/x",
+    an absolute path, or a Windows drive prefix are all legal multipart
+    filenames. Everything is flattened to its final component and then
+    whitelisted, so the only thing a hostile name can do is be refused.
+    """
+    final = raw.replace("\\", "/").rsplit("/", 1)[-1].strip()
+    if not final or final.startswith(".") or ":" in final:
+        return None
+    if not re.fullmatch(r"[\w][\w \-.()+&,']{0,150}", final):
+        return None
+    return final
+
+
+def _upload_skip_reason(name: str) -> str | None:
+    from ..documents import skip_reason
+
+    return skip_reason(name)
+
+
 def _provision_admin_token(settings: Settings) -> None:
     """In app mode - and only there - mint the admin token.
 
@@ -150,6 +172,26 @@ def _provision_admin_token(settings: Settings) -> None:
         "admin token generated and stored in %s (`openknowledge token` prints it)",
         state.env_file,
     )
+
+
+def _provision_uploads(settings: Settings) -> None:
+    """On a desktop install, drag-and-drop is how documents arrive.
+
+    Same reasoning and same guard-rails as the token: only app mode, only when
+    the operator has not spoken (an explicit OK_UPLOAD_ENABLED - true or false,
+    environment or file - always wins), and the choice is recorded so it is a
+    setting the person can see and flip, not behaviour that appears from
+    nowhere.
+    """
+    from ..models import write_env
+    from ..paths import state_paths
+
+    state = state_paths()
+    if state.mode != "app" or "upload_enabled" in settings.model_fields_set:
+        return
+    settings.upload_enabled = True
+    state.root.mkdir(parents=True, exist_ok=True)
+    write_env(state.env_file, {"OK_UPLOAD_ENABLED": "true"}, private=True)
 
 
 def _warm_the_model_in_the_background(settings: Settings) -> None:
@@ -214,6 +256,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         _provision_admin_token(app.state.settings)
+        _provision_uploads(app.state.settings)
         app.state.engine = build_engine(app.state.settings)
         _warn_if_the_model_is_unreachable(app.state.settings)
         _warm_the_model_in_the_background(app.state.settings)
@@ -305,7 +348,115 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "chunks_indexed": len(engine.retriever),
             "corpus_version": engine.retriever.corpus_version,
             "escalation_enabled": engine.settings.escalation_enabled,
+            "upload_enabled": engine.settings.upload_enabled,
         }
+
+    if resolved.upload_enabled:
+
+        @app.get("/documents")
+        async def list_documents(engine: EngineDep) -> dict[str, Any]:
+            """What is in the documents folder, as the folder sees it.
+
+            The corpus tier already tells any asker the indexed titles, so a
+            filename listing raises nothing new - and it shows the files that
+            did NOT index, with the reason, which is where "I uploaded it and
+            it knows nothing" gets diagnosed.
+            """
+            from ..documents import skip_reason
+
+            root = Path(engine.settings.documents_dir)
+            rows = []
+            if root.is_dir():
+                for path in sorted(root.rglob("*")):
+                    if not path.is_file():
+                        continue
+                    rows.append(
+                        {
+                            "name": str(path.relative_to(root)),
+                            "size": path.stat().st_size,
+                            "skipped": skip_reason(path),
+                        }
+                    )
+            return {"documents_dir": str(root), "files": rows}
+
+        @app.post("/documents", status_code=201)
+        async def upload_documents(
+            engine: EngineDep, files: Annotated[list[UploadFile], File()]
+        ) -> dict[str, Any]:
+            """Accept documents and make them knowledge in the same breath.
+
+            The whole batch is written first and the corpus re-indexed once -
+            re-indexing is free by construction (no model call), so a drop of
+            forty files costs one scan, not forty. The response says what a
+            person needs to trust it: what was stored, what was refused and
+            why, and what the corpus looks like now.
+            """
+            limit = engine.settings.upload_max_mb * 1_000_000
+            root = Path(engine.settings.documents_dir)
+            root.mkdir(parents=True, exist_ok=True)
+
+            stored: list[dict[str, Any]] = []
+            skipped: list[dict[str, str]] = []
+            for upload in files:
+                name = _safe_document_name(upload.filename or "")
+                if name is None:
+                    skipped.append(
+                        {"name": upload.filename or "(unnamed)", "reason": "unusable file name"}
+                    )
+                    continue
+                reason = _upload_skip_reason(name)
+                if reason is not None:
+                    skipped.append({"name": name, "reason": reason})
+                    continue
+                data = await upload.read(limit + 1)
+                if len(data) > limit:
+                    skipped.append(
+                        {
+                            "name": name,
+                            "reason": f"larger than the {engine.settings.upload_max_mb} MB "
+                            "limit; a corpus document this size is usually a scan, which "
+                            "cannot be read anyway",
+                        }
+                    )
+                    continue
+                if not data:
+                    skipped.append({"name": name, "reason": "the file is empty"})
+                    continue
+                target = root / name
+                replaced = target.exists()
+                target.write_bytes(data)
+                stored.append({"name": name, "bytes": len(data), "replaced": replaced})
+
+            corpus: dict[str, Any] = {}
+            if stored:
+                documents, chunks, version, _ = engine.reindex()
+                corpus = {
+                    "documents": documents,
+                    "chunks": chunks,
+                    "corpus_version": version,
+                    "conflicts_open": (engine.last_scan.conflicts_open if engine.last_scan else 0),
+                }
+            return {"stored": stored, "skipped": skipped, "corpus": corpus}
+
+        @app.delete("/documents/{name:path}")
+        async def delete_document(name: str, engine: EngineDep) -> dict[str, Any]:
+            safe = _safe_document_name(name)
+            if safe is None:
+                raise HTTPException(status_code=400, detail="unusable file name")
+            target = Path(engine.settings.documents_dir) / safe
+            if not target.is_file():
+                raise HTTPException(status_code=404, detail=f"no document called {safe!r}")
+            target.unlink()
+            documents, chunks, version, evicted = engine.reindex()
+            return {
+                "deleted": safe,
+                "corpus": {
+                    "documents": documents,
+                    "chunks": chunks,
+                    "corpus_version": version,
+                    "answers_evicted": evicted,
+                },
+            }
 
     if resolved.website_enabled:
 

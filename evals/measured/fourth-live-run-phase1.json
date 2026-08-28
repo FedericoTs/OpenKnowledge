@@ -1,0 +1,28 @@
+{
+  "cases": 26,
+  "accuracy": 1.0,
+  "false_answers": 0,
+  "false_answer_rate": 0.0,
+  "determinism": 1.0,
+  "paraphrase_consistency": 1.0,
+  "cost_per_question_usd": 0.0,
+  "total_cost_usd": 0.0,
+  "free_share": 0.0,
+  "support_separation": null,
+  "tiers": {
+    "local": 17,
+    "refused": 8,
+    "contested": 1
+  },
+  "provenance": {
+    "what": "Fourth live run: the full golden set with everything phase 1 built enabled - hybrid retrieval, streaming resolution, follow-up rewriting, keep-warm, and the semantic cache with its three arbiters.",
+    "models": "Chat: Qwen3-4B-Instruct-2507 Q4_K_M via llama-cpp-python, 8,192-token window. Embeddings: nomic-embed-text v1.5 Q4_K_M, task prefixes applied.",
+    "corpus": "evals/corpus/aveline minus archive/ - 10 documents across Markdown, Word, Excel and PDF",
+    "golden_set": "evals/golden-aveline - 26 cases, 17 answerable, 9 must-refuse, 37 wrong-answer guards",
+    "compared_against": "third-live-run-hybrid.json via eval --baseline; every metric matched",
+    "what_it_caught_first": "The first run of this gate scored 94.1%: the semantic cache served the cached employee-entitlement answer ('20 weeks') to the contractor question, because the coverage arbiter searched the cached ANSWER for the question's content words and the live model's answer had volunteered a sentence about contractors. Coverage now runs against the cached question alone - an entry vouches for its question, never for its answer's ramblings. This run is the same set after that fix.",
+    "speed_context": "Separately measured on the same stack: first status event 0.2s and progressive tokens over a real socket (previously 15-30s of silence); a covered paraphrase serves from the semantic tier in 1.4s where the model path took 27s; 'what about contractors?' resolves to a standalone question costing ~10 output tokens.",
+    "not_evidence_of": "accuracy on real documents - the corpus and questions were written together. It shows the pipeline behaves identically with every phase-1 feature on.",
+    "reproduce": "docs/TEST-RUN.md; enable OK_EMBEDDING_* and serve nomic-embed with --embedding true."
+  }
+}

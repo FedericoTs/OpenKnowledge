@@ -63,6 +63,15 @@
      hiding it would be pretending it was never shown. */
   .retracted p { text-decoration:line-through; opacity:.45; }
   .retract-note { font-size:12.5px; color:var(--paid); margin-top:8px; }
+  #add-docs { color:var(--accent); cursor:pointer; text-decoration:underline;
+              text-underline-offset:2px; }
+  #dropzone { position:fixed; inset:0; display:none; place-items:center; z-index:9;
+              background:color-mix(in srgb, var(--bg) 82%, transparent);
+              border:3px dashed var(--accent); }
+  #dropzone.active { display:grid; }
+  #dropzone p { font-size:18px; font-weight:600; color:var(--accent); }
+  .sys { border-style:dashed; color:var(--muted); font-size:13.5px; }
+  .sys b { color:var(--ink); }
 </style>
 </head>
 <body>
@@ -70,6 +79,9 @@
   <header><h1>OpenKnowledge</h1></header>
   <p class="sub">Answers come only from your indexed documents, with the source for each one.</p>
   <p class="sub" id="corpus"></p>
+  <div id="dropzone" aria-hidden="true"><p>Drop documents to add them to the knowledge base</p></div>
+  <input id="file-input" type="file" multiple hidden
+         accept=".pdf,.docx,.xlsx,.xlsm,.pptx,.md,.markdown,.rst,.txt">
   <div id="log"></div>
 </div>
 
@@ -85,16 +97,100 @@
 // is a question *about* the corpus, not one answerable *from* it, so the model
 // rightly refuses it - which reads as the system not knowing what it holds.
 // The count is a fact the server already has; showing it beats refusing it.
-(function () {
-  fetch('healthz').then(r => r.ok ? r.json() : null).then(h => {
+let uploadsEnabled = false;
+
+function refreshCorpusLine() {
+  return fetch('healthz').then(r => r.ok ? r.json() : null).then(h => {
     if (!h) { return; }
+    uploadsEnabled = !!h.upload_enabled;
     const docs = h.documents_indexed, bits = h.chunks_indexed;
     const el = document.getElementById('corpus');
     el.textContent = docs
-      ? `${docs} document${docs === 1 ? '' : 's'} indexed, in ${bits} passage${bits === 1 ? '' : 's'}.`
-      : 'No documents indexed yet - put files in your documents folder and run `openknowledge index`.';
+      ? `${docs} document${docs === 1 ? '' : 's'} indexed, in ${bits} passage${bits === 1 ? '' : 's'}. `
+      : (uploadsEnabled
+          ? 'No documents yet. '
+          : 'No documents indexed yet - put files in your documents folder and run `openknowledge index`.');
+    if (uploadsEnabled && !document.getElementById('add-docs')) {
+      const add = el.appendChild(document.createElement('span'));
+      add.id = 'add-docs';
+      add.textContent = docs ? 'Add more' : 'Add documents';
+      add.onclick = () => document.getElementById('file-input').click();
+    }
   }).catch(() => {});
+}
+refreshCorpusLine();
+
+// Drag a file anywhere onto the page and it becomes knowledge. The report the
+// server sends back is shown as a message in the conversation, because that is
+// where the person is looking - including what was refused, and why.
+(function () {
+  const zone = document.getElementById('dropzone');
+  let depth = 0;
+  document.addEventListener('dragenter', (e) => {
+    if (!uploadsEnabled || ![...(e.dataTransfer?.types || [])].includes('Files')) return;
+    depth += 1; zone.classList.add('active');
+  });
+  document.addEventListener('dragleave', () => {
+    if (depth > 0 && (depth -= 1) === 0) zone.classList.remove('active');
+  });
+  document.addEventListener('dragover', (e) => { if (uploadsEnabled) e.preventDefault(); });
+  document.addEventListener('drop', (e) => {
+    if (!uploadsEnabled) return;
+    e.preventDefault(); depth = 0; zone.classList.remove('active');
+    if (e.dataTransfer?.files?.length) uploadFiles(e.dataTransfer.files);
+  });
+  document.getElementById('file-input').addEventListener('change', (e) => {
+    if (e.target.files.length) uploadFiles(e.target.files);
+    e.target.value = '';
+  });
 }());
+
+async function uploadFiles(fileList) {
+  const note = el('div', 'msg sys');
+  note.appendChild(el('p', null,
+    'Adding ' + fileList.length + ' document' + (fileList.length === 1 ? '' : 's') + '…'));
+  log.appendChild(note);
+  window.scrollTo(0, document.body.scrollHeight);
+
+  const form = new FormData();
+  for (const f of fileList) form.append('files', f, f.name);
+  try {
+    const res = await fetch('/documents', { method: 'POST', body: form });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const report = await res.json();
+    note.textContent = '';
+    for (const s of report.stored) {
+      const p = el('p');
+      p.appendChild(el('b', null, s.name));
+      p.appendChild(document.createTextNode(
+        s.replaced ? ' — replaced the previous version.' : ' — added.'));
+      note.appendChild(p);
+    }
+    for (const s of report.skipped) {
+      const p = el('p');
+      p.appendChild(el('b', null, s.name));
+      p.appendChild(document.createTextNode(' — not added: ' + s.reason));
+      note.appendChild(p);
+    }
+    if (report.corpus && report.corpus.documents !== undefined) {
+      const c = report.corpus;
+      let line = 'The knowledge base now holds ' + c.documents + ' document'
+        + (c.documents === 1 ? '' : 's') + ' in ' + c.chunks + ' passages.';
+      if (c.conflicts_open) {
+        line += ' ' + c.conflicts_open + ' contradiction'
+          + (c.conflicts_open === 1 ? '' : 's') + ' between documents '
+          + (c.conflicts_open === 1 ? 'is' : 'are')
+          + ' open — questions they touch will be refused until resolved.';
+      }
+      note.appendChild(el('p', null, line));
+    }
+    refreshCorpusLine();
+  } catch (err) {
+    note.textContent = '';
+    note.appendChild(el('p', 'err', 'Upload failed: ' + err.message));
+  }
+  window.scrollTo(0, document.body.scrollHeight);
+}
 
 const log = document.getElementById('log');
 const form = document.getElementById('form');
