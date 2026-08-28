@@ -16,6 +16,27 @@ is deterministic and runs in CI.
 Add files freely to either directory; both runners load every `*.yaml` they
 find.
 
+## Which corpus pairs with which set
+
+A golden set's `must_cite` ids only exist in the corpus it was written
+against, so the pairing is part of the invocation - run one against the
+other's corpus and every case fails on ids, which reads exactly like a
+catastrophic regression and is nothing of the kind. (Measured the hard
+way: 100% -> 0% "accuracy", every failure an id mismatch.)
+
+```sh
+# golden/ pairs with the repository's own sample documents:
+OK_DOCUMENTS_DIR=$PWD/documents openknowledge eval
+
+# golden-aveline/ pairs with the synthetic company corpus:
+OK_DOCUMENTS_DIR=$PWD/evals/corpus/aveline openknowledge eval --path evals/golden-aveline
+```
+
+Point OK_DATA_DIR somewhere disposable for eval runs, and if the model
+serves one request at a time (`--parallel 1`, llama-cpp-python), send it
+nothing else while an eval is running - a concurrent request can sever
+the eval's streams mid-answer.
+
 ## `corpus/` and `golden-aveline/`
 
 A synthetic company's policy set, and a golden set written against it, so the
