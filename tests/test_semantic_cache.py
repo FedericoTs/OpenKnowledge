@@ -249,3 +249,31 @@ async def test_the_live_trap_a_corpus_with_no_annual_leave_document(
     assert "20 weeks" not in trapped.text
     assert len(local.calls) == 2, "the trap must reach the model, which may refuse it"
     store.close()
+
+
+async def test_an_answers_ramblings_do_not_widen_what_it_can_be_served_for(
+    semantic_setup, settings
+) -> None:
+    """The golden set's catch, reproduced.
+
+    The live entitlement answer volunteered a sentence about contractors, so
+    "do contractors get parental leave?" matched the cached entry through its
+    ANSWER text and was served "20 weeks" - forbidden content for that
+    question. A cache entry can vouch for its question and nothing else.
+    """
+    rambling = (
+        "Employees are entitled to 20 weeks of fully paid parental leave "
+        "[hr-parental-leave]. Contractors are not eligible for company-paid "
+        "parental leave [hr-parental-leave]."
+    )
+    store, retriever, index = semantic_setup
+    local = FakeProvider(replies=[rambling, "Contractors are not eligible [hr-parental-leave]."])
+    cascade = build(store, retriever, settings, local=local)
+    cascade.semantic = index
+
+    await cascade.answer(PHRASING_A)
+    contractor = await cascade.answer("do contractors get parental leave?")
+
+    assert contractor.tier is not Tier.SEMANTIC_CACHE, "vouched beyond its question"
+    assert "20 weeks" not in contractor.text
+    assert len(local.calls) == 2

@@ -96,33 +96,38 @@ _QUESTION_NOISE = frozenset(
 )
 
 
-def covers(new_question: str, cached_question: str, cached_answer: str) -> bool:
-    """Whether the cached pair even *mentions* what the new question asks.
+def covers(new_question: str, cached_question: str) -> bool:
+    """Whether the cached QUESTION asks about everything the new one asks about.
 
-    The third arbiter, added after a live run served the parental-leave answer
-    to "how many days of annual leave do employees get?" at similarity 0.81.
-    On that corpus - no annual-leave document at all - retrieval's top-ranked
-    document for the trap question WAS the cited one, and the grounding gate
-    passed at full support, because both judge "closest thing we have", and
-    neither asks whether the closest thing answers the question. The model
-    rung would have refused; the shortcut had skipped the only judge of that.
+    The third arbiter, and the one whose scope the golden set corrected twice.
 
-    So: every content word of the new question must appear somewhere in the
-    cached question or its answer, folded the same way the contested-claims
-    gate folds words. "annual" and "days" appear in neither the cached
-    parental question nor its answer, and the nominee dies here. The cost of
-    this strictness is honest and bounded: a paraphrase using genuinely
-    different vocabulary is dismissed and pays the model call it would have
-    paid anyway. A semantic cache accelerates re-phrasings; refusing the ones
-    it cannot vouch for is what keeps it a cache and not a guesser.
+    It exists because a live run served the parental-leave answer to "how many
+    days of annual leave do employees get?" at similarity 0.81 - on that
+    corpus there is no annual-leave document, so retrieval's top-ranked
+    document for the trap WAS the cited one and the grounding gate passed at
+    full support. Both judge "closest thing we have"; neither asks whether the
+    closest thing answers the question. So: every content word of the new
+    question must appear in the cached question, folded the way the
+    contested-claims gate folds words. "annual" and "days" die here.
+
+    The first version also searched the cached *answer* for those words, and
+    the golden set caught what that allows: the entitlement answer happened to
+    volunteer a sentence about contractors, so "do contractors get parental
+    leave?" matched it and was served "20 weeks" - a forbidden answer for that
+    question. An answer's ramblings must not widen what the entry claims to
+    answer; a cache entry can vouch for its question and nothing else.
+
+    The cost of this strictness is honest and bounded: a paraphrase using
+    genuinely different vocabulary is dismissed and pays the model call it
+    would have paid anyway. This cache accelerates re-phrasings; refusing the
+    ones it cannot vouch for is what keeps it a cache and not a guesser.
     """
     from ..knowledge.relevance import _content_words
 
     asked = _content_words(new_question) - _QUESTION_NOISE
     if not asked:
         return False
-    known = _content_words(f"{cached_question}\n{cached_answer}")
-    return asked <= known
+    return asked <= _content_words(cached_question)
 
 
 @dataclass(frozen=True)

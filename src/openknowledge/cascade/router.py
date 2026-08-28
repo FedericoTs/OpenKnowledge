@@ -441,7 +441,7 @@ class Cascade:
                     chunks and entry is not None and chunks[0].document_id in cited
                 )
                 asks_within_what_the_cache_knows = entry is not None and covers(
-                    question, entry.canonical_query, entry.answer
+                    question, entry.canonical_query
                 )
                 if (
                     entry is not None
