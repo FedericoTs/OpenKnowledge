@@ -16,7 +16,7 @@ import hashlib
 import math
 from collections import Counter
 
-from .base import Chunk, Document, ScoredChunk, chunk_document, tokenize
+from .base import Chunk, Document, ScoredChunk, chunk_document, demote_superseded, tokenize
 
 _K1 = 1.5
 _B = 0.75
@@ -147,7 +147,7 @@ class BM25Retriever:
         # Sort by score, then chunk_id: ties must break the same way on every
         # run or identical questions would retrieve different context.
         scored.sort(key=lambda s: (-s.score, s.chunk.chunk_id))
-        return scored[:k]
+        return demote_superseded(scored, k)
 
     def visible_to(self, document_ids: set[str], principals: frozenset[str] | None) -> bool:
         """Whether ``principals`` may see every document in ``document_ids``.

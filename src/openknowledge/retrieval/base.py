@@ -33,6 +33,12 @@ class Document:
     #: table rows, each with its heading trail and a real locator. Empty for a
     #: document supplied as bare text, which then falls back to word windows.
     blocks: tuple[Block, ...] = field(default_factory=tuple)
+    #: The document declares itself retired - "SUPERSEDED by v4.1", "Retained
+    #: for audit only". Detected from its own head at parse time, never
+    #: guessed from dates or folder names. Retrieval demotes these so a stale
+    #: archived figure cannot outshout the current policy; the document stays
+    #: indexed, listed, and part of conflict detection.
+    superseded: bool = False
 
     @property
     def content_hash(self) -> str:
@@ -50,12 +56,37 @@ class Chunk:
     locator: str | None = None
     url: str | None = None
     allowed_principals: frozenset[str] = field(default_factory=frozenset)
+    #: Inherited from the document, so ranking can see it without a lookup.
+    superseded: bool = False
 
 
 @dataclass(frozen=True, slots=True)
 class ScoredChunk:
     chunk: Chunk
     score: float
+
+
+def demote_superseded(ranked: list[ScoredChunk], k: int) -> list[ScoredChunk]:
+    """Prefer documents that still claim to be in force.
+
+    A document that opens by declaring itself superseded has already answered
+    the question of whether it should compete with the current copy: it
+    should not. Whenever any current document matches the query, chunks from
+    self-declared superseded documents are *excluded*, not merely downranked -
+    a downranked stale figure still lands in the model's context, and the
+    model is then asked to adjudicate a versioning question retrieval already
+    knows the answer to. Measured on the Aveline corpus: with both copies
+    retrieved, the local model led with the archived CFO limit and disclosed
+    the archived meal rate, both of which the golden set forbids.
+
+    Fails open: a query that only the superseded documents match - a corpus
+    whose sole document on some topic was retired without replacement - still
+    gets them, cited as what they are, rather than a blind refusal.
+    """
+    current = [s for s in ranked if not s.chunk.superseded]
+    if not current:
+        return ranked[:k]
+    return current[:k]
 
 
 @runtime_checkable
@@ -182,6 +213,7 @@ def _make_chunk(doc: Document, index: int, text: str, locator: str | None) -> Ch
         locator=locator or f"chunk {index + 1}",
         url=doc.url,
         allowed_principals=doc.allowed_principals,
+        superseded=doc.superseded,
     )
 
 
@@ -227,6 +259,7 @@ def _chunk_words(doc: Document, *, target_words: int = 350, overlap_words: int =
                 locator=f"chunk {i + 1}",
                 url=doc.url,
                 allowed_principals=doc.allowed_principals,
+                superseded=doc.superseded,
             )
         )
         if start + target_words >= len(words):

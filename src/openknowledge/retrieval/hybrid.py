@@ -23,7 +23,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 
-from .base import Chunk, Document, ScoredChunk
+from .base import Chunk, Document, ScoredChunk, demote_superseded
 from .bm25 import BM25Retriever
 from .embed import Embedder, EmbeddingError, normalise, text_key
 
@@ -222,7 +222,12 @@ class HybridRetriever:
         # Dense first, so on a tie for the same position its choice leads. It is
         # the half that handles the phrasing people actually use, and the half
         # a fused ranking was most likely to bury.
-        return _interleave(dense, lexical)[:k]
+        #
+        # Demotion runs on the *fused* list, after both halves have voted:
+        # each half already demotes internally, but dense retrieval always
+        # finds current chunks (cosine scores everything), so the decision
+        # about whether anything current matched belongs to the combined view.
+        return demote_superseded(_interleave(dense, lexical), k)
 
 
 def _chunk_key(chunk: Chunk) -> str:

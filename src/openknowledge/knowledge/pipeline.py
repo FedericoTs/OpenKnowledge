@@ -119,12 +119,16 @@ def scan_documents(
     # A new document contradicting an existing *answer* is the case document
     # pairing cannot see - no stored answer cites a file that did not exist. The
     # FAQ already knows what the corpus claims, so checking against it is one
-    # lexical search plus regex: free, and it runs on every ingest.
-    if retriever is not None and (added or changed):
+    # lexical search plus regex: free, and it runs on every ingest. A document
+    # that declares itself superseded is excluded: an archived copy landing in
+    # the corpus disagreeing with current answers is expected, not news.
+    superseded_ids = frozenset(d.document_id for d in documents if d.superseded)
+    to_crosscheck = (added | changed) - superseded_ids
+    if retriever is not None and to_crosscheck:
         for finding in crosscheck_answers(
             store=store,
             retriever=retriever,
-            document_ids=added | changed,
+            document_ids=to_crosscheck,
             deontic_strictness=deontic_strictness,
         ):
             report.answers_contradicted += 1
@@ -162,6 +166,17 @@ async def draft_for_documents(
     report = report or IngestReport(documents=len(documents))
 
     to_draft = [d for d in documents if d.document_id in document_ids]
+    # Drafting from a document that declares itself superseded would spend
+    # money writing FAQ entries whose figures the current copy contradicts -
+    # entries an admin might then approve into pinned answers.
+    stale = [d for d in to_draft if d.superseded]
+    if stale:
+        to_draft = [d for d in to_draft if not d.superseded]
+        names = ", ".join(sorted(d.document_id for d in stale))
+        report.notes.append(
+            f"not drafted (superseded, retained for reference): {names} - "
+            "the current versions answer instead"
+        )
     if max_documents is not None and len(to_draft) > max_documents:
         skipped = len(to_draft) - max_documents
         report.notes.append(

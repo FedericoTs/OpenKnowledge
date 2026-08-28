@@ -1,6 +1,13 @@
 """Turning company files into structured, citable blocks."""
 
-from .blocks import Block, BlockKind, ParsedDocument, normalise, table_row_text
+from .blocks import (
+    Block,
+    BlockKind,
+    ParsedDocument,
+    declares_superseded,
+    normalise,
+    table_row_text,
+)
 from .registry import (
     LEGACY_SUFFIXES,
     SUPPORTED_SUFFIXES,
@@ -19,6 +26,7 @@ __all__ = [
     "Block",
     "BlockKind",
     "ParsedDocument",
+    "declares_superseded",
     "is_supported",
     "normalise",
     "parse_bytes",

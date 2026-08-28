@@ -96,6 +96,42 @@ class ParsedDocument:
         return not any(b.text.strip() for b in self.blocks)
 
 
+#: How far into a document a self-declaration of supersession is looked for.
+#: Status lines live in the header block; a document whose *body* discusses a
+#: superseded policy is talking about some other document, not itself.
+_SUPERSEDED_HEAD_CHARS = 800
+
+#: Ways documents say "do not use me". Deliberately past-tense and passive:
+#: "Supersedes: v3.0" is what the *current* copy says and must not match,
+#: while "SUPERSEDED by v4.1", "Status: superseded" and "Retained for audit
+#: only" are all the retired copy speaking. The status form tolerates the
+#: markdown bold and colons metadata lines are written with.
+_SUPERSEDED_RE = re.compile(
+    r"""
+    \bsuperseded\s+by\b
+    | \bstatus\b[\s:*_~-]{0,8}(?:superseded|obsolete|withdrawn|archived)\b
+    | \bretained\s+for\s+(?:audit|reference|historical)\b
+    | \bno\s+longer\s+in\s+(?:force|effect)\b
+    | \b(?:this|the)\s+(?:document|policy|procedure|version)\s+
+      (?:is|was|has\s+been)\s+(?:superseded|withdrawn|replaced|retired)\b
+    """,
+    re.IGNORECASE | re.VERBOSE,
+)
+
+
+def declares_superseded(text: str) -> bool:
+    """Whether this document says, near its top, that it has been retired.
+
+    An archived policy that opens with "SUPERSEDED by Expenses Policy v4.1.
+    Retained for audit only." has already made the versioning decision - no
+    heuristic about dates or folder names is needed, and none is used. Only
+    the head of the document is examined, so a current policy that *mentions*
+    its superseded predecessor further down is not caught, and "Supersedes:"
+    - the current copy naming what it replaced - does not match.
+    """
+    return bool(_SUPERSEDED_RE.search(text[:_SUPERSEDED_HEAD_CHARS]))
+
+
 def normalise(text: str) -> str:
     """Collapse the whitespace damage that extraction leaves behind.
 

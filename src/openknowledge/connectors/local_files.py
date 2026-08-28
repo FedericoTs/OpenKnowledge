@@ -24,7 +24,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from ..access import effective_principals
-from ..documents import SUPPORTED_SUFFIXES, parse_file, skip_reason
+from ..documents import SUPPORTED_SUFFIXES, declares_superseded, parse_file, skip_reason
 from ..retrieval.base import Document
 
 log = logging.getLogger(__name__)
@@ -105,14 +105,16 @@ class LocalFilesConnector:
             # connector-wide default (empty means readable by everyone).
             folder = path.relative_to(self.root).parent.as_posix()
             ruled = effective_principals(folder, rules)
+            text = parsed.text
             documents.append(
                 Document(
                     document_id=_document_id(path.relative_to(self.root)),
                     title=_usable_title(parsed.title) or _fallback_title(path),
-                    text=parsed.text,
+                    text=text,
                     url=path.as_uri(),
                     allowed_principals=ruled or self.allowed_principals,
                     blocks=parsed.blocks,
+                    superseded=declares_superseded(text),
                 )
             )
         return documents
