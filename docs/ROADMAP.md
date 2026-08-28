@@ -251,7 +251,28 @@ Honest status. "Built" means implemented and covered by tests in this repository
    works from the identity Teams already has. Teams is a standard channel, so messages are
    free and unmetered.
 
-11. **Let llama.cpp size the GPU offload.** The desktop app now runs one
+11. **The company shape: one server, every laptop a browser.** The topology
+   works today and [COMPANY-SERVER.md](COMPANY-SERVER.md) documents it;
+   these three make it enterprise-grade, in order:
+   - **Sign in with Entra ID (Microsoft company credentials).** OIDC login
+     on the server; the session's user and group ids become the
+     ``principals`` the retrieval and cache ACL machinery already enforces -
+     the lock exists, this adds the badge reader. Needs a real tenant to
+     test against.
+   - **Folders as categories.** Subfolders already index (the connector
+     walks recursively); make them visible structure - grouped sidebar,
+     upload-into-folder, admin organisation in /manage - then scoping
+     ("answer from HR/ only") and finally per-folder ACLs mapped from
+     Entra groups.
+   - **Escalate on the company's Azure OpenAI tenant.** Slots into the
+     existing ladder as configuration plus Azure's auth header. Stated
+     honestly: a Microsoft 365 Copilot seat is not a callable completion
+     API, so "use our Copilot subscription" translates to Azure OpenAI in
+     the same tenant - same models, same data boundary, per-token billing.
+     The provider seam is ready if Microsoft ever opens a Copilot
+     inference API.
+
+12. **Let llama.cpp size the GPU offload.** The desktop app now runs one
    slot (`--parallel 1`) and falls back to CPU (`-ngl 0`) when a GPU cannot
    hold the model - the field fix for an integrated GPU refusing the KV
    allocation. llama.cpp ships its own memory-fitting machinery

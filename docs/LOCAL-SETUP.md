@@ -8,7 +8,8 @@ Times are for a first run on a normal laptop.
 
 On Windows there is also an installer — no terminal, no Python — described
 in [WINDOWS.md](WINDOWS.md). This page is the from-source path, and it works
-on Windows too.
+on Windows too. To serve a whole team from one machine, see
+[COMPANY-SERVER.md](COMPANY-SERVER.md).
 
 ---
 
