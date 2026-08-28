@@ -76,6 +76,47 @@ class GroundingReport:
     cited_coverage: float = 0.0
 
 
+#: How answers refer to passages by the context's own labels. The SOURCES
+#: block introduces every passage as ``[doc-id] Title (chunk 4)``, and models
+#: - frontier models especially - faithfully echo that vocabulary: "(chunk 2)",
+#: "reinforced in chunk 4", "chunks 4, 5 and 6". Measured in the field: three
+#: Azure answers rejected in a row for "inventing" the numbers 17, 4, 5, 6 -
+#: every one a chunk label we ourselves put in front of the model.
+_CHUNK_REF_RE = re.compile(r"\bchunks?\s+(\d{1,3}(?:\s*(?:,|and|&)\s*\d{1,3})*)", re.IGNORECASE)
+
+
+def _resolve_chunk_references(
+    answer_text: str, retrieved: list[Chunk]
+) -> tuple[tuple[Chunk, ...], str]:
+    """Chunks the answer names by label, and the text with those names removed.
+
+    A reference resolves only when every number in it names a retrieved
+    chunk's locator - "chunk 4" with chunk 4 in context is the model citing
+    what it saw; "chunk 99" resolves to nothing and stays in the text, where
+    the figure check will flag 99 exactly as before. Removal matters as much
+    as resolution: the number regex reads "chunks 4,5,6" as the single
+    figure 4,5,6 and no source will ever contain it.
+    """
+    by_locator: dict[str, Chunk] = {}
+    for chunk in retrieved:
+        if chunk.locator:
+            by_locator.setdefault(chunk.locator, chunk)
+
+    resolved: dict[str, Chunk] = {}
+    kept: list[str] = []
+    last = 0
+    for match in _CHUNK_REF_RE.finditer(answer_text):
+        named = [by_locator.get(f"chunk {n}") for n in re.findall(r"\d+", match.group(1))]
+        hits = [c for c in named if c is not None]
+        if hits and len(hits) == len(named):
+            for hit in hits:
+                resolved[hit.chunk_id] = hit
+            kept.append(answer_text[last : match.start()])
+            last = match.end()
+    kept.append(answer_text[last:])
+    return tuple(resolved.values()), "".join(kept)
+
+
 #: A claim needs at least this many words to be worth a citation. Below it,
 #: a line is connective tissue ("Key changes include:") that asserts nothing.
 _CLAIM_MIN_WORDS = 8
@@ -165,25 +206,48 @@ def check_grounding(
     known_ids = {c.document_id for c in retrieved} | {c.chunk_id for c in retrieved}
     cited = tuple(dict.fromkeys(_CITATION_RE.findall(answer_text)))
 
-    if require_citations and not cited:
+    # References in the context's own vocabulary - "(chunk 2)", "chunks 4, 5
+    # and 6" - are citations too: they name passages the model was shown, in
+    # the labels we introduced them with. They count toward *having* cited,
+    # and the named chunks join the evidence; the earned lower support floor
+    # stays reserved for the [id] discipline the prompt actually asks for.
+    referenced, scrubbed = _resolve_chunk_references(answer_text, retrieved)
+    referenced_chunk_ids = {c.chunk_id for c in referenced}
+
+    if require_citations and not cited and not referenced:
         reasons.append("answer cites no sources")
 
     unknown = tuple(cid for cid in cited if cid not in known_ids)
     if unknown:
         reasons.append(f"cites sources not retrieved for this question: {', '.join(unknown)}")
 
-    # Grade against the cited chunks where the answer names them; otherwise
-    # against everything retrieved, so an uncited answer is still measured.
-    cited_chunks = [c for c in retrieved if c.document_id in cited or c.chunk_id in cited]
+    # Grade against the chunks the answer names - by id or by label -
+    # otherwise against everything retrieved, so an uncited answer is still
+    # measured.
+    cited_chunks = [
+        c
+        for c in retrieved
+        if c.document_id in cited or c.chunk_id in cited or c.chunk_id in referenced_chunk_ids
+    ]
     evidence = cited_chunks or retrieved
     evidence_text = " ".join(c.text for c in evidence)
     evidence_tokens = set(tokenize(evidence_text))
     evidence_numbers = {_normalise_number(n) for n in _NUMBER_RE.findall(evidence_text)}
+    # The header line above every passage - [doc-id] Title (chunk 4) - is
+    # part of what the model saw, so its numbers are evidence: an answer
+    # saying "the 2023 policy" with 2023 only in the title, or naming a cell
+    # like A2, is reading the context, not inventing figures. Headers of all
+    # retrieved chunks count, because the model saw all of them.
+    evidence_numbers.update(
+        _normalise_number(n)
+        for c in retrieved
+        for n in _NUMBER_RE.findall(f"{c.document_id} {c.document_title} {c.locator or ''}")
+    )
 
     answer_numbers = tuple(
         dict.fromkeys(
             n
-            for n in _NUMBER_RE.findall(_CITATION_RE.sub("", answer_text))
+            for n in _NUMBER_RE.findall(_CITATION_RE.sub("", scrubbed))
             if _normalise_number(n) not in evidence_numbers
         )
     )
@@ -221,7 +285,7 @@ def check_grounding(
 
     return GroundingReport(
         passed=not reasons,
-        cited_ids=cited,
+        cited_ids=tuple(dict.fromkeys((*cited, *(c.document_id for c in referenced)))),
         unknown_ids=unknown,
         unsupported_numbers=answer_numbers,
         support_ratio=round(support_ratio, 4),

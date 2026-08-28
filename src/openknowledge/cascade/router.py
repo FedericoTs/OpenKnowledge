@@ -153,6 +153,11 @@ class Cascade:
                 # from, so flipping it must re-key. Its thresholds live in
                 # retrieval/tags.py; changing those means bumping rp.
                 f":tr{int(self.settings.tag_routing)}"
+                # Grounding-policy revision. g2 = the context's own labels
+                # are evidence: header numbers verify, chunk references
+                # resolve as citations. Answers judged under g1 could have
+                # been refused for echoing labels; do not serve their absence.
+                ":g2"
             ),
             model_id=self.route_id,
         )

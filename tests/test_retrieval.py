@@ -337,3 +337,107 @@ def test_short_answers_keep_their_original_grading() -> None:
     report = check_grounding("Priority 3: book a demo. [site-mail]", [_MAIL])
     assert report.cited_coverage == 0.0
     assert report.passed, report.reasons
+
+
+# -- the context's own labels are not inventions (field regression) ----------
+#
+# Three Azure answers in a row were refused on a real corpus for "inventing"
+# figures like 17 and 4,5,6 - every one a chunk label the SOURCES block itself
+# taught the model. Each rejection from that transcript is pinned here.
+
+
+def _labelled(doc_id: str, title: str, n: int, text: str) -> Chunk:
+    return Chunk(
+        chunk_id=f"{doc_id}#{n - 1}",
+        document_id=doc_id,
+        document_title=title,
+        text=text,
+        locator=f"chunk {n}",
+    )
+
+
+_DEBRIEF = [
+    _labelled(
+        "demo-debrief",
+        "TL;DR - Executive Summary",
+        2,
+        "Caterina validated the market opportunity for compliance automation. "
+        "The vendor-focused approach serves mid-to-large companies; SMEs first "
+        "assess their own internal compliance before auditing vendors.",
+    ),
+    _labelled(
+        "demo-debrief",
+        "TL;DR - Executive Summary",
+        4,
+        "Caterina recommends an internal self-assessment module as the entry "
+        "point of the platform, before vendor management begins.",
+    ),
+]
+
+
+def test_echoing_a_retrieved_chunk_label_is_not_an_invented_figure() -> None:
+    report = check_grounding(
+        "Caterina validated the market opportunity for compliance automation "
+        "[demo-debrief] (chunk 2). Her recommendation of an internal "
+        "self-assessment module as the entry point is reinforced in chunk 4 "
+        "[demo-debrief].",
+        _DEBRIEF,
+    )
+    assert report.passed, report.reasons
+    assert not report.unsupported_numbers
+
+
+def test_a_comma_run_of_chunk_labels_resolves_instead_of_becoming_one_figure() -> None:
+    """The number regex reads "chunks 2,4" as the single figure 2,4 - which no
+    source will ever contain. Resolved references leave the text entirely."""
+    report = check_grounding(
+        "The platform must open with self-assessment before vendor management, "
+        "as covered in chunks 2, 4 [demo-debrief].",
+        _DEBRIEF,
+    )
+    assert report.passed, report.reasons
+
+
+def test_an_unretrieved_chunk_number_is_still_an_invention() -> None:
+    report = check_grounding(
+        "The self-assessment module is described in chunk 17 [demo-debrief].",
+        _DEBRIEF,
+    )
+    assert not report.passed
+    assert "17" in " ".join(report.reasons)
+
+
+def test_label_only_references_count_as_citing_sources() -> None:
+    """A tidy frontier model that references (chunk 2) without the [id]
+    brackets has cited what it saw; "answer cites no sources" was wrong."""
+    report = check_grounding(
+        "Caterina validated the market opportunity for compliance automation, "
+        "and SMEs first assess their own internal compliance (chunk 2).",
+        _DEBRIEF,
+    )
+    assert report.passed, report.reasons
+    assert "demo-debrief" in report.cited_ids
+
+
+def test_a_year_that_lives_only_in_the_title_is_evidence() -> None:
+    chunk = Chunk(
+        chunk_id="pol#0",
+        document_id="expenses-2023",
+        document_title="Expenses Policy (2023)",
+        text="The meal allowance is EUR 45 per day for domestic travel.",
+        locator="chunk 1",
+    )
+    report = check_grounding(
+        "The 2023 policy sets the meal allowance at EUR 45 per day [expenses-2023].",
+        [chunk],
+    )
+    assert report.passed, report.reasons
+
+
+def test_genuinely_invented_figures_are_still_rejected() -> None:
+    report = check_grounding(
+        "The meal allowance is EUR 80 per day [demo-debrief] (chunk 2).",
+        _DEBRIEF,
+    )
+    assert not report.passed
+    assert "80" in " ".join(report.reasons)
