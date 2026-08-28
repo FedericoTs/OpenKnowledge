@@ -16,7 +16,7 @@ the from-source path and works on Windows too.
   privilege the app needs, and the honest shape for an installer that is
   not yet code-signed.
 - Ships two executables from one bundle:
-  - **OpenKnowledge.exe** — the Start-menu entry. Starts everything, opens
+  - **OpenKnowledgeApp.exe** — the Start-menu entry (shown as “OpenKnowledge”). Starts everything, opens
     the chatbot in your browser, lives in the system tray (open chat,
     manage knowledge, documents folder, quit).
   - **openknowledge.exe** — the same CLI a `pip install` provides, for

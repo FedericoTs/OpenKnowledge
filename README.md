@@ -2,15 +2,19 @@
 
 **A cheap, private, deterministic answer engine for your company's own documents.**
 
-Self-hosted. Connects to SharePoint and Google Drive. Answers in Teams, Slack, or a web
-widget. Runs on your own hardware, your own API keys, or both.
+Self-hosted. Answers in a web chat, over an HTTP API, or from the CLI. Runs on your
+own hardware, your own API keys, or both — including as a Windows desktop app.
 
-> **Status: pre-alpha (v0.1.0).** Document parsing, the cost architecture, the
-> determinism layer, the grounding gate, the knowledge lifecycle (drafting, review,
-> conflict detection) and the evaluation harness are implemented and tested. Nothing has
-> yet been run against a live model on a real corpus — every quality number is measured
-> with scripted providers. Connectors beyond a local folder, the Teams channel, and the
-> admin UI are scaffolded interfaces. See [ROADMAP](docs/ROADMAP.md).
+> **Status: pre-alpha (v0.1.0).** Document parsing, the cost cascade, the determinism
+> layer, the grounding gate, the knowledge lifecycle (drafting, review, conflict
+> detection), hybrid retrieval, streaming chat, browser uploads, the management page
+> and the desktop app are implemented and tested. The self-hosted tier is **measured
+> live**: 100% accuracy, 0 false answers, $0.00000 per question on the project's golden
+> set, run on a 4-core CPU (`evals/measured/`). The paid tiers are not yet measured —
+> the escalation rate the cost model turns on still needs an API key. Connectors beyond
+> a local folder (SharePoint, Google Drive, a Teams channel) are roadmap, not code.
+> The Windows installer builds and smoke-tests in CI but is not yet signed.
+> See [ROADMAP](docs/ROADMAP.md).
 
 ---
 
@@ -387,9 +391,9 @@ Two consequences worth stating plainly:
 
 - **Same inputs, same answer — byte for byte.** Not "usually". The second asker gets the
   first asker's answer.
-- **Changed inputs, no stale answer.** Update the expenses policy in SharePoint and
-  `corpus_version` changes, so every answer derived from the old text becomes unreachable
-  in the same instant. A cache that can serve last year's rules is worse than no cache.
+- **Changed inputs, no stale answer.** Update the expenses policy in the document
+  folder and `corpus_version` changes, so every answer derived from the old text becomes
+  unreachable in the same instant. A cache that can serve last year's rules is worse than no cache.
 
 Question canonicalisation is deliberately conservative — it folds casing, whitespace, smart
 quotes, and greetings, and it will never touch a word that could change meaning. `"which

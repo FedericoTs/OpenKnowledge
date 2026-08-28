@@ -47,14 +47,28 @@ jobs:
       - name: Install
         run: uv venv --python 3.12 && uv pip install -e ".[desktop,packaging,anthropic]"
 
+      # An installer whose manifest no longer matches upstream would ship a
+      # first run that can only fail its own hash check. Two HEAD requests
+      # prove the pinned bytes are still served before anything is built.
+      - name: The model manifest still matches upstream
+        run: uv run python tools/verify_model_manifest.py
+
       - name: Build the bundle
         run: uv run pyinstaller packaging/pyinstaller/openknowledge.spec --noconfirm
 
       - name: The frozen CLI runs
         shell: pwsh
         run: |
+          # Both executables must exist as distinct files - the first Windows
+          # build lost the console exe to a case-insensitive name collision
+          # and every command below silently ran the windowed launcher.
+          foreach ($exe in "openknowledge.exe","OpenKnowledgeApp.exe") {
+            if (-not (Test-Path "dist\OpenKnowledge\$exe")) { throw "$exe missing from the bundle" }
+          }
           $env:OK_STATE_DIR = "$env:TEMP\ok-smoke"
-          & dist\OpenKnowledge\openknowledge.exe --version
+          $v = & dist\OpenKnowledge\openknowledge.exe --version
+          if ($LASTEXITCODE -ne 0) { throw "--version exited $LASTEXITCODE" }
+          if (-not $v) { throw "--version printed nothing (GUI-subsystem exe? console exe lost?)" }
           & dist\OpenKnowledge\openknowledge.exe paths
           if ($LASTEXITCODE -ne 0) { throw "paths exited $LASTEXITCODE" }
 
@@ -105,7 +119,7 @@ jobs:
           $setup = Get-ChildItem dist\installer\OpenKnowledge-Setup-*.exe | Select-Object -First 1
           Start-Process -FilePath $setup.FullName -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART" -Wait
           $app = "$env:LOCALAPPDATA\Programs\OpenKnowledge"
-          if (-not (Test-Path "$app\OpenKnowledge.exe")) { throw "windowed exe missing after install" }
+          if (-not (Test-Path "$app\OpenKnowledgeApp.exe")) { throw "windowed exe missing after install" }
           if (-not (Test-Path "$app\llama\llama-server.exe")) { throw "llama-server missing after install" }
           $env:OK_STATE_DIR = "$env:TEMP\ok-installed"
           & "$app\openknowledge.exe" paths

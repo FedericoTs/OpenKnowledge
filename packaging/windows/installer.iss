@@ -27,7 +27,7 @@ PrivilegesRequired=lowest
 OutputDir=..\..\dist\installer
 OutputBaseFilename=OpenKnowledge-Setup-{#AppVersion}
 SetupIconFile=openknowledge.ico
-UninstallDisplayIcon={app}\OpenKnowledge.exe
+UninstallDisplayIcon={app}\OpenKnowledgeApp.exe
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
@@ -47,15 +47,15 @@ Source: "..\..\build\llama\*"; DestDir: "{app}\llama"; Flags: ignoreversion recu
 Source: "..\..\build\llama-version.txt"; DestDir: "{app}\llama"; Flags: ignoreversion
 
 [Icons]
-Name: "{autoprograms}\OpenKnowledge"; Filename: "{app}\OpenKnowledge.exe"
-Name: "{autodesktop}\OpenKnowledge"; Filename: "{app}\OpenKnowledge.exe"; Tasks: desktopicon
+Name: "{autoprograms}\OpenKnowledge"; Filename: "{app}\OpenKnowledgeApp.exe"
+Name: "{autodesktop}\OpenKnowledge"; Filename: "{app}\OpenKnowledgeApp.exe"; Tasks: desktopicon
 
 [Registry]
 Root: HKCU; Subkey: "Environment"; ValueType: expandsz; ValueName: "Path"; \
   ValueData: "{olddata};{app}"; Tasks: addtopath; Check: NeedsAddPath(ExpandConstant('{app}'))
 
 [Run]
-Filename: "{app}\OpenKnowledge.exe"; Description: "Start OpenKnowledge now"; \
+Filename: "{app}\OpenKnowledgeApp.exe"; Description: "Start OpenKnowledge now"; \
   Flags: nowait postinstall skipifsilent
 
 [UninstallRun]
@@ -64,7 +64,7 @@ Filename: "{app}\OpenKnowledge.exe"; Description: "Start OpenKnowledge now"; \
 ; while uninstalling OpenKnowledge would lose it too. Accepted - the overlap
 ; is rare, the process restartable, and files locked by a live process would
 ; otherwise survive the uninstall.
-Filename: "{sys}\taskkill.exe"; Parameters: "/F /IM OpenKnowledge.exe"; Flags: runhidden; RunOnceId: "KillApp"
+Filename: "{sys}\taskkill.exe"; Parameters: "/F /IM OpenKnowledgeApp.exe"; Flags: runhidden; RunOnceId: "KillApp"
 Filename: "{sys}\taskkill.exe"; Parameters: "/F /IM llama-server.exe"; Flags: runhidden; RunOnceId: "KillLlama"
 
 [UninstallDelete]

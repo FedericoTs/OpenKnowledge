@@ -49,12 +49,22 @@ a_app = Analysis([str(ROOT / "packaging" / "pyinstaller" / "entry_app.py")], **c
 
 icon = str(ROOT / "packaging" / "windows" / "openknowledge.ico")
 
+# The two executable names must differ CASE-INSENSITIVELY. The first build
+# named them "openknowledge" and "OpenKnowledge"; on Linux both existed, on
+# Windows the second overwrote the first inside the shared COLLECT folder,
+# and every CLI invocation silently ran the windowed launcher instead - a
+# GUI-subsystem process that detaches from the console and reports no exit
+# code. The Windows CI smoke test caught it; this assertion keeps it caught.
+CLI_NAME = "openknowledge"
+APP_NAME = "OpenKnowledgeApp"
+assert CLI_NAME.lower() != APP_NAME.lower(), "executable names collide on Windows"
+
 exe_cli = EXE(
     PYZ(a_cli.pure),
     a_cli.scripts,
     [],
     exclude_binaries=True,
-    name="openknowledge",
+    name=CLI_NAME,
     console=True,
     icon=icon if sys.platform == "win32" else None,
 )
@@ -64,7 +74,7 @@ exe_app = EXE(
     a_app.scripts,
     [],
     exclude_binaries=True,
-    name="OpenKnowledge",
+    name=APP_NAME,
     console=False,
     icon=icon if sys.platform == "win32" else None,
 )
