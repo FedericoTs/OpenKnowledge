@@ -34,6 +34,7 @@ from ..cache import citations_for
 from ..canonical import canonicalize_query
 from ..config import Settings, load_settings
 from ..contacts import ContactError, ContactStore, clean
+from ..providers.base import Message
 from .engine import Engine, build_engine
 from .schemas import (
     ChatRequest,
@@ -248,8 +249,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         principals = frozenset(req.principals) if req.principals is not None else None
 
         async def events() -> AsyncIterator[str]:
+            history = tuple(Message(role=t.role, content=t.content) for t in req.history or ())
             stream = engine.cascade.answer_stream(
-                req.question, principals=principals, channel=req.channel
+                req.question, principals=principals, channel=req.channel, history=history
             )
             async for event in stream:
                 if event["type"] == "final":
@@ -347,10 +349,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.post("/chat", response_model=ChatResponse)
     async def chat(req: ChatRequest, engine: EngineDep) -> ChatResponse:
+        history = tuple(Message(role=t.role, content=t.content) for t in req.history or ())
         answer = await engine.cascade.answer(
             req.question,
             principals=frozenset(req.principals) if req.principals is not None else None,
             channel=req.channel,
+            history=history,
         )
         return ChatResponse.from_answer(answer)
 

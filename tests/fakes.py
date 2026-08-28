@@ -21,6 +21,9 @@ class FakeProvider:
     replies: list[str] = field(default_factory=list)
     fail: bool = False
     calls: list[str] = field(default_factory=list)
+    #: The context each call was given, for tests that assert on what the
+    #: provider could actually see.
+    contexts: list[str] = field(default_factory=list)
     usage: Usage = field(default_factory=lambda: Usage(input_tokens=3000, output_tokens=200))
 
     async def complete(
@@ -33,6 +36,7 @@ class FakeProvider:
         max_tokens: int = 1500,
     ) -> Completion:
         self.calls.append(question)
+        self.contexts.append(context)
         if self.fail:
             raise ProviderError(f"{self.model_id} is unavailable")
         reply = self.replies.pop(0) if self.replies else "I don't know."

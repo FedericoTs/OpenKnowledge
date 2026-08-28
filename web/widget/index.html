@@ -140,6 +140,15 @@ function renderAnswer(data) {
   return box;
 }
 
+// The conversation so far, sent with each question so a follow-up like
+// "what about contractors?" can be interpreted. The server stays stateless:
+// this tab owns its transcript.
+const transcript = [];
+function remember(role, content) {
+  transcript.push({ role, content: content.slice(0, 3800) });
+  while (transcript.length > 12) transcript.shift();
+}
+
 // The stages a slow answer passes through, written for the person waiting.
 const STAGE_TEXT = {
   answering: 'Reading the sources…',
@@ -178,7 +187,11 @@ async function streamAnswer(body, pending) {
   let buffer = '';
 
   const handle = (event) => {
-    if (event.type === 'status' && STAGE_TEXT[event.stage]) {
+    if (event.type === 'resolved') {
+      // The follow-up was read as a standalone question; show which one, so
+      // a wrong interpretation is visible instead of silently answered.
+      pending.appendChild(el('p', 'working', 'Understood as: ' + event.question));
+    } else if (event.type === 'status' && STAGE_TEXT[event.stage]) {
       status.set(STAGE_TEXT[event.stage]);
     } else if (event.type === 'provisional') {
       prov = el('div', 'prov');
@@ -199,6 +212,7 @@ async function streamAnswer(body, pending) {
       prov = provText = null;
     } else if (event.type === 'final') {
       status.stop();
+      remember('assistant', event.response.answer);
       const answer = renderAnswer(event.response);
       // A withdrawn attempt stays visible above the real outcome.
       const kept = pending.querySelectorAll('.retracted');
@@ -249,8 +263,11 @@ form.addEventListener('submit', async (e) => {
   log.appendChild(pending);
   window.scrollTo(0, document.body.scrollHeight);
 
+  const body = { question, channel: 'web', history: transcript.slice() };
+  remember('user', question);
+
   try {
-    await streamAnswer({ question, channel: 'web' }, pending);
+    await streamAnswer(body, pending);
     send.disabled = false;
     input.focus();
     window.scrollTo(0, document.body.scrollHeight);
@@ -266,10 +283,12 @@ form.addEventListener('submit', async (e) => {
     const res = await fetch('/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ question, channel: 'web' }),
+      body: JSON.stringify(body),
     });
     if (!res.ok) throw new Error('HTTP ' + res.status);
-    pending.replaceWith(renderAnswer(await res.json()));
+    const data = await res.json();
+    remember('assistant', data.answer);
+    pending.replaceWith(renderAnswer(data));
   } catch (err) {
     pending.replaceWith(el('div', 'msg a err', 'Could not reach the server: ' + err.message));
   } finally {

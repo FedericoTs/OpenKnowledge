@@ -33,13 +33,14 @@ from ..prompts import (
     UNAVAILABLE_TEXT,
     format_context,
 )
-from ..providers.base import ChatProvider, Completion, ProviderError
+from ..providers.base import ChatProvider, Completion, Message, ProviderError
 from ..retrieval.base import Chunk, Retriever
 from ..retrieval.grounding import check_grounding
 from ..retrieval.rerank import Reranker, StructuralReranker
 from ..types import Answer, Citation, Tier
 from .budget import Budget, BudgetGovernor
 from .corpus import describe, recognise
+from .followup import resolve
 from .ladder import Ladder, Rung
 
 log = logging.getLogger(__name__)
@@ -159,16 +160,15 @@ class Cascade:
         *,
         principals: frozenset[str] | None = None,
         channel: str | None = None,
+        history: tuple[Message, ...] = (),
     ) -> Answer:
-        canonical = canonicalize_query(question)
-        key = answer_key(question, self._key_context())
-
         result: Answer | None = None
-        async for event in self._events(question, canonical, key, principals):
+        async for event in self.answer_stream(
+            question, principals=principals, channel=channel, history=history
+        ):
             if event["type"] == "final":
                 result = event["answer"]
         assert result is not None  # the event stream always ends in a final
-        self.store.record(canonical, result, channel=channel)
         return result
 
     async def answer_stream(
@@ -177,6 +177,7 @@ class Cascade:
         *,
         principals: frozenset[str] | None = None,
         channel: str | None = None,
+        history: tuple[Message, ...] = (),
     ) -> AsyncIterator[dict[str, Any]]:
         """The same resolution as :meth:`answer`, narrated while it happens.
 
@@ -195,12 +196,40 @@ class Cascade:
         carrying the Answer, which is byte-identical to what :meth:`answer`
         would have returned.
         """
-        canonical = canonicalize_query(question)
-        key = answer_key(question, self._key_context())
-        async for event in self._events(question, canonical, key, principals):
+        # A follow-up is rewritten into the standalone question it means BEFORE
+        # anything is keyed, so the cache, the canonical form and the ledger all
+        # see a real question. That is what keeps "same question, same answer"
+        # true in a conversation: the raw fragment never becomes a key.
+        resolution = await resolve(question, history, self._resolver_provider())
+        if resolution.rewritten:
+            yield {"type": "resolved", "question": resolution.question}
+
+        canonical = canonicalize_query(resolution.question)
+        key = answer_key(resolution.question, self._key_context())
+        async for event in self._events(resolution.question, canonical, key, principals):
             if event["type"] == "final":
-                self.store.record(canonical, event["answer"], channel=channel)
+                answer = event["answer"]
+                if resolution.note:
+                    answer = replace(answer, notes=(resolution.note, *answer.notes))
+                if resolution.usage.input_tokens or resolution.usage.output_tokens:
+                    # The interpretation call is part of what this question
+                    # cost; a ledger that forgets it understates.
+                    answer = replace(answer, usage=answer.usage + resolution.usage)
+                event = {"type": "final", "answer": answer}
+                self.store.record(canonical, answer, channel=channel)
             yield event
+
+    def _resolver_provider(self) -> ChatProvider | None:
+        """Who interprets follow-ups: the cheapest self-hosted rung, or nobody.
+
+        Follow-up interpretation is overhead on every dependent question, so it
+        runs where tokens are free. With no self-hosted rung it is skipped and
+        the question is answered as asked - degraded, said so, never billed.
+        """
+        for rung in self.ladder.rungs:
+            if getattr(rung.provider, "self_hosted", False):
+                return rung.provider
+        return None
 
     async def _events(
         self,

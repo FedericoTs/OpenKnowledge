@@ -3,14 +3,31 @@
 from __future__ import annotations
 
 from dataclasses import asdict
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
 from ..types import Answer
 
 
+class Turn(BaseModel):
+    """One earlier exchange in this conversation, supplied by the client.
+
+    The server stays stateless about conversations on purpose: the transcript
+    lives where the person is (their browser tab, their Teams thread), and the
+    answer cache stays keyed on standalone questions. History is only material
+    for interpreting a follow-up, never part of the key.
+    """
+
+    role: Literal["user", "assistant"]
+    content: str = Field(min_length=1, max_length=4000)
+
+
 class ChatRequest(BaseModel):
     question: str = Field(min_length=1, max_length=4000)
+    #: Recent turns, oldest first. Optional; only consulted when the question
+    #: reads as a follow-up ("what about contractors?").
+    history: list[Turn] | None = Field(default=None, max_length=20)
     #: Groups the asker belongs to. The chat surface supplies these from the
     #: identity it already has (Teams tenant groups, SSO claims). ``None`` means
     #: unrestricted and is only appropriate for a single-tenant internal deploy.
