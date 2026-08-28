@@ -130,3 +130,115 @@ jobs:
           name: OpenKnowledge-Setup
           path: dist/installer/OpenKnowledge-Setup-*.exe
           if-no-files-found: error
+
+  # The whole product, from the installer a person would download: silent
+  # install, first launch of the installed app (real 2.6 GB model download
+  # against the pinned hashes, real llama-server on the runner's CPU), a real
+  # document uploaded through the API, a real question answered by the real
+  # model at $0, and the same question again returning the same bytes.
+  #
+  # Dispatch-only: it pulls 2.6 GB from Hugging Face per run, which is not a
+  # per-push cost. It drives the console entry (openknowledge.exe desktop)
+  # rather than the windowed one so every launcher line lands in a log; both
+  # run the identical launcher code path.
+  windows-e2e:
+    needs: windows-installer
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: OpenKnowledge-Setup
+
+      - name: Install and launch, exactly as a person would
+        id: launch
+        shell: pwsh
+        run: |
+          $setup = Get-ChildItem OpenKnowledge-Setup-*.exe | Select-Object -First 1
+          Start-Process -FilePath $setup.FullName -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART" -Wait
+          $app = "$env:LOCALAPPDATA\Programs\OpenKnowledge"
+          # No OK_STATE_DIR override: this is the true first run - app mode,
+          # per-user state, admin token minted, uploads on.
+          $p = Start-Process -FilePath "$app\openknowledge.exe" -ArgumentList "desktop" `
+            -PassThru -NoNewWindow `
+            -RedirectStandardOutput desktop-out.log -RedirectStandardError desktop-err.log
+          "pid=$($p.Id)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      - name: First run reaches serving (downloads and verifies the models)
+        shell: pwsh
+        run: |
+          $deadline = (Get-Date).AddMinutes(20)
+          $ok = $false
+          while ((Get-Date) -lt $deadline) {
+            if (-not (Get-Process -Id ${{ steps.launch.outputs.pid }} -ErrorAction SilentlyContinue)) {
+              break  # launcher died; the log steps below say why
+            }
+            try {
+              $r = Invoke-RestMethod -Uri "http://127.0.0.1:8080/healthz" -TimeoutSec 3
+              if ($r.status -eq "ok") { $ok = $true; break }
+            } catch { Start-Sleep -Seconds 5 }
+          }
+          if (-not $ok) { throw "the installed app never reached serving" }
+          $h = Invoke-RestMethod -Uri "http://127.0.0.1:8080/healthz"
+          if (-not $h.upload_enabled) { throw "app-mode provisioning did not enable uploads" }
+          $env_file = "$env:LOCALAPPDATA\OpenKnowledge\.env"
+          if (-not (Select-String -Path $env_file -Pattern "OK_ADMIN_TOKEN" -Quiet)) {
+            throw "no admin token was minted into $env_file"
+          }
+          Write-Host "serving; corpus=$($h.corpus_version) uploads=$($h.upload_enabled)"
+
+      - name: A real document, a real question, a real answer, twice
+        shell: pwsh
+        run: |
+          Set-Content -Path pet-policy.md -Value @"
+          # Office Pets Policy
+
+          Dogs are welcome in the office.
+
+          A pet cleaning fee of EUR 15 per month applies to every registered pet.
+          "@
+          $up = Invoke-RestMethod -Uri "http://127.0.0.1:8080/documents" -Method Post `
+            -Form @{ files = Get-Item pet-policy.md }
+          if ($up.corpus.documents -lt 1) { throw "the upload did not index" }
+          Write-Host "indexed: $($up.corpus.documents) documents, $($up.corpus.chunks) chunks"
+
+          $body = @{ question = "What is the monthly pet cleaning fee?" } | ConvertTo-Json
+          $sw = [System.Diagnostics.Stopwatch]::StartNew()
+          $a1 = Invoke-RestMethod -Uri "http://127.0.0.1:8080/chat" -Method Post `
+            -ContentType "application/json" -Body $body -TimeoutSec 600
+          $sw.Stop()
+          Write-Host "tier=$($a1.tier) grounded=$($a1.grounded) cost=$($a1.cost_usd) seconds=$([math]::Round($sw.Elapsed.TotalSeconds,1))"
+          Write-Host "answer: $($a1.answer)"
+          if ($a1.answer -notmatch "15") { throw "the answer does not contain the fee: $($a1.answer)" }
+          if (-not $a1.grounded) { throw "the answer was not grounded" }
+          if ($a1.cost_usd -ne 0) { throw "a local answer must cost zero, got $($a1.cost_usd)" }
+
+          # The second asker gets the first asker's answer, byte for byte.
+          $a2 = Invoke-RestMethod -Uri "http://127.0.0.1:8080/chat" -Method Post `
+            -ContentType "application/json" -Body $body -TimeoutSec 60
+          if ($a2.answer -ne $a1.answer) { throw "the same question twice returned different bytes" }
+          if (-not $a2.cached) { throw "the second ask was not served from cache" }
+          Write-Host "second ask: tier=$($a2.tier) cached=$($a2.cached), answer identical"
+
+      - name: Stop the app
+        if: always()
+        shell: pwsh
+        run: |
+          if ("${{ steps.launch.outputs.pid }}") {
+            taskkill /F /T /PID ${{ steps.launch.outputs.pid }} 2>$null
+          }
+          exit 0
+
+      - name: Launcher and server logs
+        if: always()
+        shell: pwsh
+        run: |
+          foreach ($f in "desktop-out.log","desktop-err.log") {
+            if (Test-Path $f) { Write-Host "== $f"; Get-Content $f -Tail 80 }
+          }
+          $logs = "$env:LOCALAPPDATA\OpenKnowledge\data\logs"
+          if (Test-Path $logs) {
+            foreach ($f in Get-ChildItem $logs -File) {
+              Write-Host "== $($f.Name)"; Get-Content $f.FullName -Tail 40
+            }
+          }
