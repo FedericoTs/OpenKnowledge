@@ -479,6 +479,35 @@ async def test_a_pin_made_before_the_conflict_is_withheld(
     assert answer.tier is Tier.CONTESTED
 
 
+async def test_a_timestamp_tie_withholds_the_pin(
+    store, retriever, settings, knowledge, monkeypatch
+) -> None:
+    """Windows CI caught this: time.time() there ticks every ~15.6 ms, so a
+    pin and a conflict written back to back can share one timestamp, and a
+    strict after-comparison then reads the conflict as already accounted for.
+    In-process writes now never tie (clock.ordered_now), but a tie remains
+    possible across processes - and equality cannot prove the pinner saw the
+    disagreement, so it must withhold."""
+    import openknowledge.cache.store as cache_store
+    import openknowledge.knowledge.store as knowledge_store
+
+    frozen = 1_700_000_000.0
+    monkeypatch.setattr(cache_store, "ordered_now", lambda: frozen)
+    monkeypatch.setattr(knowledge_store, "ordered_now", lambda: frozen)
+
+    store.pin(
+        "what is the approval threshold for travel expenses",
+        "Approval is required above EUR 500.",
+        author="finance",
+    )
+    seed_conflict(knowledge)  # same instant, by construction
+
+    answer = await with_knowledge(store, retriever, settings, knowledge).answer(
+        "What is the approval threshold for travel expenses?"
+    )
+    assert answer.tier is Tier.CONTESTED
+
+
 async def test_a_pin_made_after_the_conflict_wins(store, retriever, settings, knowledge) -> None:
     """Pinning with the disagreement visible *is* resolving it."""
     seed_conflict(knowledge)

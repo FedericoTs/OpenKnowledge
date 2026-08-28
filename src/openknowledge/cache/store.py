@@ -29,6 +29,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
+from ..clock import ordered_now
 from ..costs import Usage
 from ..types import Answer, Citation, Tier
 
@@ -184,7 +185,9 @@ class AnswerStore:
         author: str | None = None,
     ) -> PinnedAnswer:
         """Record a human-authored answer. Overwrites any existing pin."""
-        now = time.time()
+        # Ordered, not merely current: this timestamp is compared against
+        # conflict detection times to decide whether the pinner saw them.
+        now = ordered_now()
         with self._lock:
             self._conn.execute(
                 "INSERT INTO pinned_answers"

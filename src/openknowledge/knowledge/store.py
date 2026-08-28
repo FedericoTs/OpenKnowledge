@@ -23,6 +23,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 
+from ..clock import ordered_now
 from ..retrieval.base import Document
 from ..types import Citation
 from .claims import Conflict
@@ -393,7 +394,9 @@ class KnowledgeStore:
         re-index would undo the admin's decisions.
         """
         shared = sorted(conflict.left.context & conflict.right.context)
-        now = time.time()
+        # Ordered, not merely current: detected_at is compared against pin
+        # update times to decide whether a pin predates this disagreement.
+        now = ordered_now()
         with self._lock:
             existing = self._conn.execute(
                 "SELECT * FROM conflicts WHERE key = ?", (conflict.key,)

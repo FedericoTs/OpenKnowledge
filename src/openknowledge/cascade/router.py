@@ -288,8 +288,11 @@ class Cascade:
             # the failure this project exists to prevent - the answer looks
             # human-authored and authoritative, and it is out of date. A pin
             # written after the conflict was detected is a decision about it,
-            # and wins.
-            unaccounted = [c for c in contested if c.detected_at > pin.updated_at]
+            # and wins. Equal timestamps cannot prove the pinner saw the
+            # conflict, so a tie withholds - in-process writes never tie
+            # (clock.ordered_now), leaving only cross-process coincidence,
+            # where refusing is the honest answer.
+            unaccounted = [c for c in contested if c.detected_at >= pin.updated_at]
             cited = {c.document_id for c in pin.citations}
             if not unaccounted and self.retriever.visible_to(cited, principals):
                 yield _final(
