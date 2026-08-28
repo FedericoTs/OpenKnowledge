@@ -122,6 +122,12 @@ def relevant_conflicts(
 
     scored: list[tuple[float, StoredConflict]] = []
     for conflict in conflicts:
+        # A "versions" conflict is a duplicated document pair - the decision
+        # it needs is which copy stands, owed once in /manage, not a
+        # per-question contradiction. Gating answers on it turned one stale
+        # archive copy into a refusal of the whole expenses domain.
+        if conflict.kind == "versions":
+            continue
         context = frozenset(_fold(w) for w in conflict.context)
         shared = words & context
         if len(shared) < min_shared:

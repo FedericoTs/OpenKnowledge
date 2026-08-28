@@ -19,14 +19,15 @@ upload so the answer is free for as long as the document stands.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from ..providers.base import ChatProvider
 from ..retrieval.base import Document, Retriever
-from .claims import find_conflicts
+from .claims import compare_documents
 from .crosscheck import crosscheck_answers
 from .generate import draft_from_document
 from .store import KnowledgeStore, Proposal
+from .variants import group_by_document_pair
 
 log = logging.getLogger(__name__)
 
@@ -92,13 +93,28 @@ def scan_documents(
     # re-running beats reasoning about which pairs might have been affected.
     present = frozenset(d.document_id for d in documents)
     report.conflicts_cleared = store.drop_conflicts_for_documents(present)
-    for conflict in find_conflicts(
+    conflicts, agreements = compare_documents(
         documents,
         min_overlap=min_conflict_overlap,
         deontic_strictness=deontic_strictness,
-    ):
-        store.record_conflict(conflict)
-        report.conflicts_detected += 1
+    )
+    for pair in group_by_document_pair(conflicts, agreements):
+        # Two documents disagreeing on two dozen shared figures are not two
+        # dozen contradictions - they are two versions of one document, and
+        # the decision a human owes is which copy stands, said once. The
+        # audit has said this for a while; the server used to open every
+        # figure as its own blocking conflict, which turned a stale archive
+        # copy into a corpus-wide refusal. One recorded "versions" conflict
+        # keeps the decision visible in /manage without gating answers -
+        # relevance excludes the kind.
+        if pair.is_variant:
+            store.record_conflict(replace(pair.conflicts[0], kind="versions"))
+            report.conflicts_detected += 1
+            report.notes.append(pair.describe())
+            continue
+        for conflict in pair.conflicts:
+            store.record_conflict(conflict)
+            report.conflicts_detected += 1
 
     # A new document contradicting an existing *answer* is the case document
     # pairing cannot see - no stored answer cites a file that did not exist. The
@@ -135,6 +151,7 @@ async def draft_for_documents(
     document_ids: frozenset[str],
     report: IngestReport | None = None,
     min_support_ratio: float = 0.45,
+    min_support_ratio_cited: float = 0.30,
     max_documents: int | None = None,
 ) -> IngestReport:
     """The paid half: draft FAQ answers for the named documents.
@@ -154,7 +171,12 @@ async def draft_for_documents(
         to_draft = to_draft[:max_documents]
 
     for document in to_draft:
-        result = await draft_from_document(provider, document, min_support_ratio=min_support_ratio)
+        result = await draft_from_document(
+            provider,
+            document,
+            min_support_ratio=min_support_ratio,
+            min_support_ratio_cited=min_support_ratio_cited,
+        )
         report.documents_drafted += 1
         report.cost_usd += result.cost_usd
         report.drafts_rejected += len(result.rejected)

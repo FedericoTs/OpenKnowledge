@@ -159,3 +159,77 @@ def test_rules_apply_to_asserted_principals_even_without_sign_in(tmp_path: Path)
             json={"question": "What documents do you have?", "principals": ["group:other"]},
         )
         assert "Leave" in again.json()["answer"]
+
+
+# -- a superseded copy is one decision, not two dozen contradictions ---------
+
+
+def test_a_duplicated_pair_scans_as_one_versions_conflict() -> None:
+    """The aveline corpus's own spec: the free passes find two contradictions
+    and one duplicated pair. The audit always said so; the server scan used
+    to open every shared figure of the archive copy as its own blocking
+    conflict - 26 open conflicts on an 11-document corpus, and the whole
+    expenses domain refused."""
+    from openknowledge.connectors.local_files import LocalFilesConnector
+    from openknowledge.knowledge import scan_documents
+    from openknowledge.knowledge.store import KnowledgeStore
+    from openknowledge.retrieval import BM25Retriever
+
+    docs = LocalFilesConnector("evals/corpus/aveline").fetch()
+    retriever = BM25Retriever()
+    retriever.index(docs)
+    store = KnowledgeStore(":memory:")
+    report = scan_documents(docs, store=store, retriever=retriever)
+    open_conflicts = store.open_conflicts()
+    kinds = sorted(c.kind for c in open_conflicts)
+    assert kinds == ["numeric", "numeric", "versions"], kinds
+    versions = next(c for c in open_conflicts if c.kind == "versions")
+    assert versions.documents == frozenset({"archive-expenses-policy-2023", "hr-expenses-policy"})
+    assert any("two versions of the same document" in n for n in report.notes)
+    store.close()
+
+
+def test_a_versions_conflict_never_gates_an_answer() -> None:
+    from dataclasses import replace as dc_replace
+
+    from openknowledge.knowledge.relevance import relevant_conflicts
+    from openknowledge.knowledge.store import KnowledgeStore
+
+    store = KnowledgeStore(":memory:")
+    from openknowledge.knowledge.claims import find_conflicts
+    from openknowledge.retrieval.base import Document
+
+    left = Document(
+        document_id="current",
+        title="Expenses",
+        text="Meal allowance for domestic travel is EUR 45 per day.",
+    )
+    right = Document(
+        document_id="stale",
+        title="Expenses (old)",
+        text="Meal allowance for domestic travel is EUR 35 per day.",
+    )
+    (conflict,) = find_conflicts([left, right])
+    real = store.record_conflict(conflict)
+    versions = dc_replace(real, key=real.key + ":v", kind="versions")
+
+    question = "What is the meal allowance for domestic travel?"
+    assert relevant_conflicts(question, [real]) == [real]
+    assert relevant_conflicts(question, [versions]) == [], (
+        "a duplicated-pair record must not block the question"
+    )
+    store.close()
+
+
+def test_the_cited_floor_threads_through_every_gate_caller() -> None:
+    """engine.learn passes min_support_ratio_cited into drafting and
+    re-verification; a hop that silently lacks the parameter is a TypeError
+    at the first paid ingest, which no free test would meet."""
+    import inspect
+
+    from openknowledge.knowledge.generate import draft_from_document
+    from openknowledge.knowledge.pipeline import draft_for_documents
+    from openknowledge.knowledge.reverify import reverify_changed_documents
+
+    for fn in (draft_for_documents, draft_from_document, reverify_changed_documents):
+        assert "min_support_ratio_cited" in inspect.signature(fn).parameters, fn.__name__
