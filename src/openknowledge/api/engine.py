@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from ..cache import AnswerStore
+from ..cache.semantic import SemanticIndex
 from ..cascade import Cascade
 from ..cascade.budget import Budget
 from ..cascade.ladder import Ladder, Rung
@@ -52,6 +53,11 @@ class Engine:
         self.documents = self.connector.fetch()
         self.retriever.index(self.documents)
         evicted = self.store.evict_other_corpus_versions(self.retriever.corpus_version)
+        if self.cascade.semantic is not None:
+            # Question vectors describe cached answers; when the answers for a
+            # superseded corpus go, their vectors go with them, or a stale
+            # vector would keep nominating an answer that no longer exists.
+            self.cascade.semantic.evict_other_corpus_versions(self.retriever.corpus_version)
         self.last_scan = scan_documents(
             self.documents,
             store=self.knowledge,
@@ -250,6 +256,25 @@ def _build_retriever(settings: Settings) -> Retriever:
     return HybridRetriever(lexical=lexical, embedder=embedder, cache=cache.load(), store=cache)
 
 
+def _build_semantic(
+    settings: Settings, store: AnswerStore, retriever: Retriever
+) -> SemanticIndex | None:
+    """The semantic cache, when there is an embedder to power it.
+
+    It reuses the hybrid retriever's own embedder - same model, same endpoint,
+    same fingerprint - so a question and the corpus always live in one vector
+    space. No embedder (embeddings off, or a BM25-only install) simply means
+    no semantic cache, which is the correct degradation: the exact cache and
+    every other tier are untouched.
+    """
+    if not (settings.embedding_enabled and settings.semantic_cache_enabled):
+        return None
+    embedder = getattr(retriever, "embedder", None)
+    if embedder is None:
+        return None
+    return SemanticIndex(store, embedder)
+
+
 def build_engine(settings: Settings) -> Engine:
     store = AnswerStore(settings.db_path)
     knowledge = KnowledgeStore(settings.knowledge_db_path)
@@ -275,6 +300,7 @@ def build_engine(settings: Settings) -> Engine:
                 daily_usd=settings.budget_daily_usd,
                 expected_questions_per_day=settings.budget_expected_questions_per_day,
             ),
+            semantic=_build_semantic(settings, store, retriever),
         ),
         connector=connector,
         knowledge=knowledge,

@@ -17,6 +17,7 @@ from dataclasses import dataclass, replace
 from typing import Any
 
 from ..cache import AnswerStore, KeyContext, answer_key
+from ..cache.semantic import SemanticIndex, covers
 from ..canonical import canonicalize_query
 from ..config import Settings
 from ..costs import PricingError, Usage, cost_usd, get_price
@@ -93,6 +94,7 @@ class Cascade:
         ladder: Ladder | None = None,
         budget: Budget | None = None,
         reranker: Reranker | None = None,
+        semantic: SemanticIndex | None = None,
     ) -> None:
         self.store = store
         self.retriever = retriever
@@ -106,6 +108,7 @@ class Cascade:
         self.ladder = ladder if ladder is not None else self._default_ladder()
         self.governor = BudgetGovernor(store=store, budget=budget or Budget())
         self.reranker = reranker if reranker is not None else _default_reranker(settings)
+        self.semantic = semantic
 
     def _default_ladder(self) -> Ladder:
         rungs: list[Rung] = []
@@ -362,8 +365,6 @@ class Cascade:
                     )
                     return
 
-        # The semantic cache tier is not implemented yet - see ROADMAP.
-
         # Retrieve once, wide enough for the widest rung; every rung reads a
         # prefix of the same ranked list. Searching per rung would let two rungs
         # answer from different evidence, which is the property that makes
@@ -403,6 +404,80 @@ class Cascade:
             max_tokens=self.settings.max_answer_tokens,
         )
         notes.extend(withheld)
+
+        # The semantic cache: a cached answer for a differently-phrased question,
+        # nominated by similarity and JUDGED BY THE GATE against this question's
+        # own retrieval. Measured on the real embedding model, similarity alone
+        # cannot be trusted - "parental leave weeks" vs "annual leave days"
+        # scores inside the paraphrase band - so cosine only decides what is
+        # worth showing to check_grounding, and check_grounding decides. A
+        # nominee the gate rejects costs microseconds and falls through to the
+        # ladder as if it never existed.
+        if self.semantic is not None and self.settings.semantic_cache_enabled:
+            vector = self.semantic.embed(question)
+            nominee = (
+                self.semantic.nominate(
+                    vector,
+                    self.retriever.corpus_version,
+                    threshold=self.settings.semantic_cache_threshold,
+                )
+                if vector is not None
+                else None
+            )
+            if nominee is not None and nominee.cache_key != key:
+                entry = self.store.get(nominee.cache_key)
+                cited = {c.document_id for c in entry.citations} if entry else set()
+                # Two arbiters, because the first test written against this
+                # design defeated the gate alone: with near-topic documents in
+                # the corpus, the annual-leave question retrieves the parental
+                # chunk somewhere in its top-k, and the cached parental answer
+                # then grounds at support 1.0 for the wrong question. The gate
+                # judges grounding, not aboutness. Aboutness is judged by the
+                # retrieval this question just did: its top-ranked document is
+                # what this question is most about, and if that is not a
+                # document the cached answer cites, the cached answer is about
+                # something else - nominee dismissed.
+                asks_about_the_same_document = bool(
+                    chunks and entry is not None and chunks[0].document_id in cited
+                )
+                asks_within_what_the_cache_knows = entry is not None and covers(
+                    question, entry.canonical_query, entry.answer
+                )
+                if (
+                    entry is not None
+                    and asks_about_the_same_document
+                    and asks_within_what_the_cache_knows
+                    and self.retriever.visible_to(cited, principals)
+                ):
+                    verdict = check_grounding(
+                        entry.answer,
+                        chunks[: self.settings.retrieval_k],
+                        min_support_ratio=self.settings.min_support_ratio,
+                        require_citations=self.settings.require_citations,
+                    )
+                    if verdict.passed:
+                        yield _final(
+                            Answer(
+                                text=entry.answer,
+                                tier=Tier.SEMANTIC_CACHE,
+                                model_id=entry.model_id,
+                                cache_key=key,
+                                citations=entry.citations,
+                                grounded=True,
+                                support=round(verdict.support_ratio, 3),
+                                notes=(
+                                    "matched an earlier phrasing "
+                                    f'("{entry.canonical_query}", similarity '
+                                    f"{nominee.similarity:.2f}) and re-verified against "
+                                    "the sources this question retrieves",
+                                ),
+                            )
+                        )
+                        return
+                    log.info(
+                        "semantic nominee rejected by the gate (%s); continuing to the ladder",
+                        "; ".join(verdict.reasons),
+                    )
 
         yield {"type": "status", "stage": "answering", "passages": len(chunks)}
 
@@ -504,6 +579,8 @@ class Cascade:
                     notes=(*notes, *attempt.answer.notes),
                 )
                 self.store.put(key, canonical, answer, self.retriever.corpus_version)
+                if self.semantic is not None and self.settings.semantic_cache_enabled:
+                    self.semantic.remember(question, key, self.retriever.corpus_version)
                 yield _final(answer)
                 return
             climbed_from = rung.tier

@@ -114,6 +114,15 @@ class Settings(BaseSettings):
     #: Where chunk vectors live. Derived and disposable: deleting it costs one
     #: re-embed. Kept out of the answer store, which holds human decisions.
     vectors_db: str = "vectors.db"
+    #: Serve a cached answer for a differently-phrased question - but only
+    #: after the grounding gate re-verifies it against the new question's own
+    #: retrieval. Similarity nominates; the gate decides. Measured: cosine
+    #: alone cannot tell "parental leave weeks" from "annual leave days".
+    semantic_cache_enabled: bool = True
+    #: How similar a cached question must be to be worth showing to the gate.
+    #: A candidate-finder, not a safety threshold - rejected nominees cost
+    #: microseconds. Genuine paraphrases measured 0.727-0.849 on nomic-embed.
+    semantic_cache_threshold: float = Field(default=0.70, ge=0.5, le=1.0)
 
     # -- escalation tier -------------------------------------------------
     #: Off by default. Nothing leaves the machine until an operator opts in.
