@@ -1,0 +1,27 @@
+{
+ "cases": 26,
+ "accuracy": 1.0,
+ "false_answers": 0,
+ "false_answer_rate": 0.0,
+ "determinism": 1.0,
+ "paraphrase_consistency": 1.0,
+ "cost_per_question_usd": 0.0,
+ "total_cost_usd": 0.0,
+ "free_share": 0.0,
+ "support_separation": null,
+ "tiers": {
+  "local": 17,
+  "refused": 8,
+  "contested": 1
+ },
+ "failures": [],
+ "provenance": {
+  "what": "Fifth live run: the first pass over the FULL aveline corpus - eleven documents including archive/expenses-policy-2023.md, the superseded copy every earlier 100% was measured without. Three product changes were needed to get here, each pinned by unit tests before this run: (1) the versions collapse (ADR 0009) - the archive pair had opened 24 blocking numeric conflicts and refused the whole expenses domain; (2) superseded demotion (ADR 0010) - with nothing blocking, retrieval served both copies and the local model led with the archived CFO limit (EUR 15,000) and disclosed the archived meal rate (EUR 35), both forbidden by the golden set and both passing the grounding gate because the figures genuinely appear in the cited text; (3) prompt v3 - asked for a pinned case (one grade, one tier, one location), the model volunteered the neighbouring figures, which the golden set forbids because a volunteered number reads as a second answer. Same run config as the fourth: dual grounding floors (0.45 / 0.30 earned by full citation discipline).",
+  "models": "Chat: Qwen3-4B-Instruct-2507 Q4_K_M via llama-cpp-python, 8,192-token window. Embeddings: nomic-embed-text v1.5 Q4_K_M, task prefixes applied.",
+  "corpus": "evals/corpus/aveline in full - 11 documents across Markdown, Word, Excel and PDF, including the self-declared superseded archive copy",
+  "golden_set": "evals/golden-aveline - 26 cases: 17 answerable, 8 refusals, 1 contested",
+  "companion": "The repository golden set (13 cases, evals/golden) was run first against the same build and also passed clean: accuracy 1.0, 0 false answers, determinism 1.0, paraphrase consistency 1.0.",
+  "hardware": "4-core CPU container, no GPU; both model servers local",
+  "caveat": "Corpus and questions were written together, so this measures that the pipeline works, not product accuracy on real documents. It is quotable as: the traps this corpus sets - a superseded copy in the folder among them - no longer trigger."
+ }
+}
