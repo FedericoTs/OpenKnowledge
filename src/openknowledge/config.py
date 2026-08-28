@@ -87,6 +87,14 @@ class Settings(BaseSettings):
     #: answered in two minutes has failed; a local one has probably just
     #: finished reading eight gigabytes off disk.
     local_timeout_seconds: float = Field(default=600.0, gt=0)
+    #: Load the model at server start, in the background, instead of letting
+    #: the first question absorb the load time. Costs nothing when the model
+    #: is already resident.
+    local_warmup: bool = True
+    #: How long Ollama keeps the model resident after use ("30m", "-1" for
+    #: always, "" to leave Ollama's own five-minute default alone). Only
+    #: Ollama honours this; llama.cpp and vLLM never unload.
+    local_keep_alive: str = "30m"
 
     # -- dense retrieval ---------------------------------------------------
     #: Add semantic search alongside BM25, fused by reciprocal rank.

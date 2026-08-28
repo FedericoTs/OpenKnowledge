@@ -12,7 +12,9 @@ from __future__ import annotations
 
 import hashlib
 import logging
+from collections.abc import AsyncIterator
 from dataclasses import dataclass, replace
+from typing import Any
 
 from ..cache import AnswerStore, KeyContext, answer_key
 from ..canonical import canonicalize_query
@@ -31,7 +33,7 @@ from ..prompts import (
     UNAVAILABLE_TEXT,
     format_context,
 )
-from ..providers.base import ChatProvider, ProviderError
+from ..providers.base import ChatProvider, Completion, ProviderError
 from ..retrieval.base import Chunk, Retriever
 from ..retrieval.grounding import check_grounding
 from ..retrieval.rerank import Reranker, StructuralReranker
@@ -161,17 +163,52 @@ class Cascade:
         canonical = canonicalize_query(question)
         key = answer_key(question, self._key_context())
 
-        result = await self._resolve(question, canonical, key, principals)
+        result: Answer | None = None
+        async for event in self._events(question, canonical, key, principals):
+            if event["type"] == "final":
+                result = event["answer"]
+        assert result is not None  # the event stream always ends in a final
         self.store.record(canonical, result, channel=channel)
         return result
 
-    async def _resolve(
+    async def answer_stream(
+        self,
+        question: str,
+        *,
+        principals: frozenset[str] | None = None,
+        channel: str | None = None,
+    ) -> AsyncIterator[dict[str, Any]]:
+        """The same resolution as :meth:`answer`, narrated while it happens.
+
+        One code path produces both: :meth:`answer` drains this stream and keeps
+        only the final. Anything else - a separate streaming resolver - would
+        let the two disagree about caching, notes or tier, and the whole
+        determinism argument rests on there being exactly one way a question is
+        answered.
+
+        Events, in order of appearance: ``status`` (retrieval is done, a model
+        is about to run), ``provisional`` (a self-hosted rung is streaming; text
+        after this is ungated), ``delta`` (a piece of provisional text),
+        ``retract`` (the gate rejected what was just streamed - the reader must
+        see it withdrawn, because showing it was the price of streaming and
+        withdrawing it is the honesty), and exactly one terminal ``final``
+        carrying the Answer, which is byte-identical to what :meth:`answer`
+        would have returned.
+        """
+        canonical = canonicalize_query(question)
+        key = answer_key(question, self._key_context())
+        async for event in self._events(question, canonical, key, principals):
+            if event["type"] == "final":
+                self.store.record(canonical, event["answer"], channel=channel)
+            yield event
+
+    async def _events(
         self,
         question: str,
         canonical: str,
         key: str,
         principals: frozenset[str] | None,
-    ) -> Answer:
+    ) -> AsyncIterator[dict[str, Any]]:
         # Before anything else, and before any cost: a question about the
         # collection rather than from it. No retriever can answer "what
         # documents do you have" - it has no subject to match - so it used to
@@ -181,14 +218,17 @@ class Cascade:
         asking_about_the_corpus = recognise(question)
         if asking_about_the_corpus is not None:
             titles, hidden = self.retriever.documents_visible_to(principals)
-            return Answer(
-                text=describe(titles, chunks=len(self.retriever), hidden=hidden),
-                tier=Tier.CORPUS,
-                model_id="none",
-                cache_key=key,
-                grounded=True,
-                notes=("answered from the index; no model was called",),
+            yield _final(
+                Answer(
+                    text=describe(titles, chunks=len(self.retriever), hidden=hidden),
+                    tier=Tier.CORPUS,
+                    model_id="none",
+                    cache_key=key,
+                    grounded=True,
+                    notes=("answered from the index; no model was called",),
+                )
             )
+            return
 
         # A contested claim is where the bot would otherwise be confidently
         # wrong, so an unresolved disagreement outranks everything except a pin
@@ -220,13 +260,16 @@ class Cascade:
             unaccounted = [c for c in contested if c.detected_at > pin.updated_at]
             cited = {c.document_id for c in pin.citations}
             if not unaccounted and self.retriever.visible_to(cited, principals):
-                return Answer(
-                    text=pin.answer,
-                    tier=Tier.PINNED,
-                    model_id="pinned",
-                    cache_key=key,
-                    citations=pin.citations,
+                yield _final(
+                    Answer(
+                        text=pin.answer,
+                        tier=Tier.PINNED,
+                        model_id="pinned",
+                        cache_key=key,
+                        citations=pin.citations,
+                    )
                 )
+                return
             if unaccounted:
                 log.info(
                     "pin for %r withheld: it predates %d unresolved conflict(s)",
@@ -235,28 +278,34 @@ class Cascade:
                 )
 
         if contested:
-            return Answer(
-                text=describe_for_user(contested),
-                tier=Tier.CONTESTED,
-                model_id="none",
-                cache_key=key,
-                grounded=True,
-                notes=tuple(c.describe() for c in contested[:3]),
+            yield _final(
+                Answer(
+                    text=describe_for_user(contested),
+                    tier=Tier.CONTESTED,
+                    model_id="none",
+                    cache_key=key,
+                    grounded=True,
+                    notes=tuple(c.describe() for c in contested[:3]),
+                )
             )
+            return
 
         # L1 - we answered this exact question, under this exact corpus.
         cached = self.store.get(key)
         if cached is not None:
             cited = {c.document_id for c in cached.citations}
             if self.retriever.visible_to(cited, principals):
-                return Answer(
-                    text=cached.answer,
-                    tier=Tier.EXACT_CACHE,
-                    model_id=cached.model_id,
-                    cache_key=key,
-                    citations=cached.citations,
-                    notes=(f"served from cache (hit {cached.hits})",),
+                yield _final(
+                    Answer(
+                        text=cached.answer,
+                        tier=Tier.EXACT_CACHE,
+                        model_id=cached.model_id,
+                        cache_key=key,
+                        citations=cached.citations,
+                        notes=(f"served from cache (hit {cached.hits})",),
+                    )
                 )
+                return
             log.info("cache hit withheld: asker cannot access all cited sources")
 
         # L2 - an answer drafted from the documents at upload time. It passed
@@ -268,18 +317,21 @@ class Cascade:
             if draft is not None:
                 cited = {c.document_id for c in draft.citations}
                 if self.retriever.visible_to(cited, principals):
-                    return Answer(
-                        text=draft.answer,
-                        tier=Tier.DRAFT,
-                        model_id="drafted",
-                        cache_key=key,
-                        citations=draft.citations,
-                        notes=(
-                            "auto-drafted from "
-                            f"{', '.join(draft.origin_documents)} and not yet reviewed "
-                            "by a person",
-                        ),
+                    yield _final(
+                        Answer(
+                            text=draft.answer,
+                            tier=Tier.DRAFT,
+                            model_id="drafted",
+                            cache_key=key,
+                            citations=draft.citations,
+                            notes=(
+                                "auto-drafted from "
+                                f"{', '.join(draft.origin_documents)} and not yet reviewed "
+                                "by a person",
+                            ),
+                        )
                     )
+                    return
 
         # The semantic cache tier is not implemented yet - see ROADMAP.
 
@@ -298,13 +350,16 @@ class Cascade:
             hits = self.reranker.rerank(question, hits, k=wanted)
         chunks = [h.chunk for h in hits]
         if not chunks:
-            return Answer(
-                text=REFUSAL_TEXT,
-                tier=Tier.REFUSED,
-                model_id="none",
-                cache_key=key,
-                notes=("no documents matched this question",),
+            yield _final(
+                Answer(
+                    text=REFUSAL_TEXT,
+                    tier=Tier.REFUSED,
+                    model_id="none",
+                    cache_key=key,
+                    notes=("no documents matched this question",),
+                )
             )
+            return
 
         system = self._system_prompt()
         notes: list[str] = []
@@ -320,23 +375,89 @@ class Cascade:
         )
         notes.extend(withheld)
 
+        yield {"type": "status", "stage": "answering", "passages": len(chunks)}
+
         climbed_from: Tier | None = None
         #: Did any rung actually read the sources? Decides which of the two
         #: refusals is true at the end of this loop.
         any_rung_ran = False
-        for rung in affordable:
+        for index, rung in enumerate(affordable):
             rung_chunks = chunks[: rung.k] if rung.k is not None else chunks
-            attempt = await self._try_provider(
-                rung.provider,
-                rung.tier,
-                system,
-                format_context(rung_chunks),
-                question,
-                rung_chunks,
-                key,
-                max_tokens=rung.max_tokens or self.settings.max_answer_tokens,
-                near_misses=near_misses,
-            )
+            max_tokens = rung.max_tokens or self.settings.max_answer_tokens
+
+            # Stream only the first rung, and only when it is self-hosted. The
+            # first rung is the slow one - a local model at CPU speed - and the
+            # one whose silence reads as a hang. Billed rungs stay unstreamed
+            # because some runtimes report no usage on a stream, and a zero in
+            # the ledger for a billed call is worse than a spinner.
+            streamable = getattr(rung.provider, "stream", None)
+            if (
+                index == 0
+                and streamable is not None
+                and getattr(rung.provider, "self_hosted", False)
+            ):
+                yield {"type": "provisional", "model": rung.name, "tier": rung.tier.value}
+                attempt, deltas = (
+                    None,
+                    streamable(
+                        system=system,
+                        context=format_context(rung_chunks),
+                        question=question,
+                        max_tokens=max_tokens,
+                    ),
+                )
+                completion: Completion | None = None
+                try:
+                    async for item in deltas:
+                        if isinstance(item, Completion):
+                            completion = item
+                        else:
+                            yield {"type": "delta", "text": item}
+                except ProviderError as exc:
+                    log.warning("%s tier failed mid-stream: %s", rung.tier.value, exc)
+                    yield {"type": "retract", "reason": "the model became unavailable"}
+                    attempt = _Attempt(
+                        None,
+                        Usage(),
+                        0.0,
+                        (
+                            f"{rung.tier.value} tier unavailable: {exc}",
+                            "`openknowledge model status` checks whether that endpoint is up",
+                        ),
+                        reached_model=False,
+                    )
+                if attempt is None:
+                    assert completion is not None  # the stream ends with one
+                    attempt = self._gate(
+                        rung.provider,
+                        completion,
+                        rung.tier,
+                        rung_chunks,
+                        key,
+                        near_misses=near_misses,
+                    )
+                    if not completion.usage.input_tokens and not completion.usage.output_tokens:
+                        notes.append("streamed; the runtime reported no token counts")
+                    if attempt.answer is None:
+                        # What was just streamed did not survive the gate. The
+                        # reader saw it, so the reader must see it withdrawn -
+                        # that is the honesty half of the streaming bargain.
+                        yield {
+                            "type": "retract",
+                            "reason": next(iter(attempt.notes), "rejected by the grounding gate"),
+                        }
+            else:
+                attempt = await self._try_provider(
+                    rung.provider,
+                    rung.tier,
+                    system,
+                    format_context(rung_chunks),
+                    question,
+                    rung_chunks,
+                    key,
+                    max_tokens=max_tokens,
+                    near_misses=near_misses,
+                )
             spent_usd += attempt.cost_usd
             spent_usage += attempt.usage
             notes.extend(attempt.notes)
@@ -354,8 +475,11 @@ class Cascade:
                     notes=(*notes, *attempt.answer.notes),
                 )
                 self.store.put(key, canonical, answer, self.retriever.corpus_version)
-                return answer
+                yield _final(answer)
+                return
             climbed_from = rung.tier
+            if index + 1 < len(affordable):
+                yield {"type": "status", "stage": "escalating", "to": affordable[index + 1].name}
 
         if not self.ladder:
             notes.append("no model is configured, so nothing could be answered from the documents")
@@ -388,31 +512,36 @@ class Cascade:
         # update gets a fresh attempt. The cost is still reported: rejected
         # answers are not free.
         if any_rung_ran:
-            return Answer(
-                text=REFUSAL_TEXT,
-                tier=Tier.REFUSED,
-                model_id="none",
-                cache_key=key,
-                citations=_citations(chunks),
-                usage=spent_usage,
-                cost_usd=spent_usd,
-                grounded=False,
-                notes=tuple(notes) or ("no rung produced a grounded answer",),
+            yield _final(
+                Answer(
+                    text=REFUSAL_TEXT,
+                    tier=Tier.REFUSED,
+                    model_id="none",
+                    cache_key=key,
+                    citations=_citations(chunks),
+                    usage=spent_usage,
+                    cost_usd=spent_usd,
+                    grounded=False,
+                    notes=tuple(notes) or ("no rung produced a grounded answer",),
+                )
             )
+            return
 
         notes.append(
             f"retrieval found {len(chunks)} passage(s); nothing read them, so the documents "
             "have not been ruled out"
         )
-        return Answer(
-            text=UNAVAILABLE_TEXT,
-            tier=Tier.REFUSED,
-            model_id="none",
-            cache_key=key,
-            usage=spent_usage,
-            cost_usd=spent_usd,
-            grounded=False,
-            notes=tuple(notes),
+        yield _final(
+            Answer(
+                text=UNAVAILABLE_TEXT,
+                tier=Tier.REFUSED,
+                model_id="none",
+                cache_key=key,
+                usage=spent_usage,
+                cost_usd=spent_usd,
+                grounded=False,
+                notes=tuple(notes),
+            )
         )
 
     async def _try_provider(
@@ -449,6 +578,24 @@ class Cascade:
                 reached_model=False,
             )
 
+        return self._gate(provider, completion, tier, chunks, key, near_misses=near_misses)
+
+    def _gate(
+        self,
+        provider: ChatProvider,
+        completion: Completion,
+        tier: Tier,
+        chunks: list[Chunk],
+        key: str,
+        *,
+        near_misses: int = 0,
+    ) -> _Attempt:
+        """Judge one completion, however it arrived - streamed or whole.
+
+        Extracted so the streamed rung and the plain one are judged by literally
+        the same code. Two gates that merely agree today is how they disagree
+        tomorrow.
+        """
         cost, cost_notes = _price(completion.usage, provider)
 
         report = check_grounding(
@@ -483,6 +630,11 @@ class Cascade:
             support=round(report.support_ratio, 3),
         )
         return _Attempt(answer, completion.usage, cost, cost_notes, reached_model=True)
+
+
+def _final(answer: Answer) -> dict[str, Any]:
+    """The one terminal event every resolution ends with."""
+    return {"type": "final", "answer": answer}
 
 
 def _suffix_hash(suffix: str) -> str:

@@ -48,6 +48,21 @@
            background:var(--accent); border:0; border-radius:var(--radius); cursor:pointer; }
   button:disabled { opacity:.5; cursor:default; }
   .err { color:#b3261e; } @media (prefers-color-scheme:dark){ .err{color:#f2b8b5;} }
+  /* Text that is still generating and has not passed the grounding gate yet.
+     Visibly not-final: the whole streaming bargain is that the reader can see
+     it, so the reader must be able to tell it is unverified. */
+  .prov p { opacity:.75; }
+  .prov .caret { display:inline-block; width:7px; height:14px; margin-left:2px;
+                 background:var(--accent); vertical-align:-2px;
+                 animation:blink 1s steps(1) infinite; }
+  @keyframes blink { 50% { opacity:0; } }
+  @media (prefers-reduced-motion:reduce){ .prov .caret { animation:none; } }
+  .working { color:var(--muted); font-size:13px; }
+  .working time { font-variant-numeric:tabular-nums; }
+  /* An answer the gate withdrew. It stays on screen, struck through, because
+     hiding it would be pretending it was never shown. */
+  .retracted p { text-decoration:line-through; opacity:.45; }
+  .retract-note { font-size:12.5px; color:var(--paid); margin-top:8px; }
 </style>
 </head>
 <body>
@@ -125,6 +140,99 @@ function renderAnswer(data) {
   return box;
 }
 
+// The stages a slow answer passes through, written for the person waiting.
+const STAGE_TEXT = {
+  answering: 'Reading the sources…',
+  escalating: 'That attempt failed its checks — trying a stronger model…',
+};
+
+function workingLine(pending) {
+  const line = el('p', 'working');
+  const started = Date.now();
+  line.appendChild(document.createTextNode('Looking… '));
+  const clock = el('time');
+  line.appendChild(clock);
+  const tick = setInterval(() => {
+    clock.textContent = Math.round((Date.now() - started) / 1000) + 's';
+  }, 1000);
+  pending.appendChild(line);
+  return {
+    set(text) { line.firstChild.textContent = text + ' '; },
+    stop() { clearInterval(tick); line.remove(); },
+  };
+}
+
+// Server-sent events over fetch, because EventSource cannot POST a body.
+async function streamAnswer(body, pending) {
+  const res = await fetch('/chat/stream', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok || !res.body) throw new Error('HTTP ' + res.status);
+
+  const status = workingLine(pending);
+  let prov = null, provText = null;
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  const handle = (event) => {
+    if (event.type === 'status' && STAGE_TEXT[event.stage]) {
+      status.set(STAGE_TEXT[event.stage]);
+    } else if (event.type === 'provisional') {
+      prov = el('div', 'prov');
+      provText = el('p');
+      provText.appendChild(document.createTextNode(''));
+      provText.appendChild(el('span', 'caret'));
+      prov.appendChild(provText);
+      pending.appendChild(prov);
+      status.set('Generating — unverified until checked…');
+    } else if (event.type === 'delta' && provText) {
+      provText.firstChild.textContent += event.text;
+      window.scrollTo(0, document.body.scrollHeight);
+    } else if (event.type === 'retract' && prov) {
+      prov.className = 'retracted';
+      prov.querySelector('.caret')?.remove();
+      prov.appendChild(el('div', 'retract-note',
+        'Withdrawn — this did not pass the grounding check (' + event.reason + ')'));
+      prov = provText = null;
+    } else if (event.type === 'final') {
+      status.stop();
+      const answer = renderAnswer(event.response);
+      // A withdrawn attempt stays visible above the real outcome.
+      const kept = pending.querySelectorAll('.retracted');
+      if (kept.length) {
+        const wrap = el('div', 'msg a');
+        for (const r of kept) wrap.appendChild(r);
+        for (const child of [...answer.childNodes]) wrap.appendChild(child);
+        pending.replaceWith(wrap);
+      } else {
+        pending.replaceWith(answer);
+      }
+      return true;
+    }
+    return false;
+  };
+
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    let cut;
+    while ((cut = buffer.indexOf('\n\n')) !== -1) {
+      const frame = buffer.slice(0, cut);
+      buffer = buffer.slice(cut + 2);
+      for (const line of frame.split('\n')) {
+        if (line.startsWith('data:')) {
+          if (handle(JSON.parse(line.slice(5)))) return;
+        }
+      }
+    }
+  }
+  throw new Error('the stream ended without a final answer');
+}
+
 form.addEventListener('submit', async (e) => {
   e.preventDefault();
   const question = input.value.trim();
@@ -138,9 +246,21 @@ form.addEventListener('submit', async (e) => {
   input.value = '';
   send.disabled = true;
   const pending = el('div', 'msg a');
-  pending.appendChild(el('p', null, 'Looking…'));
   log.appendChild(pending);
   window.scrollTo(0, document.body.scrollHeight);
+
+  try {
+    await streamAnswer({ question, channel: 'web' }, pending);
+    send.disabled = false;
+    input.focus();
+    window.scrollTo(0, document.body.scrollHeight);
+    return;
+  } catch (err) {
+    // An older server, a proxy that will not stream, or a mid-stream drop:
+    // fall back to the plain request rather than failing the question.
+    pending.textContent = '';
+    pending.appendChild(el('p', null, 'Looking…'));
+  }
 
   try {
     const res = await fetch('/chat', {

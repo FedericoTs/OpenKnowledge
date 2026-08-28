@@ -462,3 +462,60 @@ def write_env(path: Path, values: dict[str, str]) -> list[str]:
 
     path.write_text("\n".join(lines).rstrip("\n") + "\n")
     return changed
+
+
+# --- keeping the model warm -------------------------------------------------
+
+
+def warm(
+    runtime: Runtime,
+    model: str,
+    *,
+    keep_alive: str = "",
+    timeout: float = 600.0,
+) -> float:
+    """Load ``model`` into memory now, so the next question does not.
+
+    The first call after idle silently absorbs a full model load - minutes on a
+    laptop CPU - and it lands on whoever happens to ask the first question.
+    Paying that cost at startup, in the background, moves it to the one moment
+    nobody is waiting.
+
+    On Ollama this uses the native generate endpoint with an empty prompt,
+    which loads the model without producing a token, and ``keep_alive`` pins
+    how long it stays resident (Ollama's own default is five minutes; the
+    OpenAI-compatible endpoint has no field for this, which is why the native
+    one is used). Other runtimes - llama.cpp, vLLM - keep their model loaded
+    for the life of the process, so a one-token completion both warms them and
+    proves the pipe.
+
+    Returns how long the load took, so the caller can log something truthful.
+    Raises ModelError when nothing could be warmed; callers treat that as a
+    note, never an outage - the cascade already handles a cold model, just
+    slowly.
+    """
+    import time as _time
+
+    started = _time.monotonic()
+    try:
+        with httpx.Client(timeout=timeout) as client:
+            if runtime.is_ollama:
+                payload: dict[str, object] = {"model": model, "prompt": "", "stream": False}
+                if keep_alive:
+                    payload["keep_alive"] = keep_alive
+                response = client.post(f"{runtime.root}/api/generate", json=payload)
+                response.raise_for_status()
+            else:
+                response = client.post(
+                    f"{runtime.base_url.rstrip('/')}/chat/completions",
+                    json={
+                        "model": model,
+                        "messages": [{"role": "user", "content": "ok"}],
+                        "max_tokens": 1,
+                        "temperature": 0,
+                    },
+                )
+                response.raise_for_status()
+    except httpx.HTTPError as exc:
+        raise ModelError(f"could not warm {model!r}: {exc or type(exc).__name__}") from exc
+    return _time.monotonic() - started

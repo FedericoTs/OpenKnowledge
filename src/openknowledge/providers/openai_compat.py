@@ -22,6 +22,8 @@ other direction silently corrupts the ledger.
 from __future__ import annotations
 
 import ipaddress
+import json
+from collections.abc import AsyncIterator
 from urllib.parse import urlparse
 
 import httpx
@@ -118,6 +120,115 @@ class OpenAICompatProvider:
             f"or lower OK_RETRIEVAL_K."
         )
 
+    def _messages(
+        self, system: str, context: str, question: str, history: tuple[Message, ...]
+    ) -> list[dict[str, str]]:
+        messages: list[dict[str, str]] = [{"role": "system", "content": system}]
+        messages.extend({"role": m.role, "content": m.content} for m in history)
+        messages.append({"role": "user", "content": f"{context}\n\n---\n\nQuestion: {question}"})
+        return messages
+
+    def _headers(self) -> dict[str, str]:
+        headers = {"Content-Type": "application/json"}
+        if self._api_key:
+            headers["Authorization"] = f"Bearer {self._api_key}"
+        return headers
+
+    async def stream(
+        self,
+        *,
+        system: str,
+        context: str,
+        question: str,
+        history: tuple[Message, ...] = (),
+        max_tokens: int = 1500,
+    ) -> AsyncIterator[str | Completion]:
+        """Yield the answer as it generates: text deltas, then one Completion.
+
+        This exists for one reason: on a laptop CPU the local model produces
+        six tokens a second, and fifteen silent seconds behind a spinner is
+        indistinguishable from a hang. Streaming does not make the answer
+        arrive sooner - it makes the wait legible.
+
+        The final Completion carries whatever usage the server reported in its
+        terminal chunk (asked for via ``stream_options``). Runtimes that do not
+        send one yield zero usage - which is why the cascade streams only the
+        self-hosted rung, where nothing is billed per token: a billed rung with
+        unreported usage would put a zero into the ledger, and a ledger that
+        understates is worse than a spinner.
+        """
+        self._check_fit(
+            len(system) + len(context) + len(question) + sum(len(m.content) for m in history),
+            max_tokens,
+        )
+        payload = {
+            "model": self.model_id,
+            "messages": self._messages(system, context, question, history),
+            "max_tokens": max_tokens,
+            "temperature": 0,
+            "seed": 0,
+            "stream": True,
+            # Ask for usage in the final chunk; servers that predate the option
+            # ignore it rather than erroring.
+            "stream_options": {"include_usage": True},
+        }
+
+        collected: list[str] = []
+        usage = Usage()
+        stop_reason: str | None = None
+        try:
+            async with (
+                httpx.AsyncClient(timeout=self._timeout) as client,
+                client.stream(
+                    "POST",
+                    f"{self.base_url}/chat/completions",
+                    json=payload,
+                    headers=self._headers(),
+                ) as response,
+            ):
+                if response.status_code != 200:
+                    body = (await response.aread()).decode("utf-8", "replace")[:300]
+                    raise ProviderError(f"{self.model_id}: HTTP {response.status_code}: {body}")
+                async for line in response.aiter_lines():
+                    if not line.startswith("data:"):
+                        continue
+                    data = line[len("data:") :].strip()
+                    if not data or data == "[DONE]":
+                        continue
+                    try:
+                        event = json.loads(data)
+                    except ValueError as exc:
+                        raise ProviderError(
+                            f"{self.model_id}: unparseable stream chunk: {data[:120]!r}"
+                        ) from exc
+                    raw_usage = event.get("usage")
+                    if raw_usage:
+                        usage = Usage(
+                            input_tokens=int(raw_usage.get("prompt_tokens", 0)),
+                            output_tokens=int(raw_usage.get("completion_tokens", 0)),
+                        )
+                    for choice in event.get("choices") or []:
+                        if choice.get("finish_reason"):
+                            stop_reason = choice["finish_reason"]
+                        delta = (choice.get("delta") or {}).get("content")
+                        if delta:
+                            collected.append(delta)
+                            yield delta
+        except httpx.TimeoutException as exc:
+            raise ProviderError(
+                f"{self.model_id}: no response within {self._timeout:.0f}s "
+                f"({type(exc).__name__}) while streaming."
+            ) from exc
+        except httpx.HTTPError as exc:
+            raise ProviderError(f"{self.model_id}: {exc or type(exc).__name__}") from exc
+
+        yield Completion(
+            text="".join(collected).strip(),
+            usage=usage,
+            model_id=self.model_id,
+            stop_reason=stop_reason,
+        )
+
     async def complete(
         self,
         *,
@@ -131,17 +242,9 @@ class OpenAICompatProvider:
             len(system) + len(context) + len(question) + sum(len(m.content) for m in history),
             max_tokens,
         )
-        messages: list[dict[str, str]] = [{"role": "system", "content": system}]
-        messages.extend({"role": m.role, "content": m.content} for m in history)
-        messages.append({"role": "user", "content": f"{context}\n\n---\n\nQuestion: {question}"})
-
-        headers = {"Content-Type": "application/json"}
-        if self._api_key:
-            headers["Authorization"] = f"Bearer {self._api_key}"
-
         payload = {
             "model": self.model_id,
-            "messages": messages,
+            "messages": self._messages(system, context, question, history),
             "max_tokens": max_tokens,
             "temperature": 0,
             "seed": 0,  # honoured by some backends; harmless where it is not
@@ -150,7 +253,7 @@ class OpenAICompatProvider:
         try:
             async with httpx.AsyncClient(timeout=self._timeout) as client:
                 resp = await client.post(
-                    f"{self.base_url}/chat/completions", json=payload, headers=headers
+                    f"{self.base_url}/chat/completions", json=payload, headers=self._headers()
                 )
                 resp.raise_for_status()
                 data = resp.json()

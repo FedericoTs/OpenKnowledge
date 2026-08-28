@@ -39,6 +39,9 @@ class _State:
         self.is_ollama = True
         #: When set, /api/pull streams this error instead of succeeding.
         self.fail_pull_with: str | None = None
+        #: Bodies POSTed to /api/generate (the warm path) and /v1/chat/completions.
+        self.generated: list[dict[str, object]] = []
+        self.completions: list[dict[str, object]] = []
 
 
 @pytest.fixture
@@ -88,6 +91,18 @@ def base_url(state: _State) -> Iterator[str]:
             length = int(self.headers.get("Content-Length", 0))
             body = json.loads(self.rfile.read(length) or b"{}")
 
+            if self.path == "/api/generate" and state.is_ollama:
+                state.generated.append(body)
+                return self._send(200, {"model": body.get("model"), "done": True})
+            if self.path == "/v1/chat/completions":
+                state.completions.append(body)
+                return self._send(
+                    200,
+                    {
+                        "choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}],
+                        "usage": {"prompt_tokens": 1, "completion_tokens": 1},
+                    },
+                )
             if self.path == "/api/show":
                 name = body.get("model", "")
                 if name not in state.models:
@@ -556,3 +571,42 @@ def test_the_local_tier_waits_far_longer_than_a_paid_one() -> None:
     provider = _build_local(Settings())
     assert provider is not None
     assert provider._timeout >= 600  # type: ignore[attr-defined]
+
+
+# --- warming ----------------------------------------------------------------
+
+
+def test_warming_an_ollama_model_uses_the_native_endpoint(base_url: str, state: _State) -> None:
+    """The OpenAI-compatible endpoint has no keep_alive field, so pinning
+    residency has to go through /api/generate - with an empty prompt, which
+    loads the model without generating anything."""
+    from openknowledge.models import probe, warm
+
+    took = warm(probe(base_url), "qwen3:8b", keep_alive="30m")
+    assert took >= 0
+    assert state.generated, "never touched /api/generate"
+    assert state.generated[-1] == {
+        "model": "qwen3:8b",
+        "prompt": "",
+        "stream": False,
+        "keep_alive": "30m",
+    }
+
+
+def test_warming_a_plain_openai_runtime_sends_one_token(base_url: str, state: _State) -> None:
+    """llama.cpp and vLLM never unload, so one tiny completion warms and
+    proves the pipe in the same call."""
+    from openknowledge.models import probe, warm
+
+    state.is_ollama = False
+    warm(probe(base_url), "whatever")
+    assert state.completions, "never reached /v1/chat/completions"
+    assert state.completions[-1]["max_tokens"] == 1
+
+
+def test_a_failed_warmup_raises_rather_than_lying() -> None:
+    from openknowledge.models import ModelError, Runtime, warm
+
+    runtime = Runtime(base_url="http://127.0.0.1:9/v1", kind="ollama", version="x")
+    with pytest.raises(ModelError, match="could not warm"):
+        warm(runtime, "qwen3:8b", timeout=0.5)

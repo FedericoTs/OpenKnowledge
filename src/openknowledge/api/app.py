@@ -15,9 +15,11 @@ into a required query parameter.
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 import secrets
+import threading
 import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -25,7 +27,7 @@ from pathlib import Path
 from typing import Annotated, Any
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
-from fastapi.responses import FileResponse, HTMLResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, Response, StreamingResponse
 
 from ..assets import find_asset
 from ..cache import citations_for
@@ -135,6 +137,36 @@ def _provision_admin_token(settings: Settings) -> None:
     )
 
 
+def _warm_the_model_in_the_background(settings: Settings) -> None:
+    """Start loading the model now; answer questions the moment it is done.
+
+    A daemon thread rather than a task on the event loop: the load is one long
+    blocking HTTP call, the loop is about to start serving, and if the process
+    exits there is nothing worth waiting for.
+    """
+    if not (settings.local_enabled and settings.local_warmup):
+        return
+    from ..models import ModelError, probe, warm
+
+    runtime = probe(settings.local_base_url, timeout=2.0)
+    if not runtime.reachable:
+        return  # the unreachable warning below already covers this
+
+    def _run() -> None:
+        try:
+            took = warm(
+                runtime,
+                settings.local_model,
+                keep_alive=settings.local_keep_alive,
+                timeout=settings.local_timeout_seconds,
+            )
+            log.info("local model %s is warm (%.1fs)", settings.local_model, took)
+        except ModelError as exc:
+            log.warning("warmup: %s (the first question will pay the load instead)", exc)
+
+    threading.Thread(target=_run, name="model-warmup", daemon=True).start()
+
+
 def _warn_if_the_model_is_unreachable(settings: Settings) -> None:
     """Say at startup that the local endpoint is down, not one question later.
 
@@ -169,6 +201,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         _provision_admin_token(app.state.settings)
         app.state.engine = build_engine(app.state.settings)
         _warn_if_the_model_is_unreachable(app.state.settings)
+        _warm_the_model_in_the_background(app.state.settings)
         try:
             yield
         finally:
@@ -200,6 +233,41 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         up the tab's own foreground, so it reads in either theme.
         """
         return Response(content=_FAVICON, media_type="image/svg+xml")
+
+    @app.post("/chat/stream", include_in_schema=False)
+    async def chat_stream(req: ChatRequest, engine: EngineDep) -> StreamingResponse:
+        """The same resolution as /chat, narrated as server-sent events.
+
+        Instant tiers arrive as a single `final`. A slow local answer arrives
+        as `provisional` + `delta` events while it generates, then either the
+        gated `final` or a `retract` - the reader watched ungated text appear,
+        so the reader watches it withdrawn. The `final` payload is exactly what
+        /chat would have returned, produced by the same code path, so nothing
+        about caching or determinism depends on which endpoint was used.
+        """
+        principals = frozenset(req.principals) if req.principals is not None else None
+
+        async def events() -> AsyncIterator[str]:
+            stream = engine.cascade.answer_stream(
+                req.question, principals=principals, channel=req.channel
+            )
+            async for event in stream:
+                if event["type"] == "final":
+                    payload: dict[str, Any] = {
+                        "type": "final",
+                        "response": ChatResponse.from_answer(event["answer"]).model_dump(),
+                    }
+                else:
+                    payload = event
+                yield f"data: {json.dumps(payload)}\n\n"
+
+        return StreamingResponse(
+            events(),
+            media_type="text/event-stream",
+            # Proxies love to buffer event streams back into one big response,
+            # which would un-stream the stream.
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
 
     @app.get("/healthz")
     async def healthz(engine: EngineDep) -> dict[str, Any]:
