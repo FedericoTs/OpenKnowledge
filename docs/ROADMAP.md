@@ -59,6 +59,55 @@ Honest status. "Built" means implemented and covered by tests in this repository
 - **Standalone audit** — `openknowledge audit ./folder` reports where a folder's documents
   disagree with each other with no API key, no model, no database and nothing written. Exits
   non-zero on findings so it can gate CI.
+- **Hybrid retrieval** — BM25 fused with local dense retrieval (`nomic-embed-text`
+  via any OpenAI-compatible or Ollama endpoint), interleaved rather than rank-fused:
+  measured on real documents, reciprocal rank fusion scored 11/13 where dense alone
+  scored 13/13, because BM25's near-noise ranking on a paraphrase outvotes the dense
+  half. Task prefixes applied per model family (measured: 7/8 → 8/8 without/with).
+  Chunk vectors cached in `vectors.db`, keyed on text and model, so re-indexing
+  re-embeds only what changed. Degrades to BM25 alone, with a note, when no
+  embedding endpoint exists. Gated by the golden set, which caught the first
+  version at 23.5% accuracy — fused scores from two scales had re-sorted the
+  reranker — before it shipped.
+- **Streaming answers** — the same resolution, narrated: `answer()` and
+  `answer_stream()` drain one event generator, so tier, caching, notes and cost
+  cannot fork between them. Only the first self-hosted rung streams (billed rungs
+  report usage unreliably on streams, and a zero in the ledger for a billed call is
+  worse than a spinner). Text that fails the gate is retracted in front of the
+  reader - struck through with the reason, the real outcome rendered beneath.
+  Measured over a real socket: first status event at 0.2s, tokens progressive,
+  where the widget previously showed a static "Looking…" for 15-30s.
+- **Follow-up questions** — "what about contractors?" is rewritten into the
+  standalone question it means, using the conversation the client sends, before
+  anything is keyed - so the cache stays keyed on real questions, the same
+  follow-up twice hits the exact cache, and asking the standalone question cold
+  hits the same entry. The rewrite is deterministic (temperature 0, seed 0), runs
+  only on questions that show their dependence, costs ~10 output tokens on the
+  cheapest self-hosted rung, and is billed onto the answer. No self-hosted rung
+  means it is skipped with a note, never billed.
+- **Semantic cache** — a cached answer for a differently-phrased question, served
+  only after three arbiters: similarity nominates (measured: cosine alone cannot
+  tell "parental leave weeks" from "annual leave days" - 0.810, inside the
+  paraphrase band), retrieval's top-ranked document must be one the cached answer
+  cites, every content word of the new question must appear in the cached
+  question-plus-answer, and the grounding gate re-verifies against the new
+  question's own retrieval. Both extra arbiters exist because a test and then a
+  live run each defeated the design with one fewer. Measured live: a paraphrase
+  serves in 1.4s where the model path took 27s; the trap falls through to the
+  model, which refuses it.
+- **Model management and keep-warm** — `openknowledge model list/use/status`
+  reads what is installed and its real context window from the runtime, pins
+  windows via derived models on Ollama, and the server warms the model at start
+  in the background so the first question stops absorbing a silent multi-minute
+  load.
+- **Desktop foundations** — state resolves to the platform's per-user data
+  directory when run outside a deployment (`openknowledge paths` explains every
+  location and why); the web UI ships inside the wheel and resolves across
+  checkout, wheel, PyInstaller bundle and container; serve binds 127.0.0.1 by
+  default with a loopback Host allowlist (DNS-rebinding defence); app-mode
+  serving mints an owner-only admin token; windows-latest CI leg; tracked
+  lockfile. Ten findings from an adversarial review of the first version are
+  fixed and pinned as tests.
 - **Website** — a single self-contained page (`web/site/`) leading with the free audit,
   quoting only numbers this repository produces, and stating what the project cannot do yet.
   It fetches nothing from any other host, asserted by a test. Its contact form posts to the
@@ -121,20 +170,15 @@ Honest status. "Built" means implemented and covered by tests in this repository
 5. **Grow the golden set.** The harness is built; the shipped set covers the sample
    documents only. Real corpus, real questions, and above all more safety cases — they
    are the cheapest insurance in the project.
-6. **Semantic cache.** Local embeddings over canonical questions, similarity threshold,
-   and — the part the literature gets wrong for this use case — a **synchronous** check
-   before serving. Published designs verify asynchronously: serve now, verify later, demote
-   if wrong. A wrong policy answer served now has already been acted on. We can verify
-   synchronously for free by retrieving for the *new* question and running the existing
-   grounding gate on the *cached* answer against those fresh chunks. Production hit rates
-   are 20–45%, not 95%; ~0.92 similarity is the usual balance point, and the golden set's
-   paraphrase pairs are already the labelled data needed to calibrate it.
-7. **Hybrid retrieval + contextual chunks.** BM25 fused with local dense retrieval, plus
-   Anthropic's contextual-retrieval trick of prepending each chunk's place in its document
-   before embedding — measured at 49% fewer retrieval failures, 67% with reranking. Our
-   chunker already carries a heading trail on every chunk, which is most of that idea built
-   for a different reason. Local embeddings are effectively free: `nomic-embed-text` does
-   ~580 chunks/sec on a laptop CPU, and no vector database is needed at corpus scale.
+6. **Contextual chunk embedding.** Hybrid retrieval shipped; the remaining half of
+   the contextual-retrieval idea is prepending each chunk's heading trail before
+   embedding it - the chunker already carries the trail for a different reason.
+   Worth measuring against the golden set like everything else.
+7. **The Windows installer.** PyInstaller onedir + Inno Setup around the app,
+   llama.cpp's win-vulkan build (one artifact: Vulkan GPU + runtime-dispatched CPU
+   variants) serving chat and embeddings in router mode, first-run model download,
+   code signing. The foundations it needs (state location, asset resolution, bind,
+   token) are built; the packaging itself is not.
 8. **SharePoint connector.** Microsoft Graph enumeration via `delta` (changes only, never
    a full rescan), `Sites.Selected` for least privilege, text extraction, and — the real
    work — mapping item permissions, including group expansion and inheritance, onto
