@@ -87,6 +87,10 @@ blocks is refused with the reason, never answered ungrounded.
 
 ## 4. Reasoning-family deployments (gpt-5\*, o\*)
 
+**Needs v0.2.1 or later.** On v0.2.0 and earlier, deploy a non-reasoning
+chat model (gpt-4o-mini is the sensible test rung) - those releases send
+`max_tokens` and a pinned `temperature`, which the gpt-5 family refuses.
+
 The newest model families speak a slightly different dialect: they refuse
 `max_tokens` in favour of `max_completion_tokens`, and refuse a pinned
 `temperature`. A deployment name reveals nothing about what is behind it,
