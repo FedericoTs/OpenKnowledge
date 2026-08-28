@@ -50,6 +50,7 @@ from .download import (
 )
 from .llama import LlamaError, LlamaServer
 from .manifest import CHAT_MODEL, EMBEDDING_MODEL, ModelFile
+from .placement import plan_chat_flags
 from .setup import STATUS
 
 APP_PORT = 8080
@@ -215,14 +216,28 @@ def _first_run(
             if stop.is_set():
                 return
 
-    STATUS.set_starting("loading the chat and embedding models")
+    STATUS.set_starting("planning where the model fits on this machine")
+    planned: tuple[str, ...] = ()
+    plan_note = ""
+    chat_plan = plan_chat_flags(models_dir / CHAT_MODEL.filename, CHAT_MODEL.context_tokens)
+    if chat_plan is not None:
+        planned = chat_plan.extra_args
+        plan_note = f" — {chat_plan.summary}" if chat_plan.summary else ""
+        print(f"placement plan: {' '.join(planned)}{plan_note}", flush=True)
+
+    STATUS.set_starting(f"loading the chat and embedding models{plan_note}")
     log_dir = state.data_dir / "logs"
     ports = {CHAT_MODEL.purpose: CHAT_PORT, EMBEDDING_MODEL.purpose: EMBED_PORT}
     try:
         for model in needed:
             servers.append(
                 _start_with_cpu_fallback(
-                    exe, models_dir / model.filename, model, ports[model.purpose], log_dir
+                    exe,
+                    models_dir / model.filename,
+                    model,
+                    ports[model.purpose],
+                    log_dir,
+                    planned=planned if model.purpose == "chat" else (),
                 )
             )
     except LlamaError as error:
@@ -249,6 +264,7 @@ def _start_with_cpu_fallback(
     model: ModelFile,
     port: int,
     log_dir: Path,
+    planned: tuple[str, ...] = (),
 ) -> LlamaServer:
     """Start a llama-server; if the GPU cannot hold the model, run it on CPU.
 
@@ -260,7 +276,7 @@ def _start_with_cpu_fallback(
     """
     server: LlamaServer | None = None
     try:
-        server = llama.spawn(exe, model_path, model, port, log_dir)
+        server = llama.spawn(exe, model_path, model, port, log_dir, extra_args=planned)
         llama.wait_ready(server)
         return server
     except LlamaError as first_error:

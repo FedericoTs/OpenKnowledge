@@ -238,7 +238,7 @@ jobs:
             }
             $done = ($s.files | Measure-Object -Property done -Sum).Sum
             $waited = [math]::Round(((Get-Date) - $started).TotalSeconds)
-            if ($waited % 30 -lt 5) { Write-Host "state=$($s.state) bytes=$done (${waited}s)" }
+            if ($waited % 30 -lt 5) { Write-Host "state=$($s.state) bytes=$done (${waited}s) $($s.message)" }
             Start-Sleep -Seconds 5
           }
           if ($s.state -ne "ready") { Dump-Logs; throw "first run never reached ready" }

@@ -507,3 +507,72 @@ def test_gpu_out_of_memory_falls_back_to_cpu(tmp_path: Path, monkeypatch) -> Non
     assert server.tag == "cpu", "the CPU retry must be what actually serves"
     assert calls == [("spawn", ()), ("spawn", ("-ngl", "0"))]
     assert len(terminated) == 1 and terminated[0].tag == "gpu"
+
+
+# ---- placement planning (quantprobe) ---------------------------------------
+
+_PLAN_OUTPUT = """
+[quantprobe] auto-detected this machine (vram 0GB@0 | ram 16GB@48).
+
+quantprobe plan - custom model @ 2.5-bit on THIS machine [auto-detected]
+  model 2.5 GB | active 5.47 GB/token | est. quality cost x1.30 (depth-aware recipe)
+
+  *    5.4 tok/s  pure CPU (GPU idle)
+
+  binding constraint: BANDWIDTH-BOUND (system RAM bandwidth).
+
+  run it:  llama-server -m model.gguf -ngl 0 --threads 4
+"""
+
+
+def test_planned_flags_come_from_the_run_line() -> None:
+    from openknowledge.desktop.placement import extract_planned_flags, extract_summary
+
+    assert extract_planned_flags(_PLAN_OUTPUT) == ("-ngl", "0", "--threads", "4")
+    assert extract_summary(_PLAN_OUTPUT) == "pure CPU (GPU idle) — about 5.4 tok/s expected"
+
+
+def test_planned_flags_pass_only_the_allowlist() -> None:
+    """quantprobe's command is trusted for placement, not for anything else:
+    ports, hosts, context and speculation flags must never leak through."""
+    from openknowledge.desktop.placement import extract_planned_flags
+
+    text = (
+        "  run it:  llama-server -m model.gguf -ngl 99 "
+        '-ot "blk\\.(16|17)\\.ffn_.*_exps\\.=CPU" --no-mmap -b 1024 -ub 1024 '
+        "--threads 4 --host 0.0.0.0 --port 9999 -c 32768 "
+        "--spec-type ngram-simple --spec-ngram-simple-size-m 12"
+    )
+    flags = extract_planned_flags(text)
+    assert flags == (
+        "-ngl",
+        "99",
+        "-ot",
+        "blk\\.(16|17)\\.ffn_.*_exps\\.=CPU",
+        "--no-mmap",
+        "-b",
+        "1024",
+        "-ub",
+        "1024",
+        "--threads",
+        "4",
+    )
+    assert "--host" not in flags and "--port" not in flags and "-c" not in flags
+
+
+def test_no_run_line_means_no_plan() -> None:
+    from openknowledge.desktop.placement import extract_planned_flags
+
+    assert extract_planned_flags("quantprobe had a bad day") == ()
+
+
+def test_missing_quantprobe_is_the_floor(tmp_path: Path, monkeypatch) -> None:
+    """The plan is an upgrade, never a dependency: without quantprobe the
+    launcher must get None and behave exactly as before."""
+    import sys as _sys
+
+    from openknowledge.desktop.placement import plan_chat_flags
+
+    monkeypatch.setitem(_sys.modules, "quantprobe", None)
+    monkeypatch.setitem(_sys.modules, "quantprobe.cli", None)
+    assert plan_chat_flags(tmp_path / "model.gguf", 8192, timeout_seconds=10.0) is None

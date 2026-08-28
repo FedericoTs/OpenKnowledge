@@ -43,6 +43,7 @@ OPTIONAL = {
     "opendataloader_pdf": "opendataloader-pdf",
     "pystray": "pystray",
     "PIL": "pillow",
+    "quantprobe": "quantprobe",
 }
 
 

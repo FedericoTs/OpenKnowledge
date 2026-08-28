@@ -1,6 +1,6 @@
 [project]
 name = "openknowledge"
-version = "0.1.2"
+version = "0.1.3"
 description = "Cheap, private, deterministic enterprise document Q&A. Self-hosted."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -58,7 +58,10 @@ anthropic = ["anthropic>=0.40"]
 opendataloader = ["opendataloader-pdf>=2.5"]
 # The tray icon of the desktop app. An extra because a server has no tray:
 # the launcher degrades to a plain wait loop when these are absent.
-desktop = ["pystray>=0.19.5", "pillow>=10"]
+# quantprobe (MIT, by this project's author) probes the machine and plans
+# where the model fits - the flags llama-server starts with. Optional and
+# fail-open: absent or broken, the launcher's GPU-then-CPU floor applies.
+desktop = ["pystray>=0.19.5", "pillow>=10", "quantprobe>=1.37"]
 # Building the desktop bundle (`packaging/pyinstaller/openknowledge.spec`).
 # Not dev: nothing in the test suite needs it.
 packaging = ["pyinstaller>=6.11"]

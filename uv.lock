@@ -493,6 +493,22 @@ wheels = [
 ]
 
 [[package]]
+name = "gguf"
+version = "0.19.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
+    { name = "numpy", version = "2.5.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
+    { name = "pyyaml" },
+    { name = "requests" },
+    { name = "tqdm" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/48/ae/17f1308ae45cd7b08ebb521747d5b23f4efc4d172038a4e228dd5106c3ff/gguf-0.19.0.tar.gz", hash = "sha256:dbadcd6cc7ccd44256f2229fe7c2dff5e8aa5cf0612ab987fd2b1a57e428923f", size = 111220, upload-time = "2026-05-06T13:04:03.667Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/b3/bb/d71d6da82763528c2c2ed6b59a9d6142c6595545a4c448e2085d155e88c2/gguf-0.19.0-py3-none-any.whl", hash = "sha256:70bcd10edfe697fb2dad6e40af2234b9d8ece9a41a99761405121ebda1c3c1cd", size = 118475, upload-time = "2026-05-06T13:04:02.588Z" },
+]
+
+[[package]]
 name = "greenlet"
 version = "3.5.5"
 source = { registry = "https://pypi.org/simple" }
@@ -1292,7 +1308,7 @@ wheels = [
 
 [[package]]
 name = "openknowledge"
-version = "0.1.2"
+version = "0.1.3"
 source = { editable = "." }
 dependencies = [
     { name = "fastapi" },
@@ -1321,6 +1337,7 @@ browser = [
 desktop = [
     { name = "pillow" },
     { name = "pystray" },
+    { name = "quantprobe" },
 ]
 dev = [
     { name = "mypy" },
@@ -1364,6 +1381,7 @@ requires-dist = [
     { name = "python-multipart", specifier = ">=0.0.9" },
     { name = "python-pptx", specifier = ">=1.0" },
     { name = "pyyaml", specifier = ">=6.0" },
+    { name = "quantprobe", marker = "extra == 'desktop'", specifier = ">=1.37" },
     { name = "reportlab", marker = "extra == 'dev'", specifier = ">=4.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.7" },
     { name = "tiktoken", marker = "extra == 'dev'", specifier = ">=0.7" },
@@ -2012,6 +2030,19 @@ wheels = [
 ]
 
 [[package]]
+name = "quantprobe"
+version = "1.37.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "gguf" },
+    { name = "requests" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/2a/b2/dc7da1f7d4608299e0333c5f7dceb0bd4a9b2951beb0441ecec148015be7/quantprobe-1.37.0.tar.gz", hash = "sha256:db7d00485946f3ad9026633a604a65f72b1068e3b37fa6a1cf61a24eeffa47ba", size = 213324, upload-time = "2026-08-24T09:17:49.777Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/07/ee/d29793b988cf69b756bd2f3476e040d3ab0f06ea0b3bca31b78fdfc2c02c/quantprobe-1.37.0-py3-none-any.whl", hash = "sha256:ddba56ce933e25eb2163d7167a8fb4e13e679ed4e69d9f831e6ca88a48e72e3f", size = 193077, upload-time = "2026-08-24T09:17:48.685Z" },
+]
+
+[[package]]
 name = "regex"
 version = "2026.7.19"
 source = { registry = "https://pypi.org/simple" }
@@ -2267,6 +2298,18 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/4e/f6/80760e98a08e6649d2d68afb6035af713121dfb615acce8c4f73810ec438/tiktoken-0.14.0-cp315-cp315t-musllinux_1_2_aarch64.whl", hash = "sha256:86f66c85e796f5d05d5c4a60ec1d40cbfebc47a32464053528c797163fa9ab89", size = 1251479, upload-time = "2026-08-17T19:49:36.419Z" },
     { url = "https://files.pythonhosted.org/packages/c5/84/50966fb6918a0fb9b32721277e5342bf729a2d74350074d662fbedf9772e/tiktoken-0.14.0-cp315-cp315t-musllinux_1_2_x86_64.whl", hash = "sha256:149d97453c4c98c04b081d64a85e635921269b532710d6faf81e9e82b790e7d3", size = 1316673, upload-time = "2026-08-17T19:49:37.756Z" },
     { url = "https://files.pythonhosted.org/packages/35/5e/9b01afd037bfa22a0033963fa091e0f75b6fb15cd85bffb42ff86e697323/tiktoken-0.14.0-cp315-cp315t-win_amd64.whl", hash = "sha256:561e7580f84a79859af1ef6f676968e9030fcc3fe195700b15235bca64f009c9", size = 987929, upload-time = "2026-08-17T19:49:38.947Z" },
+]
+
+[[package]]
+name = "tqdm"
+version = "4.70.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "colorama", marker = "sys_platform == 'win32'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/21/3b/6c24bec5be5e743ffd99576daa5cc077722fc7d5bbc00bd133fa0c698dc6/tqdm-4.70.0.tar.gz", hash = "sha256:55b0b0dbd97462d06ebee91e4dac24ed4d4702be82b24f07e6c1d27e08cea220", size = 795438, upload-time = "2026-07-27T11:33:15.271Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/f9/1c/01bfd571a64e7f270e6bab5e33777debe0edc56759233ce84f27dec92d14/tqdm-4.70.0-py3-none-any.whl", hash = "sha256:7f585706bfddbdebf89daac705b2dfcc16890130727d3197ca62c732b4310953", size = 80184, upload-time = "2026-07-27T11:33:13.167Z" },
 ]
 
 [[package]]
