@@ -164,13 +164,12 @@ class Settings(BaseSettings):
     azure_openai_output_per_mtok: float | None = Field(default=None, ge=0.0)
 
     # -- tag routing ------------------------------------------------------
-    #: Shrink the search radius using per-document tags derived at index time.
-    #: When a question's words match a few documents' tags decisively, those
-    #: documents' chunks are put first - excluded strangers fall off the end
-    #: of the radius only when the named documents can fill it themselves, so
-    #: a route never thins the model's context. Any ambiguity changes nothing.
-    #: Free, deterministic, and measured: both golden sets hold their accuracy
-    #: with it on. Off restores pre-tag retrieval exactly.
+    #: Use per-document tags, derived free at index time, to guarantee that a
+    #: question naming its documents finds them among its retrieval candidates
+    #: - rescued from below the cut when a large corpus buries them. Never a
+    #: filter and never a reordering: both were measured against the golden
+    #: sets and both made the local model worse. Any ambiguity changes
+    #: nothing, and off restores pre-tag retrieval exactly.
     tag_routing: bool = True
 
     # -- reranking --------------------------------------------------------

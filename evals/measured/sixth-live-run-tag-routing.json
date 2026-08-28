@@ -1,0 +1,37 @@
+{
+ "cases": 26,
+ "accuracy": 1.0,
+ "false_answers": 0,
+ "false_answer_rate": 0.0,
+ "determinism": 1.0,
+ "paraphrase_consistency": 1.0,
+ "cost_per_question_usd": 0.0,
+ "total_cost_usd": 0.0,
+ "free_share": 0.0,
+ "support_separation": null,
+ "tiers": {
+  "local": 17,
+  "refused": 8,
+  "contested": 1
+ },
+ "failures": [],
+ "provenance": {
+  "what": "Sixth live run: both golden sets with tag routing ON - the feature that derives per-document tags at index time and guarantees a question's named documents a place among its retrieval candidates. This record exists because the two stronger designs FAILED these same sets first, one run each: filtering retrieval to the routed documents starved a one-chunk document's context and the repository set caught a refused-but-answerable question (12/13); putting routed chunks first filled the context with same-topic tables and the aveline set dropped to 0.88 - one question refused as scope-ambiguous, another answering with a neighbouring row's figures. The shipped shape - rescue only, no filtering, no reordering - retrieves a context measured byte-identical to routing-off on these corpora, and both sets hold their bars.",
+  "models": "Chat: Qwen3-4B-Instruct-2507 Q4_K_M via llama-cpp-python, 8,192-token window. Embeddings: nomic-embed-text v1.5 Q4_K_M, task prefixes applied.",
+  "corpus": "evals/corpus/aveline in full (11 documents); companion run on the repository documents/",
+  "golden_set": "evals/golden-aveline (26 cases) and evals/golden (13 cases), both at accuracy 1.0",
+  "companion": {
+   "golden_cases": 13,
+   "golden_accuracy": 1.0,
+   "golden_false_answers": 0,
+   "golden_determinism": 1.0,
+   "golden_paraphrase_consistency": 1.0,
+   "golden_tiers": {
+    "local": 8,
+    "refused": 5
+   }
+  },
+  "hardware": "4-core CPU container, no GPU; both model servers local",
+  "caveat": "On corpora this small the named documents already rank among the candidates, so these runs prove tag routing does no harm; the rescue's benefit is claimed only for corpora large enough to bury a named document below the candidate cut, and remains unmeasured until such a corpus exists in the harness."
+ }
+}
