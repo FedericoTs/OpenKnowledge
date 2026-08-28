@@ -30,6 +30,22 @@ if ($env:GITHUB_TOKEN) { $headers["Authorization"] = "Bearer $($env:GITHUB_TOKEN
 
 $release = Invoke-RestMethod -Uri $api -Headers $headers
 $asset = $release.assets | Where-Object { $_.name -like $Pattern } | Select-Object -First 1
+
+# llama.cpp's releases/latest became a versioned marker (e.g. v0.3.0) whose
+# only asset, nightly-tag.txt, names the build release that actually carries
+# binaries. Follow the pointer once. The first CI run discovered this layout
+# by failing loudly with the asset list, which is this script working as
+# designed.
+if (-not $asset) {
+    $pointer = $release.assets | Where-Object { $_.name -eq "nightly-tag.txt" } | Select-Object -First 1
+    if ($pointer) {
+        $nightly = ([string](Invoke-RestMethod -Uri $pointer.browser_download_url -Headers $headers)).Trim()
+        Write-Host "llama.cpp $($release.tag_name) is a marker release; following nightly-tag.txt -> '$nightly'"
+        $release = Invoke-RestMethod -Uri "https://api.github.com/repos/ggml-org/llama.cpp/releases/tags/$nightly" -Headers $headers
+        $asset = $release.assets | Where-Object { $_.name -like $Pattern } | Select-Object -First 1
+    }
+}
+
 if (-not $asset) {
     $names = ($release.assets | ForEach-Object { $_.name }) -join "`n  "
     throw "No asset matches '$Pattern' in llama.cpp $($release.tag_name). Assets:`n  $names"
