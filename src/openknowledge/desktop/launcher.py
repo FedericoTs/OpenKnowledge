@@ -180,7 +180,9 @@ def _first_run(
     missing = [m for m in needed if not already_verified(m, models_dir)]
 
     if missing:
-        STATUS.set_waiting(needed)
+        # main() already declared "waiting" before the app began serving -
+        # declaring it again here would clear a consent click that landed
+        # in between. This thread only waits for the click.
         if not STATUS.wait_for_proceed(stop):
             return
         STATUS.set_downloading()
@@ -434,6 +436,28 @@ def main() -> int:
     servers: list[LlamaServer] = []
     on_quit = threading.Event()
 
+    # The first-run state is decided and published BEFORE the app serves:
+    # the e2e caught a request reading the default "ready" in the gap
+    # between serving and the setup thread's first write. No request may
+    # ever observe a state this launch has not decided.
+    exe = llama.find_llama_server() if needed else None
+    start_first_run = False
+    if needed and exe is None:
+        message = (
+            "The bundled llama-server was not found. Reinstalling OpenKnowledge "
+            "restores it, or set OK_LLAMA_SERVER to a llama-server executable."
+        )
+        STATUS.set_failed(message)
+        print(message, file=sys.stderr)
+    elif needed:
+        start_first_run = True
+        if any(not already_verified(m, models_dir) for m in needed):
+            STATUS.set_waiting(needed)
+        else:
+            STATUS.set_starting("loading the chat and embedding models")
+    else:
+        STATUS.set_ready()
+
     web_server, web_thread = _serve_app(state)
     try:
         if not _wait_app_ready():
@@ -441,24 +465,13 @@ def main() -> int:
                 f"The web server did not come up. The state and logs are under {state.data_dir}."
             )
 
-        if needed:
-            exe = llama.find_llama_server()
-            if exe is None:
-                message = (
-                    "The bundled llama-server was not found. Reinstalling OpenKnowledge "
-                    "restores it, or set OK_LLAMA_SERVER to a llama-server executable."
-                )
-                STATUS.set_failed(message)
-                print(message, file=sys.stderr)
-            else:
-                threading.Thread(
-                    target=_first_run,
-                    args=(exe, needed, models_dir, state, servers, on_quit),
-                    name="openknowledge-first-run",
-                    daemon=True,
-                ).start()
-        else:
-            STATUS.set_ready()
+        if start_first_run and exe is not None:
+            threading.Thread(
+                target=_first_run,
+                args=(exe, needed, models_dir, state, servers, on_quit),
+                name="openknowledge-first-run",
+                daemon=True,
+            ).start()
 
         url = f"http://127.0.0.1:{APP_PORT}/"
         print(f"OpenKnowledge is serving at {url}", flush=True)

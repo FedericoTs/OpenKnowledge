@@ -576,3 +576,20 @@ def test_missing_quantprobe_is_the_floor(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setitem(_sys.modules, "quantprobe", None)
     monkeypatch.setitem(_sys.modules, "quantprobe.cli", None)
     assert plan_chat_flags(tmp_path / "model.gguf", 8192, timeout_seconds=10.0) is None
+
+
+def test_first_run_state_is_declared_before_serving(tmp_path: Path, monkeypatch) -> None:
+    """The e2e caught a request reading the default 'ready' in the gap
+    between the app serving and the setup thread's first write. The state
+    must be decided before serve; the thread must not re-declare it (a
+    second set_waiting would clear a consent click that landed between)."""
+    import inspect
+
+    from openknowledge.desktop import launcher
+
+    source = inspect.getsource(launcher.main)
+    serve_at = source.index("_serve_app(state)")
+    assert "set_waiting" in source[:serve_at], "waiting must be published before serving"
+    assert "set_failed" in source[:serve_at], "a missing llama-server too"
+    thread_source = inspect.getsource(launcher._first_run)
+    assert "set_waiting" not in thread_source, "the thread must not clear a landed click"
