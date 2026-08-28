@@ -1,0 +1,36 @@
+{
+ "cases": 26,
+ "accuracy": 1.0,
+ "false_answers": 0,
+ "false_answer_rate": 0.0,
+ "determinism": 1.0,
+ "paraphrase_consistency": 1.0,
+ "cost_per_question_usd": 0.0,
+ "total_cost_usd": 0.0,
+ "free_share": 0.0,
+ "support_separation": null,
+ "tiers": {
+  "local": 17,
+  "refused": 8,
+  "contested": 1
+ },
+ "failures": [],
+ "provenance": {
+  "what": "Seventh live run: both golden sets under grounding policy g2, which made the context's own labels evidence. Motivated by a real-corpus field transcript (Azure gpt-4.1-mini as the only rung): three answers rejected in a row for 'inventing' figures - 17, 4, 5, 6, and the composite 4,5,6,8,10 the number regex swallowed whole - every one a chunk label the SOURCES block itself taught the model, plus one label-only answer refused as citing no sources. Under g2, header numbers (locator, title, document id) verify, and 'chunk N' references resolve to the retrieved chunk they name; a reference to an unretrieved chunk stays an invention. Each field rejection is pinned as a unit test.",
+  "models": "Chat: Qwen3-4B-Instruct-2507 Q4_K_M via llama-cpp-python (rebuilt natively after a container CPU migration). Embeddings: nomic-embed-text v1.5 Q4_K_M, task prefixes applied.",
+  "corpus": "evals/corpus/aveline in full (11 documents); companion run on the repository documents/",
+  "companion": {
+   "cases": 13,
+   "accuracy": 1.0,
+   "false_answers": 0,
+   "determinism": 1.0,
+   "paraphrase_consistency": 1.0,
+   "tiers": {
+    "local": 8,
+    "refused": 5
+   }
+  },
+  "hardware": "4-core CPU container, no GPU; both model servers local",
+  "caveat": "These sets exercise the local model, which rarely echoes chunk labels; they prove g2 does no harm here. The behaviour g2 fixes was measured in the field on a frontier rung and is pinned by the unit tests, not by these corpora."
+ }
+}
