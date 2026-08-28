@@ -160,6 +160,6 @@ Every surprise the live tenant produces becomes a pinned test, as usual.
 6. Real-tenant verification with the company's values; field findings
    become tests.
 
-After this ships, per-folder ACLs (see [COMPANY-SERVER.md](COMPANY-SERVER.md))
-stop being blocked: folders already exist as categories, sign-in supplies
-real group ids, and the mapping between the two is an admin screen away.
+Per-folder ACLs - the feature this unblocks - now ship as well: admins
+rule folders in /manage's Access section, and the rule holds everywhere
+the documents surface. See [COMPANY-SERVER.md](COMPANY-SERVER.md).

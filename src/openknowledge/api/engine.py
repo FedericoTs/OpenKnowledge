@@ -279,7 +279,14 @@ def build_engine(settings: Settings) -> Engine:
     store = AnswerStore(settings.db_path)
     knowledge = KnowledgeStore(settings.knowledge_db_path)
     retriever = _build_retriever(settings)
-    connector = LocalFilesConnector(settings.documents_dir, pdf_backend=settings.pdf_backend)
+    connector = LocalFilesConnector(
+        settings.documents_dir,
+        pdf_backend=settings.pdf_backend,
+        # Bound to the store, not copied from it: folder access rules are
+        # admin decisions that change at runtime, and each re-index reads
+        # the ones in force.
+        folder_rules=knowledge.folder_rules,
+    )
     local = _build_local(settings)
     ladder = _build_ladder(settings, local)
     frontier = ladder.rungs[-1].provider if len(ladder) > 1 else None

@@ -24,6 +24,7 @@ from __future__ import annotations
 import secrets
 from collections.abc import Awaitable, Callable
 
+import httpx
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
@@ -76,7 +77,9 @@ def install_auth(app: FastAPI, settings: Settings) -> None:
     @app.get("/auth/login", include_in_schema=False)
     async def login(request: Request) -> Response:
         try:
-            url, pending = await oidc.begin_login(_redirect_uri(request))
+            url, pending = await oidc.begin_login(
+                _redirect_uri(request), next_path=_safe_next(request.query_params.get("next"))
+            )
         except OidcError as exc:
             return _error_page(str(exc), status_code=502)
         store.save_pending(pending)
@@ -102,7 +105,7 @@ def install_auth(app: FastAPI, settings: Settings) -> None:
         except OidcError as exc:
             return _error_page(str(exc), status_code=400)
         token = store.create(identity, ttl_seconds=settings.session_hours * 3600)
-        response = RedirectResponse("/", status_code=302)
+        response = RedirectResponse(_safe_next(pending.next_path), status_code=302)
         response.set_cookie(
             COOKIE_NAME,
             token,
@@ -154,8 +157,22 @@ def install_auth(app: FastAPI, settings: Settings) -> None:
             request.state.session = None
             return await call_next(request)
         if "text/html" in request.headers.get("accept", ""):
-            return RedirectResponse("/auth/login", status_code=302)
+            # Carry the destination through the flow: someone opening
+            # /manage signs in and lands on /manage, not the chat.
+            return RedirectResponse(f"/auth/login?{httpx.QueryParams(next=path)}", status_code=302)
         return JSONResponse({"detail": "sign in required"}, status_code=401)
+
+
+def _safe_next(raw: str | None) -> str:
+    """A destination this app may redirect to: a local path, or the root.
+
+    Anything else - an absolute URL, a protocol-relative '//host', an empty
+    value - collapses to '/', because a sign-in flow that forwards wherever
+    a query parameter points is an open redirect.
+    """
+    if raw and raw.startswith("/") and not raw.startswith("//"):
+        return raw
+    return "/"
 
 
 def _admin_token_matches(settings: Settings, authorization: str | None) -> bool:

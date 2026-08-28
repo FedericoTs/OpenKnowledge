@@ -49,7 +49,8 @@ CREATE TABLE IF NOT EXISTS pending_logins (
     state         TEXT PRIMARY KEY,
     nonce         TEXT NOT NULL,
     code_verifier TEXT NOT NULL,
-    created_at    REAL NOT NULL
+    created_at    REAL NOT NULL,
+    next_path     TEXT NOT NULL DEFAULT '/'
 );
 """
 
@@ -97,6 +98,16 @@ class SessionStore:
         self._lock = threading.RLock()
         with self._lock:
             self._conn.executescript(_SCHEMA)
+            # A database created before next_path existed gains the column;
+            # CREATE IF NOT EXISTS cannot add it to an existing table.
+            columns = {
+                row["name"] for row in self._conn.execute("PRAGMA table_info(pending_logins)")
+            }
+            if "next_path" not in columns:
+                self._conn.execute(
+                    "ALTER TABLE pending_logins ADD COLUMN next_path TEXT NOT NULL DEFAULT '/'"
+                )
+                self._conn.commit()
 
     def close(self) -> None:
         with self._lock:
@@ -154,8 +165,14 @@ class SessionStore:
         with self._lock:
             self._conn.execute(
                 "INSERT OR REPLACE INTO pending_logins (state, nonce, code_verifier,"
-                " created_at) VALUES (?, ?, ?, ?)",
-                (pending.state, pending.nonce, pending.code_verifier, pending.created_at),
+                " created_at, next_path) VALUES (?, ?, ?, ?, ?)",
+                (
+                    pending.state,
+                    pending.nonce,
+                    pending.code_verifier,
+                    pending.created_at,
+                    pending.next_path,
+                ),
             )
             self._conn.commit()
 
@@ -181,6 +198,7 @@ class SessionStore:
             nonce=row["nonce"],
             code_verifier=row["code_verifier"],
             created_at=row["created_at"],
+            next_path=row["next_path"],
         )
 
 

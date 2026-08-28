@@ -31,6 +31,7 @@ from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, Response, StreamingResponse
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
+from ..access import effective_principals, validate_principals
 from ..assets import find_asset
 from ..cache import citations_for
 from ..canonical import canonicalize_query
@@ -48,6 +49,7 @@ from .runtime_settings import (
     validate_changes,
 )
 from .schemas import (
+    AccessRequest,
     ChatRequest,
     ChatResponse,
     ContactRequest,
@@ -141,6 +143,33 @@ def _asker_principals(request: Request, supplied: list[str] | None) -> frozenset
         principals: frozenset[str] = session.principals
         return principals
     return frozenset(supplied) if supplied is not None else None
+
+
+def _viewer_principals(request: Request) -> frozenset[str] | None:
+    """Who is looking at the documents surface; None means unrestricted.
+
+    Unrestricted covers sign-in off (today's trust model), the admin-token
+    caller (it already holds every admin write), and members of the admin
+    group (organising folders is their job). Everyone else sees the tree
+    through their own principals.
+    """
+    settings: Settings = request.app.state.settings
+    if settings.auth_mode != "oidc" or _session_is_admin(request):
+        return None
+    session = getattr(request.state, "session", None)
+    if session is None:
+        return None  # the gate only admits sessionless callers with the admin token
+    principals: frozenset[str] = session.principals
+    return principals
+
+
+def _folder_readable(
+    folder: str, rules: dict[str, frozenset[str]], viewer: frozenset[str] | None
+) -> bool:
+    if viewer is None:
+        return True
+    ruled = effective_principals(folder, rules)
+    return not ruled or bool(ruled & viewer)
 
 
 def _find_site() -> Path | None:
@@ -487,31 +516,42 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail="uploads are not enabled")
 
     @app.get("/documents", dependencies=[Depends(require_uploads)])
-    async def list_documents(engine: EngineDep) -> dict[str, Any]:
-        """What is in the documents folder, as the folder sees it.
+    async def list_documents(engine: EngineDep, request: Request) -> dict[str, Any]:
+        """What is in the documents folder, as this viewer may see it.
 
-        The corpus tier already tells any asker the indexed titles, so a
-        filename listing raises nothing new - and it shows the files that
-        did NOT index, with the reason, which is where "I uploaded it and
-        it knows nothing" gets diagnosed.
+        The corpus tier already tells any asker the indexed titles it may
+        see, so a filename listing raises nothing new - and it shows the
+        files that did NOT index, with the reason, which is where "I
+        uploaded it and it knows nothing" gets diagnosed. Folder access
+        rules apply here exactly as they do to answers: a filename like
+        "Redundancy Plan.pdf" tells you what it is without opening it, so
+        an unfiltered listing would route around the ACL retrieval
+        respects. A restricted folder vanishes entirely for non-members.
         """
         from ..documents import skip_reason
 
+        viewer = _viewer_principals(request)
+        rules = engine.knowledge.folder_rules()
         root = Path(engine.settings.documents_dir)
         rows = []
         folders = []
         if root.is_dir():
             for path in sorted(root.rglob("*")):
+                relative = path.relative_to(root).as_posix()
                 if path.is_dir():
+                    if not _folder_readable(relative, rules, viewer):
+                        continue
                     # Named even when empty: a folder an admin created is a
                     # category that exists, not an artifact of its contents.
-                    folders.append(path.relative_to(root).as_posix())
+                    folders.append(relative)
                     continue
                 if not path.is_file():
                     continue
+                if not _folder_readable(path.relative_to(root).parent.as_posix(), rules, viewer):
+                    continue
                 rows.append(
                     {
-                        "name": path.relative_to(root).as_posix(),
+                        "name": relative,
                         "size": path.stat().st_size,
                         "skipped": skip_reason(path),
                     }
@@ -521,6 +561,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.post("/documents", status_code=201, dependencies=[Depends(require_uploads)])
     async def upload_documents(
         engine: EngineDep,
+        request: Request,
         files: Annotated[list[UploadFile], File()],
         folder: Annotated[str, Form()] = "",
     ) -> dict[str, Any]:
@@ -543,6 +584,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             if safe_folder is None:
                 raise HTTPException(status_code=400, detail="unusable folder name")
             into = safe_folder
+        if not _folder_readable(into, engine.knowledge.folder_rules(), _viewer_principals(request)):
+            raise HTTPException(
+                status_code=403,
+                detail=f"the folder {into!r} is restricted; ask an admin for access",
+            )
         limit = engine.settings.upload_max_mb * 1_000_000
         root = Path(engine.settings.documents_dir)
         target_dir = root / into if into else root
@@ -598,10 +644,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return {"stored": stored, "skipped": skipped, "corpus": corpus}
 
     @app.delete("/documents/{name:path}", dependencies=[Depends(require_uploads)])
-    async def delete_document(name: str, engine: EngineDep) -> dict[str, Any]:
+    async def delete_document(name: str, engine: EngineDep, request: Request) -> dict[str, Any]:
         safe = _safe_document_path(name)
         if safe is None:
             raise HTTPException(status_code=400, detail="unusable file name")
+        parent = safe.rpartition("/")[0]
+        if not _folder_readable(
+            parent, engine.knowledge.folder_rules(), _viewer_principals(request)
+        ):
+            # The same 404 an absent file gets: a restricted folder's
+            # contents are not confirmed to exist by their deletability.
+            raise HTTPException(status_code=404, detail=f"no document called {safe!r}")
         target = Path(engine.settings.documents_dir) / safe
         if not target.is_file():
             raise HTTPException(status_code=404, detail=f"no document called {safe!r}")
@@ -756,6 +809,68 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             corpus_version=version,
             evicted_cache_entries=evicted,
         )
+
+    # -- folder access -------------------------------------------------------
+    # Who may read which folder. Rules are admin decisions stored with the
+    # other human decisions; every change re-indexes immediately (free by
+    # construction) so the documents carry their new audience before the
+    # response returns - there is no window where a rule exists but the
+    # index does not know it.
+
+    @app.get("/admin/access", dependencies=[AdminOnly])
+    async def folder_access(engine: EngineDep) -> dict[str, Any]:
+        """Every rule, plus every folder that exists, for the admin UI."""
+        rules = engine.knowledge.folder_rules()
+        root = Path(engine.settings.documents_dir)
+        folders = (
+            sorted(p.relative_to(root).as_posix() for p in root.rglob("*") if p.is_dir())
+            if root.is_dir()
+            else []
+        )
+        return {
+            "rules": [
+                {"folder": folder, "principals": sorted(principals)}
+                for folder, principals in sorted(rules.items())
+            ],
+            "folders": folders,
+        }
+
+    @app.put("/admin/access/{folder:path}", dependencies=[AdminOnly])
+    async def set_folder_access(
+        folder: str, req: AccessRequest, engine: EngineDep
+    ) -> dict[str, Any]:
+        safe = _safe_document_path(folder)
+        if safe is None:
+            raise HTTPException(status_code=400, detail="unusable folder name")
+        principals = validate_principals(req.principals)
+        if isinstance(principals, str):
+            raise HTTPException(status_code=422, detail=principals)
+        engine.knowledge.set_folder_access(safe, principals)
+        documents, chunks, version, evicted = engine.reindex()
+        return {
+            "folder": safe,
+            "principals": sorted(principals),
+            "corpus": {
+                "documents": documents,
+                "chunks": chunks,
+                "corpus_version": version,
+                "answers_evicted": evicted,
+            },
+        }
+
+    @app.delete("/admin/access/{folder:path}", dependencies=[AdminOnly])
+    async def clear_folder_access(folder: str, engine: EngineDep) -> dict[str, Any]:
+        safe = _safe_document_path(folder)
+        if safe is None:
+            raise HTTPException(status_code=400, detail="unusable folder name")
+        if not engine.knowledge.clear_folder_access(safe):
+            raise HTTPException(status_code=404, detail=f"no rule for {safe!r}")
+        documents, chunks, version, evicted = engine.reindex()
+        return {
+            "folder": safe,
+            "open": True,
+            "corpus": {"documents": documents, "chunks": chunks, "corpus_version": version},
+        }
 
     # -- knowledge lifecycle -------------------------------------------------
     @app.post("/admin/learn", dependencies=[AdminOnly])

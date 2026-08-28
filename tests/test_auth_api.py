@@ -72,7 +72,30 @@ def sign_in(client: TestClient, idp: FakeIdp, *, subject="alice", groups=()) -> 
 def test_signed_out_browsers_are_sent_to_sign_in(client) -> None:
     response = client.get("/", headers={"accept": "text/html"}, follow_redirects=False)
     assert response.status_code == 302
-    assert response.headers["location"] == "/auth/login"
+    assert response.headers["location"] == "/auth/login?next=%2F"
+
+
+def test_sign_in_returns_you_where_you_were_headed(client, idp) -> None:
+    """Opening /manage signed-out means landing on /manage signed-in -
+    the first live drive of the admin page ended on the chat instead."""
+    stopped = client.get("/manage", headers={"accept": "text/html"}, follow_redirects=False)
+    assert stopped.headers["location"] == "/auth/login?next=%2Fmanage"
+    started = client.get(stopped.headers["location"], follow_redirects=False)
+    sent = {k: v[0] for k, v in parse_qs(urlparse(started.headers["location"]).query).items()}
+    code = idp.mint_code(audience=CLIENT_ID, nonce=sent["nonce"])
+    landed = client.get(f"/auth/callback?code={code}&state={sent['state']}", follow_redirects=False)
+    assert landed.headers["location"] == "/manage"
+
+
+def test_the_next_destination_cannot_leave_this_app(client, idp) -> None:
+    for hostile in ("https://evil.example/", "//evil.example", ""):
+        started = client.get(f"/auth/login?next={hostile}", follow_redirects=False)
+        sent = {k: v[0] for k, v in parse_qs(urlparse(started.headers["location"]).query).items()}
+        code = idp.mint_code(audience=CLIENT_ID, nonce=sent["nonce"])
+        landed = client.get(
+            f"/auth/callback?code={code}&state={sent['state']}", follow_redirects=False
+        )
+        assert landed.headers["location"] == "/", hostile
 
 
 def test_signed_out_api_calls_get_401_not_a_redirect(client) -> None:
@@ -300,3 +323,77 @@ def test_the_stream_is_gated_and_serves_the_same_answer(client, idp) -> None:
         assert stream.status_code == 200
         body = "".join(stream.iter_text())
     assert '"final"' in body and "70,000" in body
+
+
+# -- folder rules through real sessions -------------------------------------
+
+
+def test_a_folder_rule_walls_off_its_documents_end_to_end(tmp_path, idp) -> None:
+    """The whole company story in one test: an admin rules HR/ readable by
+    the HR group, and from then on membership decides the pinned answer,
+    the sidebar, the corpus listing, uploads and deletes - while loose
+    root files stay open to everyone signed in."""
+    docs = tmp_path / "documents"
+    (docs / "HR").mkdir(parents=True)
+    (docs / "HR" / "salary.md").write_text(
+        "# Salary Bands\n\nBand C pays EUR 70,000 per year.\n", encoding="utf-8"
+    )
+    (docs / "handbook.md").write_text(
+        "# Office Handbook\n\nThe office closes at 18:00.\n", encoding="utf-8"
+    )
+    settings = _settings(tmp_path, idp, oidc_admin_group="g-admins")
+    with TestClient(create_app(settings)) as client:
+        headers = {"Authorization": f"Bearer {ADMIN_TOKEN}"}
+        ruled = client.put("/admin/access/HR", json={"principals": ["group:g-hr"]}, headers=headers)
+        assert ruled.status_code == 200
+        pinned = client.post(
+            "/admin/pins",
+            json={
+                "question": "What does band C pay?",
+                "answer": "Band C pays EUR 70,000 per year. [HR-salary]",
+                "cite": ["HR-salary"],
+            },
+            headers=headers,
+        )
+        assert pinned.status_code == 201
+
+        # An HR member: the answer, the folder, the file - all there.
+        sign_in(client, idp, subject="hrm", groups=("g-hr",))
+        served = client.post("/chat", json={"question": "What does band C pay?"}).json()
+        assert served["tier"] == "pinned" and "70,000" in served["answer"]
+        listing = client.get("/documents").json()
+        assert "HR" in listing["folders"]
+        assert "HR/salary.md" in [f["name"] for f in listing["files"]]
+
+        # Everyone else: the folder does not exist, in any direction.
+        client.cookies.clear()
+        sign_in(client, idp, subject="bob", groups=())
+        denied = client.post("/chat", json={"question": "What does band C pay?"}).json()
+        assert denied["tier"] != "pinned" and "70,000" not in denied["answer"]
+        listing = client.get("/documents").json()
+        assert "HR" not in listing["folders"]
+        assert [f["name"] for f in listing["files"]] == ["handbook.md"]
+        titles = client.post("/chat", json={"question": "What documents do you have?"}).json()
+        assert "Salary Bands" not in titles["answer"]
+        assert "Office Handbook" in titles["answer"]
+        blocked = client.post(
+            "/documents",
+            data={"folder": "HR"},
+            files=[("files", ("evil.md", b"# X\n\ncontent", "application/octet-stream"))],
+        )
+        assert blocked.status_code == 403
+        assert client.delete("/documents/HR/salary.md").status_code == 404
+        assert (docs / "HR" / "salary.md").is_file(), "a non-member deleted through the wall"
+
+        # The admin group sees and manages everything.
+        client.cookies.clear()
+        sign_in(client, idp, subject="root", groups=("g-admins",))
+        listing = client.get("/documents").json()
+        assert "HR/salary.md" in [f["name"] for f in listing["files"]]
+
+        # Clearing the rule opens the folder again - for bob too.
+        assert client.delete("/admin/access/HR", headers=headers).status_code == 200
+        client.cookies.clear()
+        sign_in(client, idp, subject="bob", groups=())
+        reopened = client.post("/chat", json={"question": "What does band C pay?"}).json()
+        assert reopened["tier"] == "pinned" and "70,000" in reopened["answer"]

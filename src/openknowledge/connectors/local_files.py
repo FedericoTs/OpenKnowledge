@@ -18,9 +18,11 @@ somebody is told.
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from ..access import effective_principals
 from ..documents import SUPPORTED_SUFFIXES, parse_file, skip_reason
 from ..retrieval.base import Document
 
@@ -55,6 +57,7 @@ class LocalFilesConnector:
         suffixes: frozenset[str] = SUPPORTED_SUFFIXES,
         allowed_principals: frozenset[str] = frozenset(),
         pdf_backend: str = "auto",
+        folder_rules: Callable[[], Mapping[str, frozenset[str]]] | None = None,
     ) -> None:
         self.name = "local-files"
         # Resolved eagerly: a relative root cannot be turned into the file:// URI
@@ -63,6 +66,9 @@ class LocalFilesConnector:
         self.suffixes = suffixes
         self.allowed_principals = allowed_principals
         self.pdf_backend = pdf_backend
+        # A callable, not a snapshot: rules are admin decisions that change
+        # at runtime, and every re-index must see the current ones.
+        self.folder_rules = folder_rules
         self.skipped = []
 
     def fetch(self) -> list[Document]:
@@ -71,6 +77,7 @@ class LocalFilesConnector:
             log.warning("document root %s does not exist; no documents loaded", self.root)
             return []
 
+        rules = dict(self.folder_rules()) if self.folder_rules is not None else {}
         documents: list[Document] = []
         for path in sorted(self.root.rglob("*")):
             if not path.is_file() or path.name.startswith("~$"):
@@ -93,13 +100,17 @@ class LocalFilesConnector:
                     self.skipped.append(SkippedFile(relative, "no readable text"))
                 continue
 
+            # The deepest folder rule wins; unruled folders fall back to the
+            # connector-wide default (empty means readable by everyone).
+            folder = path.relative_to(self.root).parent.as_posix()
+            ruled = effective_principals(folder, rules)
             documents.append(
                 Document(
                     document_id=_document_id(path.relative_to(self.root)),
                     title=parsed.title or _fallback_title(path),
                     text=parsed.text,
                     url=path.as_uri(),
-                    allowed_principals=self.allowed_principals,
+                    allowed_principals=ruled or self.allowed_principals,
                     blocks=parsed.blocks,
                 )
             )

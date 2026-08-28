@@ -92,12 +92,15 @@ later.
    walkthrough for admins is [ENTRA-SETUP.md](ENTRA-SETUP.md). What no
    test of ours can reach — Microsoft's half of the flow against a real
    tenant — is the remaining verification step.
-2. **Folders as categories, permissions per folder.** The categories half
-   ships today: subfolders index, the sidebar groups documents under
-   their folders, and uploads choose a destination folder (or create
-   one) from the chat widget and from /manage. What remains is the
-   permissions half: ACL boundaries - HR/ readable by the HR group,
-   mapped from Entra groups - which needs sign-in (above) first.
+2. **Folders as categories, permissions per folder.** Both halves ship.
+   Subfolders index, the sidebar groups documents under their folders,
+   and uploads choose a destination folder (or create one) from the chat
+   widget and from /manage. On top of that, admins rule folders in
+   /manage's **Access** section: `HR/` readable by `group:<id>` means
+   non-members get no HR answers, no HR titles in the corpus listing, no
+   HR entries in the sidebar, and no writes into the folder - one rule,
+   enforced everywhere the documents surface. The deepest rule wins for
+   its subtree; an unruled folder stays open to everyone.
 3. **Escalation on the company's own AI subscription.** When the local
    model cannot answer, the ladder can escalate to **Azure OpenAI in the
    company's tenant** — IT-approved, data stays in-tenant, per-token

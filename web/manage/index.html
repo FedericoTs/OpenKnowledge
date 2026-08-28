@@ -105,6 +105,18 @@
   </section>
 
   <section data-admin-section>
+    <h2>Access</h2>
+    <p class="hint">
+      Who may read each folder. A rule names its readers as
+      <code>group:&lt;object-id&gt;</code>, <code>user:&lt;object-id&gt;</code> or
+      <code>authenticated</code> — the ids sign-in provides. The deepest rule
+      wins for its subtree; a folder without one is open to everyone. Answers,
+      the sidebar and the corpus listing all follow the same rule.
+    </p>
+    <div id="access"><p class="locked-note">Unlock to load.</p></div>
+  </section>
+
+  <section data-admin-section>
     <h2>Review queue</h2>
     <p class="hint">
       Answers drafted from your documents, ranked by what approving them saves.
@@ -274,6 +286,68 @@ $('reindex').onclick = async () => {
 };
 
 // ---- admin sections --------------------------------------------------------
+async function refreshAccess() {
+  const box = $('access');
+  try {
+    const body = await api('/admin/access');
+    box.textContent = '';
+    const ruled = new Map(body.rules.map(r => [r.folder, r.principals]));
+    const folders = [...new Set([...body.folders, ...ruled.keys()])].sort();
+    if (!folders.length) {
+      box.appendChild(el('p', 'empty',
+        'No folders yet. Create one from the chat sidebar or upload into one.'));
+      return;
+    }
+    const table = el('table');
+    table.appendChild(el('thead')).innerHTML =
+      '<tr><th>Folder</th><th>Who may read</th><th></th></tr>';
+    const tbody = table.appendChild(el('tbody'));
+    for (const folder of folders) {
+      const tr = tbody.appendChild(el('tr'));
+      tr.appendChild(el('td', null, folder));
+      const cell = tr.appendChild(el('td'));
+      const input = cell.appendChild(el('input'));
+      input.type = 'text';
+      input.size = 44;
+      input.placeholder = 'everyone — add group:<object-id> to restrict';
+      input.value = (ruled.get(folder) || []).join(', ');
+      const actions = tr.appendChild(el('td'));
+      const save = actions.appendChild(el('button', 'ghost small', 'Save'));
+      save.onclick = async () => {
+        const principals = input.value.split(/[\s,]+/).filter(Boolean);
+        try {
+          if (principals.length) {
+            await api('/admin/access/' + encodeURIComponent(folder),
+              { method: 'PUT', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ principals }) });
+            say(folder + ' — readable by ' + principals.join(', ') + '. Re-indexed.', true);
+          } else if (ruled.has(folder)) {
+            await api('/admin/access/' + encodeURIComponent(folder), { method: 'DELETE' });
+            say(folder + ' — open to everyone again. Re-indexed.', true);
+          } else {
+            say(folder + ' is already open to everyone.', true);
+            return;
+          }
+        } catch (e) { say('Could not save the rule: ' + e.message, false); return; }
+        refreshAccess(); refreshDocuments(); refreshCorpus();
+      };
+      if (ruled.has(folder)) {
+        const clear = actions.appendChild(el('button', 'ghost small', 'Open to everyone'));
+        clear.onclick = async () => {
+          try { await api('/admin/access/' + encodeURIComponent(folder), { method: 'DELETE' }); }
+          catch (e) { say('Could not clear the rule: ' + e.message, false); return; }
+          say(folder + ' — open to everyone again. Re-indexed.', true);
+          refreshAccess(); refreshDocuments(); refreshCorpus();
+        };
+      }
+    }
+    box.appendChild(table);
+  } catch (e) {
+    box.textContent = '';
+    box.appendChild(el('p', 'locked-note', 'Could not load access rules: ' + e.message));
+  }
+}
+
 async function refreshProposals() {
   const box = $('proposals');
   try {
@@ -436,7 +510,7 @@ async function unlock(token) {
   say('Unlocked.', true);
   $('forget').hidden = false;
   $('token-input').value = '';
-  refreshProposals(); refreshConflicts(); refreshSettings(); refreshCosts();
+  refreshAccess(); refreshProposals(); refreshConflicts(); refreshSettings(); refreshCosts();
   return true;
 }
 $('unlock').onclick = () => {
@@ -480,7 +554,7 @@ fetch('/auth/me').then(r => r.ok ? r.json() : null).then(async (who) => {
       await api('/admin/settings');
       $('unlock-section').hidden = true;
       say('Admin, via your sign-in group.', true);
-      refreshProposals(); refreshConflicts(); refreshSettings(); refreshCosts();
+      refreshAccess(); refreshProposals(); refreshConflicts(); refreshSettings(); refreshCosts();
     } catch (e) { /* fall back to the token flow */ }
   }
 }).catch(() => {});

@@ -261,15 +261,19 @@ Honest status. "Built" means implemented and covered by tests in this repository
      [ENTRA-SIGNIN.md](ENTRA-SIGNIN.md): generic OIDC tested against a
      fake IdP in CI, Entra documented first; only Microsoft's half of the
      flow needs a real tenant to verify.
-   - **Folders as categories.** The visible-structure half is built:
-     the sidebar groups documents under their folders with counts (loose
-     files under "Unfiled"), uploads pick a destination folder - or name
-     a new one - from the widget and from /manage, deleting a nested
-     document addresses its full path (flattening once made `HR/x.md`
-     delete a root-level `x.md`), and an emptied folder stays listed,
-     because a category an admin made is a decision. Still ahead:
-     scoping ("answer from HR/ only") and per-folder ACLs mapped from
-     Entra groups.
+   - **Folders as categories.** Built, both halves. The sidebar groups
+     documents under their folders with counts (loose files under
+     "Unfiled"), uploads pick a destination folder - or name a new one -
+     from the widget and from /manage, deleting a nested document
+     addresses its full path (flattening once made `HR/x.md` delete a
+     root-level `x.md`), and an emptied folder stays listed, because a
+     category an admin made is a decision. And folders now carry access:
+     admins rule them in /manage (`group:<id>`, `user:<id>`,
+     `authenticated` - the ids sign-in mints), the deepest rule wins for
+     its subtree, documents are stamped at index time, and the one rule
+     holds everywhere at once - answers, every cache tier, the corpus
+     listing, the sidebar, uploads and deletes. Still ahead: scoping
+     ("answer from HR/ only").
    - **Escalate on the company's Azure OpenAI tenant.** Slots into the
      existing ladder as configuration plus Azure's auth header. Stated
      honestly: a Microsoft 365 Copilot seat is not a callable completion

@@ -77,6 +77,12 @@ CREATE TABLE IF NOT EXISTS document_versions (
     first_seen   REAL NOT NULL,
     updated_at   REAL NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS folder_access (
+    folder     TEXT PRIMARY KEY,
+    principals TEXT NOT NULL,
+    updated_at REAL NOT NULL
+);
 """
 
 
@@ -532,3 +538,32 @@ class KnowledgeStore:
             self._conn.commit()
 
         return added, changed, removed
+
+    # -- folder access -----------------------------------------------------
+    # Who may read which folder. Kept here with the other human decisions
+    # (approvals, resolutions): an access rule must survive every re-index,
+    # because the index is disposable and the decision is not.
+
+    def folder_rules(self) -> dict[str, frozenset[str]]:
+        return {
+            row["folder"]: frozenset(json.loads(row["principals"]))
+            for row in self._conn.execute("SELECT folder, principals FROM folder_access").fetchall()
+        }
+
+    def set_folder_access(self, folder: str, principals: frozenset[str]) -> None:
+        with self._lock:
+            self._conn.execute(
+                "INSERT INTO folder_access (folder, principals, updated_at)"
+                " VALUES (?, ?, ?)"
+                " ON CONFLICT(folder) DO UPDATE SET"
+                "   principals=excluded.principals, updated_at=excluded.updated_at",
+                (folder, json.dumps(sorted(principals)), time.time()),
+            )
+            self._conn.commit()
+
+    def clear_folder_access(self, folder: str) -> bool:
+        """Remove a rule; True if one existed. The folder becomes open again."""
+        with self._lock:
+            cursor = self._conn.execute("DELETE FROM folder_access WHERE folder = ?", (folder,))
+            self._conn.commit()
+        return cursor.rowcount > 0

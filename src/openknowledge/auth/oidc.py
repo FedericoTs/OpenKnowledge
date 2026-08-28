@@ -61,6 +61,9 @@ class PendingLogin:
     nonce: str
     code_verifier: str
     created_at: float
+    #: Where the person was headed when the gate stopped them. Someone
+    #: opening /manage signs in and lands on /manage, not the chat.
+    next_path: str = "/"
 
 
 @dataclass(frozen=True, slots=True)
@@ -135,7 +138,9 @@ class OidcClient:
 
     # -- the flow ----------------------------------------------------------
 
-    async def begin_login(self, redirect_uri: str) -> tuple[str, PendingLogin]:
+    async def begin_login(
+        self, redirect_uri: str, next_path: str = "/"
+    ) -> tuple[str, PendingLogin]:
         """The URL to send the browser to, and what to remember until it returns."""
         provider = await self.provider()
         pending = PendingLogin(
@@ -143,6 +148,7 @@ class OidcClient:
             nonce=secrets.token_urlsafe(32),
             code_verifier=secrets.token_urlsafe(48),
             created_at=time.time(),
+            next_path=next_path,
         )
         challenge = _b64url(hashlib.sha256(pending.code_verifier.encode("ascii")).digest())
         params = httpx.QueryParams(

@@ -97,6 +97,17 @@ Both or neither — half a pair refuses to start rather than serving
 insecurely. The session cookie is marked `Secure` exactly when
 `OK_PUBLIC_URL` is https.
 
+## 6. Give folders to groups
+
+Once sign-in works, folder permissions are an admin screen, not a config
+file: open **/manage → Access**, and next to each folder enter who may
+read it — `group:<object-id>` (the group's Object ID from Entra),
+`user:<object-id>`, or `authenticated` for anyone signed in. Save
+re-indexes immediately. One rule holds everywhere at once: answers, the
+shared cache, the corpus listing, the chat sidebar, uploads and deletes.
+The deepest rule wins for its subtree, and a folder without a rule stays
+open to everyone.
+
 ---
 
 ## When it does not work

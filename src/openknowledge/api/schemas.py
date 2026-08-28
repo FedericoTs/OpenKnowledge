@@ -84,6 +84,12 @@ class PinRequest(BaseModel):
     aliases: list[str] = []
 
 
+class AccessRequest(BaseModel):
+    """Who may read a folder: 'group:<id>', 'user:<id>' or 'authenticated'."""
+
+    principals: list[str] = Field(min_length=1)
+
+
 class ReindexResponse(BaseModel):
     documents: int
     chunks: int
