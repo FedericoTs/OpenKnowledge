@@ -494,6 +494,11 @@ def test_gpu_out_of_memory_falls_back_to_cpu(tmp_path: Path, monkeypatch) -> Non
     monkeypatch.setattr(launcher.llama, "spawn", fake_spawn)
     monkeypatch.setattr(launcher.llama, "wait_ready", fake_wait_ready)
     monkeypatch.setattr(launcher.llama, "terminate", lambda servers: terminated.extend(servers))
+    # The fallback narrates into STATUS; a test must not leave the global
+    # singleton mid-story for whoever runs next.
+    from openknowledge.desktop.setup import SetupStatus
+
+    monkeypatch.setattr(launcher, "STATUS", SetupStatus())
 
     model = _fake_model()
     server = launcher._start_with_cpu_fallback(
