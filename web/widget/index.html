@@ -6,131 +6,323 @@
 <title>OpenKnowledge</title>
 <style>
   :root {
-    --bg: #fbfbfa; --panel: #fff; --ink: #1a1a19; --muted: #6b6b66;
-    --line: #e5e4e0; --accent: #2f5d50; --free: #2f5d50; --paid: #8a5a2b;
-    --radius: 10px;
+    --bg:#f6f6f2; --panel:#ffffff; --ink:#1b1c1a; --muted:#70706a;
+    --line:#e6e5df; --accent:#2f5d50; --accent-ink:#274e43;
+    --free:#2f5d50; --paid:#8a5a2b; --danger:#a33a2a;
+    --side-bg:#132720; --side-ink:#e9eee9; --side-muted:#9db3a8;
+    --side-line:#24463a; --side-hover:#1b352c;
+    --radius:12px; --shadow:0 1px 2px rgba(20,30,25,.05), 0 4px 16px rgba(20,30,25,.05);
   }
   @media (prefers-color-scheme: dark) {
-    :root { --bg:#191917; --panel:#232320; --ink:#eceae4; --muted:#9a978e;
-            --line:#35342f; --accent:#7fb3a2; --free:#7fb3a2; --paid:#d0a06a; }
+    :root {
+      --bg:#161815; --panel:#20231f; --ink:#eceae4; --muted:#98978d;
+      --line:#32352f; --accent:#7fb3a2; --accent-ink:#8fc0af;
+      --free:#7fb3a2; --paid:#d0a06a; --danger:#e2907f;
+      --side-bg:#101511; --side-ink:#e2e8e1; --side-muted:#7e948a;
+      --side-line:#1f2b23; --side-hover:#182119;
+      --shadow:0 1px 2px rgba(0,0,0,.25), 0 4px 18px rgba(0,0,0,.22);
+    }
   }
-  * { box-sizing: border-box; }
-  body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.55 ui-sans-serif,
-         system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
-  .wrap { max-width: 720px; margin: 0 auto; padding: 32px 20px 96px; }
-  header { display:flex; align-items:baseline; gap:10px; margin-bottom:6px; }
-  h1 { font-size:19px; margin:0; letter-spacing:-.01em; }
-  .sub { color:var(--muted); font-size:13px; margin:0 0 24px; }
-  #log { display:flex; flex-direction:column; gap:16px; }
-  .msg { padding:14px 16px; border-radius:var(--radius); border:1px solid var(--line); }
-  .q { background:transparent; border-style:dashed; }
-  .q b { color:var(--muted); font-weight:600; font-size:12px; text-transform:uppercase;
-         letter-spacing:.06em; display:block; margin-bottom:4px; }
-  .a { background:var(--panel); }
-  .a p { margin:0 0 10px; white-space:pre-wrap; }
-  .meta { display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin-top:10px;
-          padding-top:10px; border-top:1px solid var(--line); font-size:12px; }
-  .badge { padding:2px 8px; border-radius:999px; border:1px solid currentColor;
-           font-weight:600; font-size:11px; letter-spacing:.03em; }
-  .badge.free { color:var(--free); } .badge.paid { color:var(--paid); }
-  .meta .dim { color:var(--muted); }
-  .cites { margin-top:10px; display:flex; flex-direction:column; gap:6px; }
+  * { box-sizing:border-box; }
+  html, body { height:100%; }
+  body { margin:0; background:var(--bg); color:var(--ink);
+         font:15px/1.6 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+
+  .app { display:grid; grid-template-columns:296px 1fr; height:100vh; }
+
+  /* ---- sidebar: the knowledge, always in view --------------------------- */
+  aside { background:var(--side-bg); color:var(--side-ink); display:flex;
+          flex-direction:column; min-height:0; }
+  .brand { padding:22px 20px 16px; }
+  .brand h1 { margin:0; font-size:17px; letter-spacing:-.02em; font-weight:650; }
+  .brand .tag { margin:4px 0 0; font-size:12.5px; color:var(--side-muted); line-height:1.5; }
+  .side-section { padding:14px 20px 4px; }
+  .side-label { font-size:10.5px; font-weight:700; letter-spacing:.12em;
+                text-transform:uppercase; color:var(--side-muted); margin:0 0 8px; }
+  #side-stats { font-size:12.5px; color:var(--side-muted); margin:0; }
+  #conflict-chip { display:none; margin-top:8px; font-size:12px; color:#f0c9a0;
+                   border:1px solid rgba(240,201,160,.35); border-radius:8px;
+                   padding:6px 9px; line-height:1.45; }
+  #doc-list { list-style:none; margin:6px 0 0; padding:0 12px; overflow-y:auto;
+              flex:1; min-height:0; }
+  #doc-list li { display:flex; align-items:center; gap:8px; padding:7px 8px;
+                 border-radius:8px; font-size:13px; }
+  #doc-list li:hover { background:var(--side-hover); }
+  #doc-list .doc-ico { flex:none; width:16px; height:16px; opacity:.75; }
+  #doc-list .doc-name { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis;
+                        white-space:nowrap; }
+  #doc-list .doc-note { flex:none; font-size:11px; color:var(--side-muted); }
+  #doc-list .doc-x { flex:none; visibility:hidden; border:0; background:none;
+                     color:var(--side-muted); font-size:14px; cursor:pointer;
+                     padding:0 3px; border-radius:5px; line-height:1; }
+  #doc-list li:hover .doc-x { visibility:visible; }
+  #doc-list .doc-x:hover { color:#f2b8a8; }
+  .doc-skipped { opacity:.55; }
+  #doc-empty { padding:4px 8px; font-size:12.5px; color:var(--side-muted); }
+  #add-docs { margin:10px 20px 8px; padding:9px 12px; border:1px dashed var(--side-line);
+              border-radius:9px; background:none; color:var(--side-ink); font:inherit;
+              font-size:13px; cursor:pointer; text-align:left; display:none; }
+  #add-docs:hover { background:var(--side-hover); border-color:var(--side-muted); }
+  #add-docs span { color:var(--side-muted); font-size:11.5px; display:block; margin-top:1px; }
+  .side-foot { padding:12px 20px 16px; border-top:1px solid var(--side-line);
+               font-size:12px; color:var(--side-muted); }
+  .side-foot a { color:var(--side-ink); text-decoration:none; }
+  .side-foot a:hover { text-decoration:underline; text-underline-offset:2px; }
+  .side-foot .links { display:flex; gap:14px; margin-bottom:7px; }
+
+  /* ---- main: the conversation ------------------------------------------ */
+  main { display:flex; flex-direction:column; min-height:0; }
+  #scroll { flex:1; overflow-y:auto; min-height:0; }
+  .thread { max-width:760px; margin:0 auto; padding:34px 28px 20px; }
+  #hero { text-align:center; color:var(--muted); padding:56px 12px 20px; }
+  #hero .mark { width:44px; height:44px; margin:0 auto 14px; border-radius:12px;
+                background:var(--accent); display:grid; place-items:center; }
+  #hero .mark svg { width:22px; height:22px; }
+  #hero h2 { margin:0 0 6px; font-size:19px; color:var(--ink); letter-spacing:-.015em; }
+  #hero p { margin:0; font-size:13.5px; max-width:440px; margin-inline:auto; }
+
+  #log { display:flex; flex-direction:column; gap:22px; }
+  .turn-q { padding:0 2px; }
+  .turn-q b { display:block; font-size:10.5px; font-weight:700; letter-spacing:.12em;
+              text-transform:uppercase; color:var(--muted); margin-bottom:3px; }
+  .turn-q div { font-size:15.5px; font-weight:550; letter-spacing:-.005em; }
+  .msg { background:var(--panel); border:1px solid var(--line); border-radius:var(--radius);
+         padding:16px 18px; box-shadow:var(--shadow); }
+  .msg p { margin:0 0 10px; white-space:pre-wrap; }
+  .msg p:last-child { margin-bottom:0; }
+  .sys { background:none; border:1px dashed var(--line); box-shadow:none;
+         color:var(--muted); font-size:13.5px; }
+  .sys b { color:var(--ink); }
+
+  details.cites { margin-top:12px; }
+  details.cites summary { cursor:pointer; font-size:12px; font-weight:650;
+                          color:var(--accent-ink); list-style:none; user-select:none; }
+  details.cites summary::before { content:"▸ "; }
+  details.cites[open] summary::before { content:"▾ "; }
   .cite { font-size:12.5px; color:var(--muted); border-left:2px solid var(--line);
-          padding-left:10px; }
+          padding-left:10px; margin-top:8px; }
   .cite b { color:var(--ink); font-weight:600; }
-  form { position:fixed; left:0; right:0; bottom:0; background:var(--bg);
-         border-top:1px solid var(--line); padding:14px 20px; }
-  .row { max-width:720px; margin:0 auto; display:flex; gap:8px; }
-  input { flex:1; padding:11px 13px; font:inherit; color:inherit; background:var(--panel);
-          border:1px solid var(--line); border-radius:var(--radius); }
-  input:focus { outline:2px solid var(--accent); outline-offset:-1px; }
-  button { padding:11px 18px; font:inherit; font-weight:600; color:var(--bg);
-           background:var(--accent); border:0; border-radius:var(--radius); cursor:pointer; }
-  button:disabled { opacity:.5; cursor:default; }
-  .err { color:#b3261e; } @media (prefers-color-scheme:dark){ .err{color:#f2b8b5;} }
-  /* Text that is still generating and has not passed the grounding gate yet.
-     Visibly not-final: the whole streaming bargain is that the reader can see
-     it, so the reader must be able to tell it is unverified. */
+
+  .meta { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-top:12px;
+          padding-top:11px; border-top:1px solid var(--line); font-size:12px; }
+  .badge { padding:2.5px 9px; border-radius:999px; font-weight:650; font-size:11px;
+           letter-spacing:.02em; border:1px solid transparent; }
+  .badge.free  { color:var(--free); background:color-mix(in srgb, var(--free) 12%, transparent); }
+  .badge.model { color:var(--accent-ink); border-color:var(--line); }
+  .badge.none  { color:var(--paid); border-color:currentColor; }
+  .meta .dim { color:var(--muted); }
+  .notes { margin-top:8px; font-size:12px; color:var(--muted); }
+  .notes div { margin-top:2px; }
+
+  .working { color:var(--muted); font-size:13px; }
+  .working time { font-variant-numeric:tabular-nums; }
   .prov p { opacity:.75; }
   .prov .caret { display:inline-block; width:7px; height:14px; margin-left:2px;
                  background:var(--accent); vertical-align:-2px;
                  animation:blink 1s steps(1) infinite; }
   @keyframes blink { 50% { opacity:0; } }
   @media (prefers-reduced-motion:reduce){ .prov .caret { animation:none; } }
-  .working { color:var(--muted); font-size:13px; }
-  .working time { font-variant-numeric:tabular-nums; }
-  /* An answer the gate withdrew. It stays on screen, struck through, because
-     hiding it would be pretending it was never shown. */
   .retracted p { text-decoration:line-through; opacity:.45; }
   .retract-note { font-size:12.5px; color:var(--paid); margin-top:8px; }
-  #add-docs { color:var(--accent); cursor:pointer; text-decoration:underline;
-              text-underline-offset:2px; }
+  .err { color:var(--danger); }
+
+  /* ---- composer --------------------------------------------------------- */
+  .composer { border-top:1px solid var(--line); background:var(--bg); }
+  .composer form { max-width:760px; margin:0 auto; padding:14px 28px 18px; }
+  .field { display:flex; gap:8px; background:var(--panel); border:1px solid var(--line);
+           border-radius:14px; padding:6px 6px 6px 16px; box-shadow:var(--shadow); }
+  .field:focus-within { border-color:var(--accent); outline:1px solid var(--accent); }
+  .field input { flex:1; border:0; background:none; font:inherit; color:inherit;
+                 padding:8px 0; min-width:0; }
+  .field input:focus { outline:none; }
+  .field button { padding:9px 18px; font:inherit; font-weight:650; color:#fff;
+                  background:var(--accent); border:0; border-radius:9px; cursor:pointer; }
+  .field button:disabled { opacity:.5; cursor:default; }
+  .composer .hint { max-width:760px; margin:6px auto 0; font-size:11.5px;
+                    color:var(--muted); text-align:center; }
+
   #dropzone { position:fixed; inset:0; display:none; place-items:center; z-index:9;
               background:color-mix(in srgb, var(--bg) 82%, transparent);
               border:3px dashed var(--accent); }
   #dropzone.active { display:grid; }
-  #dropzone p { font-size:18px; font-weight:600; color:var(--accent); }
-  .sys { border-style:dashed; color:var(--muted); font-size:13.5px; }
-  .sys b { color:var(--ink); }
+  #dropzone p { font-size:18px; font-weight:650; color:var(--accent); }
+
+  /* ---- small screens ---------------------------------------------------- */
+  @media (max-width: 860px) {
+    .app { grid-template-columns:1fr; }
+    aside { display:none; }
+    .app.side-open aside { display:flex; position:fixed; inset:0 22% 0 0; z-index:8;
+                           box-shadow:0 0 40px rgba(0,0,0,.35); }
+    #side-toggle { display:inline-grid; }
+    .thread, .composer form { padding-inline:18px; }
+  }
+  #side-toggle { display:none; position:fixed; top:12px; left:12px; z-index:9;
+                 width:38px; height:38px; place-items:center; border-radius:10px;
+                 border:1px solid var(--line); background:var(--panel); color:var(--ink);
+                 cursor:pointer; box-shadow:var(--shadow); }
 </style>
 </head>
 <body>
-<div class="wrap">
-  <header><h1>OpenKnowledge</h1></header>
-  <p class="sub">Answers come only from your indexed documents, with the source for each one.</p>
-  <p class="sub" id="corpus"></p>
-  <div id="dropzone" aria-hidden="true"><p>Drop documents to add them to the knowledge base</p></div>
-  <input id="file-input" type="file" multiple hidden
-         accept=".pdf,.docx,.xlsx,.xlsm,.pptx,.md,.markdown,.rst,.txt">
-  <div id="log"></div>
+<div class="app" id="app">
+  <aside>
+    <div class="brand">
+      <h1>OpenKnowledge</h1>
+      <p class="tag">Answers only from your documents, with the source for each one.</p>
+    </div>
+    <div class="side-section">
+      <p class="side-label">Knowledge base</p>
+      <p id="side-stats">Checking…</p>
+      <div id="conflict-chip"></div>
+    </div>
+    <ul id="doc-list"></ul>
+    <button id="add-docs" type="button">＋ Add documents
+      <span>or drop files anywhere</span></button>
+    <div class="side-foot">
+      <div class="links"><a href="/manage">Manage ↗</a><a href="/docs">API ↗</a></div>
+      <div>Everything stays on this machine.</div>
+    </div>
+  </aside>
+
+  <main>
+    <button id="side-toggle" aria-label="Show documents">☰</button>
+    <div id="scroll">
+      <div class="thread">
+        <div id="hero">
+          <div class="mark"><svg viewBox="0 0 24 24" fill="none">
+            <rect x="4" y="6" width="16" height="2.6" rx="1.3" fill="#fff"/>
+            <rect x="4" y="11" width="16" height="2.6" rx="1.3" fill="#fff"/>
+            <rect x="4" y="16" width="10" height="2.6" rx="1.3" fill="#fff"/>
+          </svg></div>
+          <h2 id="hero-title">Ask your documents</h2>
+          <p id="hero-sub">Every answer is grounded in an indexed passage and cites it.
+             Asked twice, it answers identically — and it refuses rather than guesses.</p>
+        </div>
+        <div id="log"></div>
+      </div>
+    </div>
+    <div class="composer">
+      <form id="form">
+        <div class="field">
+          <input id="q" autocomplete="off" placeholder="Ask about a policy, a clause, a number…" required>
+          <button id="send" type="submit">Ask</button>
+        </div>
+      </form>
+      <p class="hint">Grounded · deterministic · private — refuses when the documents do not answer.</p>
+    </div>
+  </main>
 </div>
 
-<form id="form">
-  <div class="row">
-    <input id="q" autocomplete="off" placeholder="Ask about a policy or procedure&hellip;" required>
-    <button id="send" type="submit">Ask</button>
-  </div>
-</form>
+<div id="dropzone" aria-hidden="true"><p>Drop documents to add them to the knowledge base</p></div>
+<input id="file-input" type="file" multiple hidden
+       accept=".pdf,.docx,.xlsx,.xlsm,.pptx,.md,.markdown,.rst,.txt">
 
 <script>
-// What is indexed, stated rather than asked. "How many documents do you have?"
-// is a question *about* the corpus, not one answerable *from* it, so the model
-// rightly refuses it - which reads as the system not knowing what it holds.
-// The count is a fact the server already has; showing it beats refusing it.
 let uploadsEnabled = false;
 
-function refreshCorpusLine() {
+function el(tag, cls, text) {
+  const n = document.createElement(tag);
+  if (cls) n.className = cls;
+  if (text !== undefined) n.textContent = text;
+  return n;
+}
+
+// A model id can be a filesystem path (the desktop app records the GGUF it
+// runs); a path is the truth for the ledger but noise for a reader.
+function prettyModel(m) {
+  if (!m) return m;
+  const last = String(m).split(/[\\/]/).pop().replace(/\.gguf$/i, '');
+  return last.length > 42 ? last.slice(0, 40) + '…' : last;
+}
+
+// What is indexed, stated rather than asked: the count is a fact the server
+// already has, and refusing "how many documents do you have?" reads as the
+// system not knowing what it holds.
+function refreshCorpus() {
   return fetch('healthz').then(r => r.ok ? r.json() : null).then(h => {
-    if (!h) { return; }
+    if (!h) return;
     uploadsEnabled = !!h.upload_enabled;
-    const docs = h.documents_indexed, bits = h.chunks_indexed;
-    const el = document.getElementById('corpus');
-    el.textContent = docs
-      ? `${docs} document${docs === 1 ? '' : 's'} indexed, in ${bits} passage${bits === 1 ? '' : 's'}. `
-      : (uploadsEnabled
-          ? 'No documents yet. '
-          : 'No documents indexed yet - put files in your documents folder and run `openknowledge index`.');
-    if (uploadsEnabled && !document.getElementById('add-docs')) {
-      const add = el.appendChild(document.createElement('span'));
-      add.id = 'add-docs';
-      add.textContent = docs ? 'Add more' : 'Add documents';
-      add.onclick = () => document.getElementById('file-input').click();
+    const stats = document.getElementById('side-stats');
+    stats.textContent = h.documents_indexed
+      ? `${h.documents_indexed} document${h.documents_indexed === 1 ? '' : 's'} · ${h.chunks_indexed} passage${h.chunks_indexed === 1 ? '' : 's'}`
+      : 'No documents yet.';
+    document.getElementById('add-docs').style.display = uploadsEnabled ? 'block' : 'none';
+    const hero = document.getElementById('hero-title');
+    if (!h.documents_indexed) {
+      hero.textContent = 'Add documents to begin';
+      document.getElementById('hero-sub').textContent = uploadsEnabled
+        ? 'Drop files anywhere on this page — PDF, Word, Excel, PowerPoint or Markdown — and ask about them seconds later.'
+        : 'Put files in your documents folder and run `openknowledge index`.';
+    }
+    return refreshDocuments();
+  }).catch(() => {});
+}
+
+function refreshDocuments() {
+  if (!uploadsEnabled) return;
+  return fetch('/documents').then(r => r.ok ? r.json() : null).then(body => {
+    if (!body) return;
+    const list = document.getElementById('doc-list');
+    list.textContent = '';
+    if (!body.files.length) {
+      list.appendChild(el('div', null, '')).id = 'doc-empty';
+      document.getElementById('doc-empty').textContent = 'Nothing here yet.';
+      return;
+    }
+    for (const f of body.files) {
+      const li = el('li', f.skipped ? 'doc-skipped' : '');
+      const ico = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      ico.setAttribute('viewBox', '0 0 24 24'); ico.classList.add('doc-ico');
+      ico.innerHTML = '<path d="M6 3h8l4 4v14H6z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M14 3v4h4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>';
+      li.appendChild(ico);
+      const name = el('span', 'doc-name', f.name);
+      name.title = f.name + (f.skipped ? ' — not indexed: ' + f.skipped : '');
+      li.appendChild(name);
+      li.appendChild(el('span', 'doc-note', f.skipped ? 'not indexed' : ''));
+      const x = el('button', 'doc-x', '✕');
+      x.title = 'Remove ' + f.name;
+      x.onclick = () => removeDocument(f.name);
+      li.appendChild(x);
+      list.appendChild(li);
     }
   }).catch(() => {});
 }
-refreshCorpusLine();
 
-// The desktop app's first run happens in the browser: while models are
-// still being consented to, downloaded or loaded, the chat hands over to
-// the setup page. On a server deployment the status is always "ready" and
-// this never fires.
+async function removeDocument(name) {
+  if (!confirm('Remove "' + name + '" from the knowledge base?\nAnswers derived from it become unreachable.')) return;
+  try {
+    const res = await fetch('/documents/' + encodeURIComponent(name), { method: 'DELETE' });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    systemNote(name + ' — removed. Answers that cited it are no longer served.');
+    refreshCorpus();
+  } catch (err) {
+    systemNote('Could not remove ' + name + ': ' + err.message, true);
+  }
+}
+
+refreshCorpus();
+
+// The desktop app's first run happens in the browser: while models are being
+// consented to, downloaded or loaded, the chat hands over to the setup page.
+// On a server deployment the status is always "ready" and this never fires.
 fetch('/setup/status').then(r => r.json()).then(body => {
   if (body.state && body.state !== 'ready') location.replace('/setup');
 }).catch(() => {});
 
-// Drag a file anywhere onto the page and it becomes knowledge. The report the
-// server sends back is shown as a message in the conversation, because that is
-// where the person is looking - including what was refused, and why.
+const log = document.getElementById('log');
+const scroller = document.getElementById('scroll');
+function scrollToEnd() { scroller.scrollTop = scroller.scrollHeight; }
+function heroGone() { const h = document.getElementById('hero'); if (h) h.remove(); }
+
+function systemNote(text, isError) {
+  const note = el('div', 'msg sys');
+  note.appendChild(el('p', isError ? 'err' : null, text));
+  log.appendChild(note);
+  scrollToEnd();
+  return note;
+}
+
+// Drag a file anywhere and it becomes knowledge. The report comes back as a
+// message in the conversation - including what was refused, and why.
 (function () {
   const zone = document.getElementById('dropzone');
   let depth = 0;
@@ -151,15 +343,16 @@ fetch('/setup/status').then(r => r.json()).then(body => {
     if (e.target.files.length) uploadFiles(e.target.files);
     e.target.value = '';
   });
+  document.getElementById('add-docs').onclick =
+    () => document.getElementById('file-input').click();
+  document.getElementById('side-toggle').onclick =
+    () => document.getElementById('app').classList.toggle('side-open');
 }());
 
 async function uploadFiles(fileList) {
-  const note = el('div', 'msg sys');
-  note.appendChild(el('p', null,
-    'Adding ' + fileList.length + ' document' + (fileList.length === 1 ? '' : 's') + '…'));
-  log.appendChild(note);
-  window.scrollTo(0, document.body.scrollHeight);
-
+  heroGone();
+  const note = systemNote('Adding ' + fileList.length + ' document'
+    + (fileList.length === 1 ? '' : 's') + '…');
   const form = new FormData();
   for (const f of fileList) form.append('files', f, f.name);
   try {
@@ -184,46 +377,46 @@ async function uploadFiles(fileList) {
       const c = report.corpus;
       let line = 'The knowledge base now holds ' + c.documents + ' document'
         + (c.documents === 1 ? '' : 's') + ' in ' + c.chunks + ' passages.';
-      if (c.conflicts_open) {
-        line += ' ' + c.conflicts_open + ' contradiction'
-          + (c.conflicts_open === 1 ? '' : 's') + ' between documents '
-          + (c.conflicts_open === 1 ? 'is' : 'are')
-          + ' open — questions they touch will be refused until resolved.';
-      }
       note.appendChild(el('p', null, line));
+      const chip = document.getElementById('conflict-chip');
+      if (c.conflicts_open) {
+        chip.style.display = 'block';
+        chip.textContent = c.conflicts_open + ' open contradiction'
+          + (c.conflicts_open === 1 ? '' : 's') + ' — touched questions are refused. Resolve in Manage.';
+        note.appendChild(el('p', null, c.conflicts_open + ' contradiction'
+          + (c.conflicts_open === 1 ? ' is' : 's are')
+          + ' open — questions they touch will be refused until resolved.'));
+      } else {
+        chip.style.display = 'none';
+      }
     }
-    refreshCorpusLine();
+    refreshCorpus();
   } catch (err) {
     note.textContent = '';
     note.appendChild(el('p', 'err', 'Upload failed: ' + err.message));
   }
-  window.scrollTo(0, document.body.scrollHeight);
+  scrollToEnd();
 }
 
-const log = document.getElementById('log');
 const form = document.getElementById('form');
 const input = document.getElementById('q');
 const send = document.getElementById('send');
 
-const FREE_TIERS = new Set(['pinned', 'exact', 'semantic']);
+const FREE_TIERS = new Set(['pinned', 'exact', 'semantic', 'corpus']);
 const TIER_LABEL = {
   pinned: 'pinned answer', exact: 'from cache', semantic: 'from cache',
-  local: 'local model', frontier: 'escalated', refused: 'no answer',
+  corpus: 'from the index', local: 'local model', frontier: 'escalated',
+  contested: 'contested', refused: 'no answer',
 };
-
-function el(tag, cls, text) {
-  const n = document.createElement(tag);
-  if (cls) n.className = cls;
-  if (text !== undefined) n.textContent = text;
-  return n;
-}
 
 function renderAnswer(data) {
   const box = el('div', 'msg a');
   box.appendChild(el('p', null, data.answer));
 
   if (data.citations && data.citations.length) {
-    const cites = el('div', 'cites');
+    const cites = el('details', 'cites');
+    cites.appendChild(el('summary', null,
+      data.citations.length + ' source' + (data.citations.length === 1 ? '' : 's')));
     for (const c of data.citations) {
       const d = el('div', 'cite');
       d.appendChild(el('b', null, c.document_title + (c.locator ? ' · ' + c.locator : '')));
@@ -235,12 +428,20 @@ function renderAnswer(data) {
 
   const meta = el('div', 'meta');
   const free = FREE_TIERS.has(data.tier);
-  meta.appendChild(el('span', 'badge ' + (free ? 'free' : 'paid'),
-                      TIER_LABEL[data.tier] || data.tier));
+  const badgeClass = free ? 'free' : (data.tier === 'refused' || data.tier === 'contested' ? 'none' : 'model');
+  meta.appendChild(el('span', 'badge ' + badgeClass, TIER_LABEL[data.tier] || data.tier));
   meta.appendChild(el('span', 'dim',
-    free ? 'no model call · $0.00' : data.model + ' · $' + data.cost_usd.toFixed(5)));
-  for (const note of data.notes || []) meta.appendChild(el('span', 'dim', '· ' + note));
+    free ? 'no model call · $0.00'
+         : prettyModel(data.model) + ' · $' + data.cost_usd.toFixed(5)));
+  if (data.support !== null && data.support !== undefined) {
+    meta.appendChild(el('span', 'dim', Math.round(data.support * 100) + '% of the wording appears in its sources'));
+  }
   box.appendChild(meta);
+  if (data.notes && data.notes.length) {
+    const notes = el('div', 'notes');
+    for (const note of data.notes) notes.appendChild(el('div', null, note));
+    box.appendChild(notes);
+  }
   return box;
 }
 
@@ -253,7 +454,6 @@ function remember(role, content) {
   while (transcript.length > 12) transcript.shift();
 }
 
-// The stages a slow answer passes through, written for the person waiting.
 const STAGE_TEXT = {
   answering: 'Reading the sources…',
   escalating: 'That attempt failed its checks — trying a stronger model…',
@@ -292,8 +492,6 @@ async function streamAnswer(body, pending) {
 
   const handle = (event) => {
     if (event.type === 'resolved') {
-      // The follow-up was read as a standalone question; show which one, so
-      // a wrong interpretation is visible instead of silently answered.
       pending.appendChild(el('p', 'working', 'Understood as: ' + event.question));
     } else if (event.type === 'status' && STAGE_TEXT[event.stage]) {
       status.set(STAGE_TEXT[event.stage]);
@@ -307,7 +505,7 @@ async function streamAnswer(body, pending) {
       status.set('Generating — unverified until checked…');
     } else if (event.type === 'delta' && provText) {
       provText.firstChild.textContent += event.text;
-      window.scrollTo(0, document.body.scrollHeight);
+      scrollToEnd();
     } else if (event.type === 'retract' && prov) {
       prov.className = 'retracted';
       prov.querySelector('.caret')?.remove();
@@ -318,7 +516,6 @@ async function streamAnswer(body, pending) {
       status.stop();
       remember('assistant', event.response.answer);
       const answer = renderAnswer(event.response);
-      // A withdrawn attempt stays visible above the real outcome.
       const kept = pending.querySelectorAll('.retracted');
       if (kept.length) {
         const wrap = el('div', 'msg a');
@@ -355,17 +552,18 @@ form.addEventListener('submit', async (e) => {
   e.preventDefault();
   const question = input.value.trim();
   if (!question) return;
+  heroGone();
 
-  const q = el('div', 'msg q');
+  const q = el('div', 'turn-q');
   q.appendChild(el('b', null, 'You asked'));
-  q.appendChild(document.createTextNode(question));
+  q.appendChild(el('div', null, question));
   log.appendChild(q);
 
   input.value = '';
   send.disabled = true;
   const pending = el('div', 'msg a');
   log.appendChild(pending);
-  window.scrollTo(0, document.body.scrollHeight);
+  scrollToEnd();
 
   const body = { question, channel: 'web', history: transcript.slice() };
   remember('user', question);
@@ -374,11 +572,9 @@ form.addEventListener('submit', async (e) => {
     await streamAnswer(body, pending);
     send.disabled = false;
     input.focus();
-    window.scrollTo(0, document.body.scrollHeight);
+    scrollToEnd();
     return;
   } catch (err) {
-    // An older server, a proxy that will not stream, or a mid-stream drop:
-    // fall back to the plain request rather than failing the question.
     pending.textContent = '';
     pending.appendChild(el('p', null, 'Looking…'));
   }
@@ -398,7 +594,7 @@ form.addEventListener('submit', async (e) => {
   } finally {
     send.disabled = false;
     input.focus();
-    window.scrollTo(0, document.body.scrollHeight);
+    scrollToEnd();
   }
 });
 input.focus();
