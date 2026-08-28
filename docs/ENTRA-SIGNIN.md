@@ -6,8 +6,15 @@ body** — fine when the caller is a trusted bot backend, useless as access
 control for browsers. This document is the plan for closing that gap with
 OpenID Connect sign-in, Microsoft Entra ID first.
 
-It is a design, not a claim: nothing below is built until the tests
-described at the end exist and pass.
+It is a design first and a status report second. **Built and tested so
+far: increments 1 and 2** of the build order at the end - the OIDC
+client and session store (`src/openknowledge/auth/`), the gate, and
+server-minted principals, all proven against the fake IdP described
+below (`tests/test_auth.py`, `tests/test_auth_api.py`), including the
+end-to-end test where an HR-restricted answer serves an HR member and
+refuses everyone else. Increments 3-6 - the widget's sign-in UI,
+admin-by-group, TLS settings and the setup guide, and the real-tenant
+verification - are not built, and nothing below claims otherwise.
 
 ## The lock already exists
 
@@ -87,7 +94,7 @@ OK_OIDC_ISSUER=https://login.microsoftonline.com/<tenant-id>/v2.0
 OK_OIDC_CLIENT_ID=<app registration id>
 OK_OIDC_CLIENT_SECRET=<client secret>
 OK_PUBLIC_URL=https://knowledge.example.com   # builds the redirect URI
-OK_OIDC_ADMIN_GROUP=<group object id>   # optional: this group is admin
+OK_OIDC_ADMIN_GROUP=<group object id>   # optional: this group is admin (increment 4, not built yet)
 OK_OIDC_GROUPS_CLAIM=groups             # default
 OK_SESSION_HOURS=8                      # default
 ```

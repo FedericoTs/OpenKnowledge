@@ -44,6 +44,7 @@ OPTIONAL = {
     "pystray": "pystray",
     "PIL": "pillow",
     "quantprobe": "quantprobe",
+    "jwt": "PyJWT",
 }
 
 

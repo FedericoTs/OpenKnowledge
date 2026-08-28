@@ -78,10 +78,15 @@ measure = ["tiktoken>=0.7"]
 #
 #     uv pip install -e ".[dev,browser]" && playwright install chromium
 browser = ["playwright>=1.40"]
+# Sign-in for the company server (docs/ENTRA-SIGNIN.md). PyJWT[crypto] pulls
+# cryptography for RS256; the two HTTP calls ride the httpx we already ship.
+# An extra because a deployment with OK_AUTH_MODE=off never imports any of it.
+auth = ["PyJWT[crypto]>=2.8"]
 dev = [
   "pytest>=8.3",
   "tiktoken>=0.7",
   "reportlab>=4.0",  # BSD - generates the PDF fixtures the parser tests read
+  "PyJWT[crypto]>=2.8",  # also in the auth extra - the auth tests need it
 
   "pytest-asyncio>=0.24",
   "ruff>=0.7",

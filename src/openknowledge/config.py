@@ -218,6 +218,29 @@ class Settings(BaseSettings):
     system_prompt_suffix: str = ""
     admin_token: str | None = None
 
+    # -- sign-in ---------------------------------------------------------
+    #: "off" (default) keeps today's behaviour everywhere, including the
+    #: trusted-caller mode where a request may assert its own principals.
+    #: "oidc" puts sign-in in front of everything but /auth/* and /healthz,
+    #: and principals are then minted from the session, never from the wire.
+    #: Needs the auth extra (`pip install 'openknowledge[auth]'`) and the
+    #: OIDC settings below. Design and limits: docs/ENTRA-SIGNIN.md.
+    auth_mode: str = Field(default="off", pattern="^(off|oidc)$")
+    #: For Entra, the tenant-id (GUID) form:
+    #: https://login.microsoftonline.com/<tenant-id>/v2.0
+    oidc_issuer: str = ""
+    oidc_client_id: str = ""
+    #: Optional for providers that accept public PKCE clients; Entra's Web
+    #: platform wants one.
+    oidc_client_secret: str = ""
+    #: Which ID-token claim carries group ids. Entra calls it "groups".
+    oidc_groups_claim: str = "groups"
+    #: The URL people reach this server at, for building the OAuth redirect
+    #: URI behind proxies. Empty derives it from each request, which is fine
+    #: for localhost testing; Entra refuses http:// redirects anywhere else.
+    public_url: str = ""
+    session_hours: float = Field(default=8.0, gt=0)
+
     @property
     def db_path(self) -> str:
         return f"{self.data_dir.rstrip('/')}/openknowledge.db"
@@ -231,6 +254,12 @@ class Settings(BaseSettings):
         human decisions that must survive one.
         """
         return f"{self.data_dir.rstrip('/')}/knowledge.db"
+
+    @property
+    def auth_db_path(self) -> str:
+        """Sessions and pending logins. Its own file: sign-in state is
+        disposable and personal, and wiping it must not touch answers."""
+        return f"{self.data_dir.rstrip('/')}/auth.db"
 
 
 def load_settings() -> Settings:

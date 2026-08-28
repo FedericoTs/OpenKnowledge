@@ -95,6 +95,31 @@ EngineDep = Annotated[Engine, Depends(get_engine)]
 AdminOnly = Depends(require_admin)
 
 
+def _asker_principals(request: Request, supplied: list[str] | None) -> frozenset[str] | None:
+    """Who is asking, in the vocabulary the ACL machinery enforces.
+
+    With sign-in off (the default), the caller is trusted and may assert
+    principals - the mode a bot backend relaying per-user identity needs.
+    With sign-in on, a signed-in person's principals come from their session
+    and nowhere else: a request that asserts its own is refused loudly,
+    because an escalation attempt should fail, not be silently ignored. The
+    admin-token caller keeps the trusted-caller mode - that token already
+    grants every admin write, so it stands in for a trusted backend.
+    """
+    settings: Settings = request.app.state.settings
+    if settings.auth_mode != "oidc":
+        return frozenset(supplied) if supplied is not None else None
+    session = getattr(request.state, "session", None)
+    if session is not None:
+        if supplied is not None:
+            raise HTTPException(
+                400, "principals are minted from your sign-in; a request cannot assert its own"
+            )
+        principals: frozenset[str] = session.principals
+        return principals
+    return frozenset(supplied) if supplied is not None else None
+
+
 def _find_site() -> Path | None:
     return find_asset("site/index.html")
 
@@ -297,6 +322,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         finally:
             app.state.engine.store.close()
             app.state.engine.knowledge.close()
+            close_auth = getattr(app.state, "auth_close", None)
+            if close_auth is not None:
+                await close_auth()
 
     app = FastAPI(
         title="OpenKnowledge",
@@ -314,6 +342,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # OK_TRUSTED_HOSTS.
     if resolved.bind_host in ("127.0.0.1", "localhost", "::1"):
         app.add_middleware(TrustedHostMiddleware, allowed_hosts=resolved.trusted_hosts)
+
+    if resolved.auth_mode == "oidc":
+        try:
+            from ..auth.web import install_auth  # noqa: PLC0415 - needs the auth extra
+        except ImportError as exc:
+            raise RuntimeError(
+                "OK_AUTH_MODE=oidc needs the auth extra: pip install 'openknowledge[auth]'"
+            ) from exc
+        install_auth(app, resolved)
 
     # -- public --------------------------------------------------------------
     @app.get("/", response_class=HTMLResponse, include_in_schema=False)
@@ -334,7 +371,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return Response(content=_FAVICON, media_type="image/svg+xml")
 
     @app.post("/chat/stream", include_in_schema=False)
-    async def chat_stream(req: ChatRequest, engine: EngineDep) -> StreamingResponse:
+    async def chat_stream(
+        req: ChatRequest, engine: EngineDep, request: Request
+    ) -> StreamingResponse:
         """The same resolution as /chat, narrated as server-sent events.
 
         Instant tiers arrive as a single `final`. A slow local answer arrives
@@ -344,7 +383,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         /chat would have returned, produced by the same code path, so nothing
         about caching or determinism depends on which endpoint was used.
         """
-        principals = frozenset(req.principals) if req.principals is not None else None
+        principals = _asker_principals(request, req.principals)
 
         async def events() -> AsyncIterator[str]:
             history = tuple(Message(role=t.role, content=t.content) for t in req.history or ())
@@ -619,11 +658,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             return ContactResponse(received=True)
 
     @app.post("/chat", response_model=ChatResponse)
-    async def chat(req: ChatRequest, engine: EngineDep) -> ChatResponse:
+    async def chat(req: ChatRequest, engine: EngineDep, request: Request) -> ChatResponse:
         history = tuple(Message(role=t.role, content=t.content) for t in req.history or ())
         answer = await engine.cascade.answer(
             req.question,
-            principals=frozenset(req.principals) if req.principals is not None else None,
+            principals=_asker_principals(request, req.principals),
             channel=req.channel,
             history=history,
         )
