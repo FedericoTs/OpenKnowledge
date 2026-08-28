@@ -27,7 +27,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated, Any
 
-from fastapi import Depends, FastAPI, File, Header, HTTPException, Request, UploadFile
+from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, Response, StreamingResponse
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
@@ -133,6 +133,29 @@ def _safe_document_name(raw: str) -> str | None:
     if not re.fullmatch(r"[\w][\w \-.()+&,']{0,150}", final):
         return None
     return final
+
+
+def _safe_document_path(raw: str) -> str | None:
+    """A relative path inside the documents folder, or None.
+
+    The listing names files by their folder path ('HR/handbook.pdf') because
+    folders are the corpus's categories - so delete must address the same
+    names, and an upload may choose one as its destination. Flattening here
+    once made deleting 'HR/x.md' remove a root-level 'x.md' instead. Every
+    segment is held to the same whitelist as an uploaded filename, so a
+    hostile path cannot traverse; it can only be refused. Depth is capped
+    because Windows still has a path-length ceiling to respect.
+    """
+    parts = [part for part in raw.replace("\\", "/").split("/") if part.strip()]
+    if not parts or len(parts) > 8:
+        return None
+    safe_parts = []
+    for part in parts:
+        safe = _safe_document_name(part)
+        if safe is None:
+            return None
+        safe_parts.append(safe)
+    return "/".join(safe_parts)
 
 
 def _upload_skip_reason(name: str) -> str | None:
@@ -414,22 +437,30 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
         root = Path(engine.settings.documents_dir)
         rows = []
+        folders = []
         if root.is_dir():
             for path in sorted(root.rglob("*")):
+                if path.is_dir():
+                    # Named even when empty: a folder an admin created is a
+                    # category that exists, not an artifact of its contents.
+                    folders.append(path.relative_to(root).as_posix())
+                    continue
                 if not path.is_file():
                     continue
                 rows.append(
                     {
-                        "name": str(path.relative_to(root)),
+                        "name": path.relative_to(root).as_posix(),
                         "size": path.stat().st_size,
                         "skipped": skip_reason(path),
                     }
                 )
-        return {"documents_dir": str(root), "files": rows}
+        return {"documents_dir": str(root), "folders": folders, "files": rows}
 
     @app.post("/documents", status_code=201, dependencies=[Depends(require_uploads)])
     async def upload_documents(
-        engine: EngineDep, files: Annotated[list[UploadFile], File()]
+        engine: EngineDep,
+        files: Annotated[list[UploadFile], File()],
+        folder: Annotated[str, Form()] = "",
     ) -> dict[str, Any]:
         """Accept documents and make them knowledge in the same breath.
 
@@ -438,10 +469,22 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         forty files costs one scan, not forty. The response says what a
         person needs to trust it: what was stored, what was refused and
         why, and what the corpus looks like now.
+
+        ``folder`` files the whole batch under a category. It is a separate
+        field rather than part of the filenames because multipart filenames
+        stay hostile-by-default and flattened; the folder is an explicit
+        request, validated segment by segment.
         """
+        into = ""
+        if folder.strip():
+            safe_folder = _safe_document_path(folder)
+            if safe_folder is None:
+                raise HTTPException(status_code=400, detail="unusable folder name")
+            into = safe_folder
         limit = engine.settings.upload_max_mb * 1_000_000
         root = Path(engine.settings.documents_dir)
-        root.mkdir(parents=True, exist_ok=True)
+        target_dir = root / into if into else root
+        target_dir.mkdir(parents=True, exist_ok=True)
 
         stored: list[dict[str, Any]] = []
         skipped: list[dict[str, str]] = []
@@ -470,10 +513,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             if not data:
                 skipped.append({"name": name, "reason": "the file is empty"})
                 continue
-            target = root / name
+            target = target_dir / name
             replaced = target.exists()
             target.write_bytes(data)
-            stored.append({"name": name, "bytes": len(data), "replaced": replaced})
+            stored.append(
+                {
+                    "name": f"{into}/{name}" if into else name,
+                    "bytes": len(data),
+                    "replaced": replaced,
+                }
+            )
 
         corpus: dict[str, Any] = {}
         if stored:
@@ -488,7 +537,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.delete("/documents/{name:path}", dependencies=[Depends(require_uploads)])
     async def delete_document(name: str, engine: EngineDep) -> dict[str, Any]:
-        safe = _safe_document_name(name)
+        safe = _safe_document_path(name)
         if safe is None:
             raise HTTPException(status_code=400, detail="unusable file name")
         target = Path(engine.settings.documents_dir) / safe

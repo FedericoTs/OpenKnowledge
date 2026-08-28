@@ -71,12 +71,13 @@ run fetch the models, then serve the network instead of loopback: set
 
 ## What each person sees
 
-The same app you have on your laptop: the sidebar with every document,
-answers with sources and the tier that produced them, refusals when the
-documents do not answer, contradictions refused until an admin resolves
-them in `/manage`. Because the corpus is shared, the sidebar is the
-company's single list — add a policy once, everyone can ask about it
-seconds later.
+The same app you have on your laptop: the sidebar with every document
+grouped by folder — HR, Travel, whatever the tree says — answers with
+sources and the tier that produced them, refusals when the documents do
+not answer, contradictions refused until an admin resolves them in
+`/manage`. Because the corpus is shared, the sidebar is the company's
+single list — add a policy once, everyone can ask about it seconds
+later.
 
 ## Roadmap for this shape (status: not code yet)
 
@@ -85,10 +86,12 @@ seconds later.
    person's identity and group memberships. Those groups feed the ACL
    machinery that already exists inside retrieval and the cache — the
    enforcement layer is built and tested; the login in front of it is not.
-2. **Folders as categories, permissions per folder.** Subfolders already
-   index; next they become visible structure (grouped sidebar, admin
-   organisation in /manage) and then ACL boundaries: HR/ readable by the
-   HR group, mapped from Entra groups.
+2. **Folders as categories, permissions per folder.** The categories half
+   ships today: subfolders index, the sidebar groups documents under
+   their folders, and uploads choose a destination folder (or create
+   one) from the chat widget and from /manage. What remains is the
+   permissions half: ACL boundaries - HR/ readable by the HR group,
+   mapped from Entra groups - which needs sign-in (above) first.
 3. **Escalation on the company's own AI subscription.** When the local
    model cannot answer, the ladder can escalate to **Azure OpenAI in the
    company's tenant** — IT-approved, data stays in-tenant, per-token

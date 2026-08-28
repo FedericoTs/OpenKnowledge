@@ -259,10 +259,14 @@ Honest status. "Built" means implemented and covered by tests in this repository
      ``principals`` the retrieval and cache ACL machinery already enforces -
      the lock exists, this adds the badge reader. Needs a real tenant to
      test against.
-   - **Folders as categories.** Subfolders already index (the connector
-     walks recursively); make them visible structure - grouped sidebar,
-     upload-into-folder, admin organisation in /manage - then scoping
-     ("answer from HR/ only") and finally per-folder ACLs mapped from
+   - **Folders as categories.** The visible-structure half is built:
+     the sidebar groups documents under their folders with counts (loose
+     files under "Unfiled"), uploads pick a destination folder - or name
+     a new one - from the widget and from /manage, deleting a nested
+     document addresses its full path (flattening once made `HR/x.md`
+     delete a root-level `x.md`), and an emptied folder stays listed,
+     because a category an admin made is a decision. Still ahead:
+     scoping ("answer from HR/ only") and per-folder ACLs mapped from
      Entra groups.
    - **Escalate on the company's Azure OpenAI tenant.** Slots into the
      existing ladder as configuration plus Azure's auth header. Stated

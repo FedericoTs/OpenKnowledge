@@ -14,7 +14,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from openknowledge.api.app import _safe_document_name, create_app
+from openknowledge.api.app import _safe_document_name, _safe_document_path, create_app
 from openknowledge.config import Settings
 
 
@@ -168,3 +168,56 @@ def test_safe_name_is_a_whitelist_not_a_blacklist() -> None:
     assert _safe_document_name("") is None
     assert _safe_document_name("con:aux.md") is None
     assert _safe_document_name("x" * 200 + ".md") is None
+
+
+def test_safe_path_holds_every_segment_to_the_filename_rules() -> None:
+    assert _safe_document_path("HR/handbook.pdf") == "HR/handbook.pdf"
+    assert _safe_document_path("HR\\Policies\\leave.md") == "HR/Policies/leave.md"
+    assert _safe_document_path("a//b.md") == "a/b.md"
+    assert _safe_document_path("../../etc/passwd") is None
+    assert _safe_document_path(".git/config") is None
+    assert _safe_document_path("HR/con:aux.md") is None
+    assert _safe_document_path("") is None
+    assert _safe_document_path("/".join("abcdefghi")) is None, "depth cap ignored"
+
+
+def test_a_folder_files_the_batch_and_survives_the_round_trip(client) -> None:
+    """Upload into HR/, see it listed under HR/, delete it as HR/..."""
+    c, root = client
+    body = c.post("/documents", data={"folder": "HR"}, files=[_file("leave.md")]).json()
+    assert body["stored"][0]["name"] == "HR/leave.md"
+    assert (root / "HR" / "leave.md").is_file()
+    assert body["corpus"]["documents"] == 1
+
+    listing = c.get("/documents").json()
+    assert "HR" in listing["folders"]
+    assert [f["name"] for f in listing["files"]] == ["HR/leave.md"]
+
+    assert c.delete("/documents/HR/leave.md").status_code == 200
+    assert not (root / "HR" / "leave.md").exists()
+    # The folder outlives its last file: a category an admin made is a
+    # decision, and the empty group still shows in the sidebar.
+    listing = c.get("/documents").json()
+    assert "HR" in listing["folders"] and listing["files"] == []
+
+
+def test_deleting_a_nested_document_spares_the_root_namesake(client) -> None:
+    """The flatten bug: DELETE HR/x.md used to remove a root-level x.md."""
+    c, root = client
+    c.post("/documents", files=[_file("policy.md", b"# Root\n\nEUR 100.\n")])
+    c.post("/documents", data={"folder": "HR"}, files=[_file("policy.md", b"# HR\n\nEUR 200.\n")])
+    assert c.get("/healthz").json()["documents_indexed"] == 2
+
+    assert c.delete("/documents/HR/policy.md").status_code == 200
+    assert (root / "policy.md").is_file(), "deleted the wrong namesake"
+    assert not (root / "HR" / "policy.md").exists()
+    assert c.get("/healthz").json()["documents_indexed"] == 1
+
+
+def test_a_hostile_folder_refuses_the_whole_batch(client) -> None:
+    c, root = client
+    for folder in ("..", "../..", ".git", "c:evil", "x" * 200):
+        response = c.post("/documents", data={"folder": folder}, files=[_file("a.md")])
+        assert response.status_code == 400, folder
+    outside = [p for p in root.parent.rglob("a.md")]
+    assert outside == [], "a refused folder still stored something"

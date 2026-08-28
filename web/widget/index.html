@@ -58,12 +58,24 @@
   #doc-list li:hover .doc-x { visibility:visible; }
   #doc-list .doc-x:hover { color:#f2b8a8; }
   .doc-skipped { opacity:.55; }
+  #doc-list .doc-folder { margin-top:10px; padding:4px 8px 2px; font-size:10.5px;
+                          font-weight:700; letter-spacing:.12em; text-transform:uppercase;
+                          color:var(--side-muted); cursor:default; }
+  #doc-list .doc-folder:hover { background:none; }
+  #doc-list .doc-folder:first-child { margin-top:2px; }
+  #doc-list .doc-folder .count { margin-left:auto; font-weight:400; letter-spacing:0; }
+  #doc-list li.in-folder { padding-left:18px; }
   #doc-empty { padding:4px 8px; font-size:12.5px; color:var(--side-muted); }
-  #add-docs { margin:10px 20px 8px; padding:9px 12px; border:1px dashed var(--side-line);
+  #add-docs { margin:10px 20px 6px; padding:9px 12px; border:1px dashed var(--side-line);
               border-radius:9px; background:none; color:var(--side-ink); font:inherit;
               font-size:13px; cursor:pointer; text-align:left; display:none; }
   #add-docs:hover { background:var(--side-hover); border-color:var(--side-muted); }
   #add-docs span { color:var(--side-muted); font-size:11.5px; display:block; margin-top:1px; }
+  #dest-row { display:none; align-items:center; gap:8px; margin:0 20px 10px;
+              font-size:11.5px; color:var(--side-muted); }
+  #dest-row select { flex:1; min-width:0; background:var(--side-hover); color:var(--side-ink);
+                     border:1px solid var(--side-line); border-radius:7px; padding:5px 8px;
+                     font:inherit; font-size:12px; }
   .side-foot { padding:12px 20px 16px; border-top:1px solid var(--side-line);
                font-size:12px; color:var(--side-muted); }
   .side-foot a { color:var(--side-ink); text-decoration:none; }
@@ -177,6 +189,10 @@
     <ul id="doc-list"></ul>
     <button id="add-docs" type="button">＋ Add documents
       <span>or drop files anywhere</span></button>
+    <div id="dest-row" title="New documents are filed into this folder">
+      <label for="dest">into</label>
+      <select id="dest"></select>
+    </div>
     <div class="side-foot">
       <div class="links"><a href="/manage">Manage ↗</a><a href="/docs">API ↗</a></div>
       <div>Everything stays on this machine.</div>
@@ -257,35 +273,99 @@ function refreshCorpus() {
   }).catch(() => {});
 }
 
+// Folders are the corpus's categories: files are grouped under their folder,
+// alphabetically, with loose root files last under "Unfiled". A flat corpus
+// renders exactly as before - structure appears only when structure exists.
 function refreshDocuments() {
   if (!uploadsEnabled) return;
   return fetch('/documents').then(r => r.ok ? r.json() : null).then(body => {
     if (!body) return;
+    updateDestinations(body.folders || []);
     const list = document.getElementById('doc-list');
     list.textContent = '';
-    if (!body.files.length) {
+    if (!body.files.length && !(body.folders || []).length) {
       list.appendChild(el('div', null, '')).id = 'doc-empty';
       document.getElementById('doc-empty').textContent = 'Nothing here yet.';
       return;
     }
+    const groups = new Map();
+    for (const folder of body.folders || []) groups.set(folder, []);
+    const unfiled = [];
     for (const f of body.files) {
-      const li = el('li', f.skipped ? 'doc-skipped' : '');
-      const ico = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-      ico.setAttribute('viewBox', '0 0 24 24'); ico.classList.add('doc-ico');
-      ico.innerHTML = '<path d="M6 3h8l4 4v14H6z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M14 3v4h4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>';
-      li.appendChild(ico);
-      const name = el('span', 'doc-name', f.name);
-      name.title = f.name + (f.skipped ? ' — not indexed: ' + f.skipped : '');
-      li.appendChild(name);
-      li.appendChild(el('span', 'doc-note', f.skipped ? 'not indexed' : ''));
-      const x = el('button', 'doc-x', '✕');
-      x.title = 'Remove ' + f.name;
-      x.onclick = () => removeDocument(f.name);
-      li.appendChild(x);
-      list.appendChild(li);
+      const cut = f.name.lastIndexOf('/');
+      if (cut === -1) { unfiled.push(f); continue; }
+      const folder = f.name.slice(0, cut);
+      if (!groups.has(folder)) groups.set(folder, []);
+      groups.get(folder).push(f);
+    }
+    const folders = [...groups.keys()].sort((a, b) => a.localeCompare(b));
+    for (const folder of folders) {
+      list.appendChild(folderHeader(folder.replaceAll('/', ' / '), groups.get(folder).length));
+      for (const f of groups.get(folder)) list.appendChild(fileRow(f, true));
+    }
+    if (unfiled.length && folders.length) list.appendChild(folderHeader('Unfiled', unfiled.length));
+    for (const f of unfiled) list.appendChild(fileRow(f, folders.length > 0));
+    if (folders.length) {
+      document.getElementById('side-stats').textContent +=
+        ' · ' + folders.length + ' folder' + (folders.length === 1 ? '' : 's');
     }
   }).catch(() => {});
 }
+
+function folderHeader(label, count) {
+  const li = el('li', 'doc-folder');
+  li.appendChild(el('span', null, label));
+  li.appendChild(el('span', 'count', String(count)));
+  return li;
+}
+
+function fileRow(f, indented) {
+  const li = el('li', [f.skipped && 'doc-skipped', indented && 'in-folder']
+    .filter(Boolean).join(' '));
+  const ico = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  ico.setAttribute('viewBox', '0 0 24 24'); ico.classList.add('doc-ico');
+  ico.innerHTML = '<path d="M6 3h8l4 4v14H6z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M14 3v4h4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>';
+  li.appendChild(ico);
+  const cut = f.name.lastIndexOf('/');
+  const name = el('span', 'doc-name', cut === -1 ? f.name : f.name.slice(cut + 1));
+  name.title = f.name + (f.skipped ? ' — not indexed: ' + f.skipped : '');
+  li.appendChild(name);
+  li.appendChild(el('span', 'doc-note', f.skipped ? 'not indexed' : ''));
+  const x = el('button', 'doc-x', '✕');
+  x.title = 'Remove ' + f.name;
+  x.onclick = () => removeDocument(f.name);
+  li.appendChild(x);
+  return li;
+}
+
+// Where uploads land. The select lists the folders that exist, plus one the
+// user just named that the next upload will create. Kept across refreshes.
+function updateDestinations(folders) {
+  document.getElementById('dest-row').style.display = uploadsEnabled ? 'flex' : 'none';
+  const dest = document.getElementById('dest');
+  const keep = dest.value && dest.value !== '__new__' ? dest.value : '';
+  dest.textContent = '';
+  dest.appendChild(new Option('Unfiled', ''));
+  const names = [...new Set(folders)].sort((a, b) => a.localeCompare(b));
+  if (keep && !names.includes(keep)) names.push(keep);
+  for (const name of names) dest.appendChild(new Option(name.replaceAll('/', ' / '), name));
+  dest.appendChild(new Option('New folder…', '__new__'));
+  dest.value = keep;
+}
+
+document.getElementById('dest').addEventListener('change', (e) => {
+  const dest = e.target;
+  if (dest.value !== '__new__') return;
+  const name = (prompt('Folder name (use / for a subfolder):') || '')
+    .trim().replace(/^\/+|\/+$/g, '');
+  if (!name || /(^|\/)\./.test(name) || /[:\\]/.test(name)) { dest.value = ''; return; }
+  const options = [...dest.options].map(o => o.value);
+  if (!options.includes(name)) {
+    dest.insertBefore(new Option(name.replaceAll('/', ' / '), name),
+      dest.options[dest.options.length - 1]);
+  }
+  dest.value = name;
+});
 
 async function removeDocument(name) {
   if (!confirm('Remove "' + name + '" from the knowledge base?\nAnswers derived from it become unreachable.')) return;
@@ -355,6 +435,8 @@ async function uploadFiles(fileList) {
     + (fileList.length === 1 ? '' : 's') + '…');
   const form = new FormData();
   for (const f of fileList) form.append('files', f, f.name);
+  const folder = document.getElementById('dest').value;
+  if (folder && folder !== '__new__') form.append('folder', folder);
   try {
     const res = await fetch('/documents', { method: 'POST', body: form });
     if (!res.ok) throw new Error('HTTP ' + res.status);

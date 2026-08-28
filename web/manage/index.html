@@ -95,6 +95,7 @@
     </p>
     <div class="row" style="margin-bottom:10px">
       <button id="add-docs" class="ghost">Add documents…</button>
+      <select id="dest" title="New documents are filed into this folder" style="display:none"></select>
       <button id="reindex" class="ghost" data-admin>Re-index</button>
       <input id="file-input" type="file" multiple hidden
              accept=".pdf,.docx,.xlsx,.xlsm,.pptx,.md,.markdown,.rst,.txt">
@@ -182,6 +183,7 @@ async function refreshDocuments() {
   const box = $('documents');
   try {
     const body = await api('/documents');
+    updateDestinations(body.folders || []);
     box.textContent = '';
     if (!body.files.length) {
       box.appendChild(el('p', 'empty', 'The documents folder is empty. Add some.'));
@@ -218,6 +220,8 @@ async function refreshDocuments() {
 async function uploadFiles(files) {
   const form = new FormData();
   for (const f of files) form.append('files', f, f.name);
+  const folder = $('dest').value;
+  if (folder && folder !== '__new__') form.append('folder', folder);
   try {
     const report = await api('/documents', { method: 'POST', body: form });
     const refused = report.skipped.map(s => s.name + ' (' + s.reason + ')');
@@ -225,6 +229,33 @@ async function uploadFiles(files) {
   } catch (e) { say('Upload failed: ' + e.message, false); }
   refreshDocuments(); refreshCorpus();
 }
+
+// Folders are the corpus's categories; uploads pick one, or name a new one
+// that the next upload creates.
+function updateDestinations(folders) {
+  const dest = $('dest');
+  dest.style.display = '';
+  const keep = dest.value && dest.value !== '__new__' ? dest.value : '';
+  dest.textContent = '';
+  dest.appendChild(new Option('Unfiled', ''));
+  const names = [...new Set(folders)].sort((a, b) => a.localeCompare(b));
+  if (keep && !names.includes(keep)) names.push(keep);
+  for (const name of names) dest.appendChild(new Option(name.replaceAll('/', ' / '), name));
+  dest.appendChild(new Option('New folder…', '__new__'));
+  dest.value = keep;
+}
+$('dest').addEventListener('change', (e) => {
+  const dest = e.target;
+  if (dest.value !== '__new__') return;
+  const name = (prompt('Folder name (use / for a subfolder):') || '')
+    .trim().replace(/^\/+|\/+$/g, '');
+  if (!name || /(^|\/)\./.test(name) || /[:\\]/.test(name)) { dest.value = ''; return; }
+  if (![...dest.options].some(o => o.value === name)) {
+    dest.insertBefore(new Option(name.replaceAll('/', ' / '), name),
+      dest.options[dest.options.length - 1]);
+  }
+  dest.value = name;
+});
 $('add-docs').onclick = () => $('file-input').click();
 $('file-input').addEventListener('change', (e) => {
   if (e.target.files.length) uploadFiles(e.target.files);

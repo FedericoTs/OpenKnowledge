@@ -117,6 +117,10 @@ openknowledge index
 could not read. It calls no model, so it is free and safe to run whenever files
 change.
 
+Subfolders are categories: `documents/HR/handbook.pdf` indexes like any other
+file, the chat sidebar groups documents by folder, and uploads through the
+browser can pick a destination folder or create one.
+
 To keep documents where they already live instead of copying them, set the
 folder in `.env`:
 
