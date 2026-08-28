@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from openknowledge.retrieval import BM25Retriever, Document, check_grounding, chunk_document
+from openknowledge.retrieval.base import Chunk
 
 
 def test_finds_the_right_document(retriever: BM25Retriever) -> None:
@@ -247,3 +248,92 @@ def test_headings_alone_do_not_become_chunks() -> None:
     parsed = parse_text("# Only A Heading")
     doc = Document("d", "D", parsed.text, blocks=parsed.blocks)
     assert all(c.text.strip() for c in chunk_document(doc))
+
+
+# -- the cited floor: summaries earn relaxation per answer -------------------
+
+_MAIL = Chunk(
+    chunk_id="site-mail#1",
+    document_id="site-mail",
+    document_title="Website Changes",
+    text=(
+        "Changes for the website before the next outreach wave. "
+        "Priority 1: change the platform description to an agent-run TPRM platform. "
+        "Priority 2: remove references to regulators and internal compliance evidence, "
+        "emphasise external TPRM rules. "
+        "Priority 3: update the call to action to book a demo of the agent. "
+        "Priority 4: replace the NIS2 wording with many regulations require. "
+        "Update the screenshots to show TPRM workflows instead of compliance."
+    ),
+)
+
+#: The field shape: every substantive claim cited, wording compressed the way
+#: real summaries compress - support lands between the two floors.
+_CITED_SUMMARY = (
+    "The document sets out the site edits requested ahead of the next prospecting "
+    "wave. [site-mail]\n"
+    "- Rebrand the product blurb around an agent-operated TPRM product [site-mail]\n"
+    "- Strip the regulator references and internal audit evidence, spotlighting "
+    "external TPRM rules [site-mail]\n"
+    "- Repoint the call to action toward booking a demo of the agent [site-mail]\n"
+    "- Trade the NIS2 wording for a broader many regulations formulation [site-mail]\n"
+)
+
+
+def test_a_fully_cited_summary_is_graded_against_the_lower_floor() -> None:
+    """The field case, reproduced in shape: a faithful summary compresses and
+    rephrases, which is exactly what the single ratio penalised. Full
+    citation discipline - every claim cited, ids real, figures verified -
+    earns the lower floor for this answer alone."""
+    report = check_grounding(_CITED_SUMMARY, [_MAIL])
+    assert 0.30 <= report.support_ratio < 0.45, (
+        f"the fixture must land between the floors to prove anything; got {report.support_ratio}"
+    )
+    assert report.cited_coverage == 1.0
+    assert report.passed, report.reasons
+
+
+def test_an_uncited_claim_forfeits_the_relaxation() -> None:
+    uncited_intro = _CITED_SUMMARY.replace(
+        "ahead of the next prospecting wave. [site-mail]",
+        "ahead of the next prospecting wave.",
+    )
+    report = check_grounding(uncited_intro, [_MAIL])
+    assert report.cited_coverage < 1.0
+    assert not report.passed
+    assert any("45%" in r for r in report.reasons)
+
+
+def test_fully_cited_nonsense_still_fails() -> None:
+    """The lower floor is a floor, not a pass: invention in fresh vocabulary
+    scores far below it even when every sentence carries a real citation."""
+    nonsense = (
+        "The memo mandates quarterly submarine maintenance for every branch office. [site-mail]\n"
+        "- All employees must certify their juggling proficiency annually [site-mail]\n"
+    )
+    report = check_grounding(nonsense, [_MAIL])
+    assert not report.passed
+    assert any("fully cited" in r for r in report.reasons)
+
+
+def test_a_wrong_figure_forfeits_the_relaxation_and_fails() -> None:
+    wrong_number = _CITED_SUMMARY + "- Priority 9 raises the budget to EUR 500 [site-mail]\n"
+    report = check_grounding(wrong_number, [_MAIL])
+    assert not report.passed
+    assert "500" in " ".join(report.unsupported_numbers)
+
+
+def test_connective_lines_are_not_claims() -> None:
+    """'Key changes include:' asserts nothing and needs no citation."""
+    with_glue = _CITED_SUMMARY + "\nKey changes include:\n"
+    report = check_grounding(with_glue, [_MAIL])
+    assert report.cited_coverage == 1.0
+    assert report.passed, report.reasons
+
+
+def test_short_answers_keep_their_original_grading() -> None:
+    """An answer with no claim long enough to need a citation earns nothing:
+    the relaxation cannot leak into the short-extraction path."""
+    report = check_grounding("Priority 3: book a demo. [site-mail]", [_MAIL])
+    assert report.cited_coverage == 0.0
+    assert report.passed, report.reasons

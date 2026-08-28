@@ -296,22 +296,25 @@ Honest status. "Built" means implemented and covered by tests in this repository
    with "as many layers as actually fit". Worth doing when it stabilizes;
    the fallback stays as the floor either way.
 
-13. **A grounding gate that knows a summary from an extraction.** Measured
-   in the field, on a real corpus, the same session that verified the
-   tenant: "what does the document cover?" produced a faithful six-bullet
-   summary, every bullet cited, withdrawn at 42% content-word support
-   against the 45% floor - because a good summary compresses and
-   rephrases, which is exactly what the ratio penalises. The gate did what
-   it is configured to do; the finding is that summary-shaped questions
-   deserve a different measurement than extraction-shaped ones (support
-   per cited claim, or a ratio floor conditioned on citation coverage).
-   Until that is designed and measured against the golden set, the
-   deployment-level lever exists and is live-editable in /manage:
-   `min_support_ratio`. The default does not move on one anecdote.
-   Related, same session: "what is the list of priorities?" refused by
-   the model's own restraint while "what is priority 1?" answered
-   perfectly - retrieval and prompting treat an enumeration question as
-   answerable only when the document uses the asker's own framing.
+13. **A grounding gate that knows a summary from an extraction.** Built,
+   as the citation-conditioned floor the field case asked for. The
+   finding, measured on a real corpus: "what does the document cover?"
+   produced a faithful six-bullet summary, every bullet cited, withdrawn
+   at 42% content-word support against the 45% floor - a good summary
+   compresses and rephrases, which is exactly what one global ratio
+   penalises. Now an answer that earns it - every substantive claim
+   carries a resolving citation, no unknown ids, no unverified figures -
+   is graded against `min_support_ratio_cited` (default 0.30, live in
+   /manage) instead of `min_support_ratio` (0.45, unchanged). The
+   relaxation is judged per answer on that answer's own discipline;
+   uncited prose, invented ids and wrong numbers keep exactly the old
+   treatment, and fully-cited invention still dies at the lower floor.
+   The prompt (v2) teaches the shape the gate rewards: overview and list
+   questions are answerable by enumerating what the sources state even
+   when the question's word ("priorities", "steps") never appears in the
+   document, summaries stay in the sources' own vocabulary, and every
+   bullet and sentence is cited. Gated the house way: golden set and
+   safety set re-run against the same local model before and after.
 
 ### Known gaps in document parsing
 

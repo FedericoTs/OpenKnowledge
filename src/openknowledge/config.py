@@ -48,6 +48,12 @@ class Settings(BaseSettings):
 
     # -- grounding -------------------------------------------------------
     min_support_ratio: float = Field(default=0.45, ge=0.0, le=1.0)
+    #: The floor for answers that earn it: every substantive claim cited,
+    #: every citation resolving, every figure verified. A faithful summary
+    #: compresses and rephrases - a correct, fully cited six-bullet summary
+    #: measured 42% in the field and was withdrawn at the 45% floor. The
+    #: relaxation is per answer, judged on that answer's own discipline.
+    min_support_ratio_cited: float = Field(default=0.30, ge=0.0, le=1.0)
     require_citations: bool = True
 
     # -- knowledge lifecycle ---------------------------------------------

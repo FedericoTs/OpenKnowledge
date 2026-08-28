@@ -90,6 +90,7 @@ async def _answer_freshly(
     *,
     k: int,
     min_support_ratio: float,
+    min_support_ratio_cited: float,
     max_tokens: int,
 ) -> tuple[str, float, float] | None:
     """Answer a question against the current corpus, bypassing every cache.
@@ -119,7 +120,12 @@ async def _answer_freshly(
     except PricingError:
         cost = 0.0
 
-    report = check_grounding(completion.text, chunks, min_support_ratio=min_support_ratio)
+    report = check_grounding(
+        completion.text,
+        chunks,
+        min_support_ratio=min_support_ratio,
+        min_support_ratio_cited=min_support_ratio_cited,
+    )
     if not report.passed:
         log.info("re-verified answer failed the gate for %r", question)
         return None
@@ -135,6 +141,7 @@ async def reverify_changed_documents(
     corpus_version: str,
     k: int = 6,
     min_support_ratio: float = 0.45,
+    min_support_ratio_cited: float = 0.30,
     max_tokens: int = 1500,
 ) -> list[Revision]:
     """Re-ask every approved question that depends on a changed document."""
@@ -158,6 +165,7 @@ async def reverify_changed_documents(
             proposal.question,
             k=k,
             min_support_ratio=min_support_ratio,
+            min_support_ratio_cited=min_support_ratio_cited,
             max_tokens=max_tokens,
         )
         if fresh is None:

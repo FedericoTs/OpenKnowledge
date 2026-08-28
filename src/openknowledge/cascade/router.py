@@ -141,6 +141,7 @@ class Cascade:
             policy_version=(
                 f"k{self.settings.retrieval_k}"
                 f":s{self.settings.min_support_ratio}"
+                f":sc{self.settings.min_support_ratio_cited}"
                 f":c{int(self.settings.require_citations)}"
                 f":r{self.settings.rerank_candidates}"
                 f":d{self.settings.rerank_max_per_document}"
@@ -457,6 +458,7 @@ class Cascade:
                         chunks[: self.settings.retrieval_k],
                         min_support_ratio=self.settings.min_support_ratio,
                         require_citations=self.settings.require_citations,
+                        min_support_ratio_cited=self.settings.min_support_ratio_cited,
                     )
                     if verdict.passed:
                         yield _final(
@@ -712,6 +714,7 @@ class Cascade:
             chunks,
             min_support_ratio=self.settings.min_support_ratio,
             require_citations=self.settings.require_citations,
+            min_support_ratio_cited=self.settings.min_support_ratio_cited,
         )
         if not report.passed:
             reasons = "; ".join(report.reasons)

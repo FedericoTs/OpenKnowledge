@@ -159,6 +159,7 @@ async def draft_from_document(
     document: Document,
     *,
     min_support_ratio: float = 0.45,
+    min_support_ratio_cited: float = 0.30,
     max_tokens: int = 2000,
     target_words: int = 350,
     overlap_words: int = 60,
@@ -201,7 +202,12 @@ async def draft_from_document(
             rejected.append((question, "duplicate of an earlier question in this document"))
             continue
 
-        report = check_grounding(answer, chunks, min_support_ratio=min_support_ratio)
+        report = check_grounding(
+            answer,
+            chunks,
+            min_support_ratio=min_support_ratio,
+            min_support_ratio_cited=min_support_ratio_cited,
+        )
         if not report.passed:
             rejected.append((question, "; ".join(report.reasons)))
             continue

@@ -112,6 +112,7 @@ class Engine:
                 document_ids=touched,
                 report=report,
                 min_support_ratio=self.settings.min_support_ratio,
+                min_support_ratio_cited=self.settings.min_support_ratio_cited,
                 max_documents=max_documents or self.settings.max_documents_per_ingest,
             )
 
@@ -124,6 +125,7 @@ class Engine:
                 corpus_version=self.retriever.corpus_version,
                 k=self.settings.retrieval_k,
                 min_support_ratio=self.settings.min_support_ratio,
+                min_support_ratio_cited=self.settings.min_support_ratio_cited,
                 max_tokens=self.settings.max_answer_tokens,
             )
             material = [r for r in revisions if r.is_material]

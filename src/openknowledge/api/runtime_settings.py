@@ -35,6 +35,7 @@ EDITABLE: dict[str, str] = {
     # retrieval and grounding
     "retrieval_k": "live",
     "min_support_ratio": "live",
+    "min_support_ratio_cited": "live",
     "require_citations": "live",
     "block_on_conflict": "live",
     "serve_drafts": "live",

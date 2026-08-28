@@ -71,6 +71,50 @@ class GroundingReport:
     support_ratio: float = 0.0
     abstained: bool = False
     reasons: tuple[str, ...] = ()
+    #: Share of the answer's substantive claims that carry a resolving
+    #: citation. 1.0 is the citation discipline that earns the lower floor.
+    cited_coverage: float = 0.0
+
+
+#: A claim needs at least this many words to be worth a citation. Below it,
+#: a line is connective tissue ("Key changes include:") that asserts nothing.
+_CLAIM_MIN_WORDS = 8
+
+_SENTENCES = re.compile(r"(?<=[.!?])\s+")
+_BULLET = re.compile(r"^\s*(?:[-*•·]|\d{1,3}[.)])\s+")
+
+
+def _claim_coverage(answer_text: str, resolving_ids: frozenset[str]) -> tuple[int, int]:
+    """(claims, cited claims): how disciplined the answer's citing is.
+
+    A bullet is one claim however many sentences it holds - its trailing
+    citation covers the bullet. Prose splits into sentences. Lines too short
+    to assert anything are not claims and need no citation.
+    """
+    claims = 0
+    cited = 0
+    for raw_line in answer_text.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        is_bullet = bool(_BULLET.match(line))
+        pieces = [line] if is_bullet else _SENTENCES.split(line)
+        # A citation after the sentence's final period splits into its own
+        # fragment; it belongs to the sentence it follows.
+        merged: list[str] = []
+        for piece in pieces:
+            if merged and not tokenize(_CITATION_RE.sub("", piece)):
+                merged[-1] += " " + piece
+            else:
+                merged.append(piece)
+        for piece in merged:
+            words = tokenize(_CITATION_RE.sub("", piece))
+            if len(words) < _CLAIM_MIN_WORDS:
+                continue
+            claims += 1
+            if any(cid in resolving_ids for cid in _CITATION_RE.findall(piece)):
+                cited += 1
+    return claims, cited
 
 
 def _normalise_number(raw: str) -> str:
@@ -90,8 +134,21 @@ def check_grounding(
     *,
     min_support_ratio: float = 0.45,
     require_citations: bool = True,
+    min_support_ratio_cited: float = 0.30,
 ) -> GroundingReport:
-    """Grade ``answer_text`` against the chunks it was allowed to see."""
+    """Grade ``answer_text`` against the chunks it was allowed to see.
+
+    Two support floors, because summaries and extractions fail differently.
+    A faithful summary compresses and rephrases, which is exactly what a
+    word-overlap ratio penalises - measured in the field, a correct
+    six-bullet summary with every bullet cited scored 42% against the 45%
+    floor and was withdrawn. So an answer that shows full citation
+    discipline - every substantive claim cites a retrieved source, no
+    unknown ids, no unverified figures - is graded against
+    ``min_support_ratio_cited`` instead. Everything else keeps the
+    original floor: relaxation is earned per answer, never granted to the
+    model in general.
+    """
     lowered = answer_text.lower().strip()
 
     if not lowered:
@@ -142,10 +199,24 @@ def check_grounding(
     else:
         support_ratio = 0.0
 
-    if support_ratio < min_support_ratio:
+    resolving = frozenset(cid for cid in cited if cid in known_ids)
+    claims, cited_claims = _claim_coverage(answer_text, resolving)
+    coverage = cited_claims / claims if claims else 0.0
+
+    # The lower floor is earned by this answer's own discipline: every
+    # substantive claim cited, every citation real, every figure verified.
+    # An answer with no claims long enough to need citations earns nothing -
+    # short answers pass or fail exactly as before.
+    fully_cited = (
+        claims > 0 and cited_claims == claims and bool(cited) and not unknown and not answer_numbers
+    )
+    floor = min(min_support_ratio, min_support_ratio_cited) if fully_cited else min_support_ratio
+
+    if support_ratio < floor:
+        cited_note = " even for a fully cited answer" if fully_cited else ""
         reasons.append(
             f"only {support_ratio:.0%} of the answer's content words appear in the sources "
-            f"(need {min_support_ratio:.0%})"
+            f"(need {floor:.0%}{cited_note})"
         )
 
     return GroundingReport(
@@ -155,4 +226,5 @@ def check_grounding(
         unsupported_numbers=answer_numbers,
         support_ratio=round(support_ratio, 4),
         reasons=tuple(reasons),
+        cited_coverage=round(coverage, 4),
     )
