@@ -72,12 +72,13 @@ Honest status. "Built" means implemented and covered by tests in this repository
 - **Document tags and routed retrieval** — every indexed document gets a derived,
   readable tag set (folder taxonomy, title, headings, top tf-idf terms — free, no
   model, shown in the listing), and a question that names its documents decisively
-  is searched only against those documents. Routing is deliberately cowardly: two
-  folded tag hits to match, a small matched share to fire, and any ambiguity falls
-  open to the whole corpus, because the catastrophic failure is a question routed
-  away from its answer. `OK_TAG_ROUTING=false` restores global search exactly; the
-  eval preflight runs in the unit suite so no golden case's evidence can be
-  stranded outside a route. See ADR 0011.
+  gets them put first in the radius, excluding strangers only when the named
+  documents can fill it themselves — a route never thins the model's context
+  (the repository golden set caught the filtering version refusing a routed
+  one-chunk question within one run). Two folded tag hits to match, a small
+  matched share to fire, any ambiguity changes nothing. `OK_TAG_ROUTING=false`
+  restores global search exactly; both shipped corpus-and-set preflights run in
+  the unit suite. See ADR 0011.
 - **Streaming answers** — the same resolution, narrated: `answer()` and
   `answer_stream()` drain one event generator, so tier, caching, notes and cost
   cannot fork between them. Only the first self-hosted rung streams (billed rungs

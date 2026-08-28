@@ -165,10 +165,12 @@ class Settings(BaseSettings):
 
     # -- tag routing ------------------------------------------------------
     #: Shrink the search radius using per-document tags derived at index time.
-    #: When a question's words match a few documents' tags decisively, only
-    #: those documents are searched; any ambiguity falls open to the whole
-    #: corpus. Free, deterministic, and measured: both golden sets hold their
-    #: accuracy with it on. Off restores pre-tag retrieval exactly.
+    #: When a question's words match a few documents' tags decisively, those
+    #: documents' chunks are put first - excluded strangers fall off the end
+    #: of the radius only when the named documents can fill it themselves, so
+    #: a route never thins the model's context. Any ambiguity changes nothing.
+    #: Free, deterministic, and measured: both golden sets hold their accuracy
+    #: with it on. Off restores pre-tag retrieval exactly.
     tag_routing: bool = True
 
     # -- reranking --------------------------------------------------------

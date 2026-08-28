@@ -131,11 +131,43 @@ def test_word_forms_still_route() -> None:
 # -- retrieval integration ---------------------------------------------------
 
 
-def test_a_routed_search_excludes_the_other_documents() -> None:
+def test_the_named_document_leads_the_radius() -> None:
     retriever = BM25Retriever()
     retriever.index(CORPUS)
     hits = retriever.search("what does the expenses policy say about meal claims?", k=6)
     assert hits
+    assert hits[0].chunk.document_id == "hr-expenses-policy"
+
+
+def test_a_route_never_thins_the_context() -> None:
+    """The regression the repository golden set caught live: routed to a
+    document that chunks to a single window, a hard filter handed the model
+    a one-chunk context and it refused a question it answers happily with a
+    fuller one. A route reorders; only the cut to k excludes."""
+    retriever = BM25Retriever()
+    retriever.index(CORPUS)
+    question = "what does the expenses policy say about meal claims?"
+    routed = retriever.search(question, k=6)
+    unrouted_retriever = BM25Retriever(tag_routing=False)
+    unrouted_retriever.index(CORPUS)
+    unrouted = unrouted_retriever.search(question, k=6)
+    assert len(routed) == len(unrouted)  # same radius, different order
+    assert {h.chunk.chunk_id for h in routed} == {h.chunk.chunk_id for h in unrouted}
+
+
+def test_exclusion_happens_when_the_named_documents_fill_the_radius() -> None:
+    """At scale the named documents have chunks to spare, and the cut to k
+    then excludes the strangers entirely - the radius decrease, earned only
+    when it costs no context."""
+    wordy = Document(
+        "hr-expenses-policy",
+        "Expenses Policy",
+        "Expenses policy for meal claims. " * 12,
+    )
+    retriever = BM25Retriever(target_words=12, overlap_words=3)
+    retriever.index([wordy, SECURITY, PARKING])
+    hits = retriever.search("what does the expenses policy say about meal claims?", k=3)
+    assert len(hits) == 3
     assert {h.chunk.document_id for h in hits} == {"hr-expenses-policy"}
 
 
@@ -166,7 +198,9 @@ def test_access_control_still_applies_inside_a_route() -> None:
         k=6,
         principals=frozenset({"user:someone", "authenticated"}),
     )
-    assert not hits  # routed to a document the asker cannot see is still not seeing it
+    # The route names a document the asker cannot see; they get whatever else
+    # matched, exactly as before tags existed - never the walled document.
+    assert all(h.chunk.document_id != "hr-expenses-policy" for h in hits)
 
 
 def test_the_route_admits_the_archive_and_demotion_still_drops_it() -> None:
@@ -183,7 +217,8 @@ def test_the_route_admits_the_archive_and_demotion_still_drops_it() -> None:
     retriever.index([EXPENSES, archive, SECURITY, PARKING])
     hits = retriever.search("what does the expenses policy say about meal allowances?", k=6)
     assert hits
-    assert {h.chunk.document_id for h in hits} == {"hr-expenses-policy"}
+    assert hits[0].chunk.document_id == "hr-expenses-policy"
+    assert all(h.chunk.document_id != "hr-expenses-policy-2023" for h in hits)
 
 
 def test_the_dense_half_respects_the_route() -> None:
@@ -205,13 +240,38 @@ def test_the_dense_half_respects_the_route() -> None:
     retriever.index(CORPUS)
     hits = retriever.search("what does the expenses policy say about meal claims?", k=3)
     assert hits
-    assert {h.chunk.document_id for h in hits} == {"hr-expenses-policy"}
+    # Without the fused-level route the parking chunk would lead - the stub
+    # ranks it first for every question. The named document must lead.
+    assert hits[0].chunk.document_id == "hr-expenses-policy"
 
 
 # -- the shipped corpus, as a spec -------------------------------------------
 
 AVELINE = Path(__file__).resolve().parent.parent / "evals" / "corpus" / "aveline"
 GOLDEN_AVELINE = Path(__file__).resolve().parent.parent / "evals" / "golden-aveline"
+DOCUMENTS = Path(__file__).resolve().parent.parent / "documents"
+GOLDEN = Path(__file__).resolve().parent.parent / "evals" / "golden"
+
+
+def test_the_repository_golden_set_survives_routing_too() -> None:
+    """Added after the live golden run caught what the aveline preflight
+    could not: both shipped corpus-and-set pairings are pinned here, so a
+    routing change that strands either set's evidence fails the build."""
+    from openknowledge.connectors import LocalFilesConnector
+    from openknowledge.evaluation.dataset import load_cases
+    from openknowledge.evaluation.preflight import preflight
+    from openknowledge.retrieval.rerank import StructuralReranker
+
+    retriever = BM25Retriever()
+    retriever.index(LocalFilesConnector(DOCUMENTS).fetch())
+    report = preflight(
+        load_cases(GOLDEN),
+        retriever=retriever,
+        k=6,
+        candidates=30,
+        reranker=StructuralReranker(max_per_document=2),
+    )
+    assert report.passed, [f.describe() for f in report.failures]
 
 
 def test_every_aveline_document_gets_tags_and_no_case_is_orphaned() -> None:

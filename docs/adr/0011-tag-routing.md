@@ -21,7 +21,8 @@ the right file is a matter of faith until someone asks one.
 ## Decision
 
 **Every indexed document gets a derived tag set, and a question that names
-its documents decisively is searched only against those documents.**
+its documents decisively gets those documents put first - guaranteed into
+the search radius, with the weakest strangers displaced off its end.**
 
 Derivation is free, deterministic, and runs at index time - no model call,
 because indexing must never spend money by surprise. Four sources, in the
@@ -33,30 +34,44 @@ and shown in the document listing; they are folded (plural stripping plus
 prefix truncation, the same `fold_word` conflict relevance uses) only for
 matching, so "travelling" finds the document tagged "travel".
 
-Routing is deliberately cowardly, because the catastrophic failure is a
-question routed *away* from the document that held its answer:
+A route is a *priority*, not a filter. The first implementation filtered,
+and the repository golden set caught it within one run: routed to a
+document that chunks to a single window, the local model saw a one-chunk
+context and refused a question it answers happily with a fuller one - a
+paraphrase of the same question answered correctly, which is exactly the
+inconsistency the eval exists to catch. So the routed documents' chunks go
+first, the rest of the ranking follows, and the cut to k does the
+shrinking: when the named documents alone can fill the radius - the
+many-document corpus this feature exists for - the strangers are excluded
+entirely; when they cannot, the context stays as full as the unrouted
+search would have made it. A route must never starve the model.
+
+The route itself is deliberately cowardly, because the catastrophic failure
+is a question routed *away* from the document that held its answer:
 
 * a document counts as matched only on **two** folded tag hits - one shared
   word ("policy") is coincidence;
-* the restriction applies only when the matched set is a small share of the
-  corpus (a third, with a floor of two so a document and its archived twin
-  still count as decisive - superseded demotion settles that pair);
-* no match, or any ambiguity, means **no restriction** - retrieval behaves
+* a route only forms when the matched set is a small share of the corpus
+  (a third, with a floor of two so a document and its archived twin still
+  count as decisive - superseded demotion settles that pair);
+* no match, or any ambiguity, means **no route** - retrieval behaves
   exactly as it did before tags existed.
 
-In hybrid mode the same route filters both halves; the dense half scores
-every chunk by cosine and would otherwise smuggle excluded documents back
-into the fused ranking. Access control is unchanged and applied inside the
-route; tag routing can only ever narrow, never widen, what an asker may see.
+In hybrid mode the route is applied to the fused ranking; the dense half
+scores every chunk by cosine and would otherwise put a stranger ahead of
+the named documents. Access control is unchanged and applied before the
+route; tag routing can only ever reorder what an asker may already see.
 `OK_TAG_ROUTING=false` restores pre-tag retrieval exactly, and the flag is
 part of the cache key.
 
 ## Consequences
 
 - Both golden sets hold their bars with routing on - accuracy 1.0, zero
-  false answers, determinism 1.0 - and the eval preflight now runs in the
-  unit suite, pinning that no golden case's evidence is ever stranded
-  outside a route.
+  false answers, determinism 1.0 - and the eval preflight for both shipped
+  corpus-and-set pairings now runs in the unit suite. The preflight checks
+  evidence presence, not context width, so the starvation failure above is
+  additionally pinned by a unit test asserting a route never returns fewer
+  chunks than the unrouted search.
 - The listing answers "what will this be found by?" per file, which turns a
   retrieval mystery into something an operator can read.
 - The honest claim is precision at scale, not speed: search time at the

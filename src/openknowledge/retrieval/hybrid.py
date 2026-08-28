@@ -26,7 +26,7 @@ from dataclasses import dataclass, field
 from .base import Chunk, Document, ScoredChunk, demote_superseded
 from .bm25 import BM25Retriever
 from .embed import Embedder, EmbeddingError, normalise, text_key
-from .tags import route_by_tags
+from .tags import prefer_routed, route_by_tags
 
 log = logging.getLogger(__name__)
 
@@ -212,14 +212,6 @@ class HybridRetriever:
             log.warning("could not embed the question, using BM25 alone: %s", exc)
             return lexical[:k]
 
-        # The same route the lexical half used, recomputed - it is a pure
-        # function of the question and the index, and cheaper than threading
-        # it through the call. Without this the dense half smuggles excluded
-        # documents back in, because cosine scores every chunk.
-        within = (
-            route_by_tags(query, self.lexical.routing_tags()) if self.lexical.tag_routing else None
-        )
-
         chunks = self.chunks
         dense: list[ScoredChunk] = []
         for index, score in self.vectors.search(query_vector, depth * 2):
@@ -230,8 +222,6 @@ class HybridRetriever:
                 and not (chunk.allowed_principals & principals)
             ):
                 continue
-            if within is not None and chunk.document_id not in within:
-                continue
             dense.append(ScoredChunk(chunk=chunk, score=score))
             if len(dense) >= depth:
                 break
@@ -240,11 +230,17 @@ class HybridRetriever:
         # the half that handles the phrasing people actually use, and the half
         # a fused ranking was most likely to bury.
         #
-        # Demotion runs on the *fused* list, after both halves have voted:
-        # each half already demotes internally, but dense retrieval always
-        # finds current chunks (cosine scores everything), so the decision
-        # about whether anything current matched belongs to the combined view.
-        return demote_superseded(_interleave(dense, lexical), k)
+        # The route and the demotion both run on the *fused* list, after both
+        # halves have voted: the lexical half already applied them internally,
+        # but the dense half scores every chunk, so the combined view is the
+        # one that decides. The route is the same pure function of question
+        # and index the lexical half computed; recomputing is cheaper than
+        # threading it through the call.
+        within = (
+            route_by_tags(query, self.lexical.routing_tags()) if self.lexical.tag_routing else None
+        )
+        fused = prefer_routed(_interleave(dense, lexical), within)
+        return demote_superseded(fused, k)
 
 
 def _chunk_key(chunk: Chunk) -> str:
