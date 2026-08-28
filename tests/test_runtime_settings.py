@@ -64,7 +64,7 @@ def test_a_live_change_applies_to_the_next_request_and_survives_restart(client) 
     # Next request: the uploads surface exists now, with no restart.
     assert c.get("/documents").status_code == 200
     # And the change is written where the next start will read it.
-    assert "OK_UPLOAD_ENABLED=true" in env_file.read_text()
+    assert "OK_UPLOAD_ENABLED=true" in env_file.read_text(encoding="utf-8")
 
     c.put("/admin/settings", headers=AUTH, json={"upload_enabled": False})
     assert c.get("/documents").status_code == 404
@@ -81,8 +81,8 @@ def test_a_rebuild_change_swaps_the_engine(client) -> None:
     assert body["engine_rebuilt"] is True
     assert c.app.state.engine is not before
     assert settings.retrieval_k == 4
-    assert "OK_LOCAL_ENABLED=true" in env_file.read_text()
-    assert "OK_RETRIEVAL_K=4" in env_file.read_text()
+    assert "OK_LOCAL_ENABLED=true" in env_file.read_text(encoding="utf-8")
+    assert "OK_RETRIEVAL_K=4" in env_file.read_text(encoding="utf-8")
 
     # The swapped engine serves.
     assert c.get("/healthz").json()["status"] == "ok"
@@ -98,7 +98,7 @@ def test_an_invalid_change_is_rejected_whole_with_nothing_applied(client) -> Non
     )
     assert response.status_code == 422
     assert settings.retrieval_k == before_k, "a rejected batch half-applied"
-    assert not env_file.exists() or "OK_RETRIEVAL_K" not in env_file.read_text()
+    assert not env_file.exists() or "OK_RETRIEVAL_K" not in env_file.read_text(encoding="utf-8")
 
 
 def test_settings_require_the_admin_token(client) -> None:

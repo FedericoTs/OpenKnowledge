@@ -452,7 +452,7 @@ def write_env(path: Path, values: dict[str, str], *, private: bool = False) -> l
     it: a token written under umask 022 is world-readable, and a bearer token
     any local account can read is not a secret.
     """
-    lines = path.read_text().splitlines() if path.exists() else []
+    lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
     remaining = dict(values)
     changed: list[str] = []
 
@@ -479,7 +479,7 @@ def write_env(path: Path, values: dict[str, str], *, private: bool = False) -> l
                 os.fchmod(descriptor, 0o600)
         elif path.exists() and hasattr(os, "fchmod"):
             os.fchmod(descriptor, path.stat().st_mode & 0o777)
-        with os.fdopen(descriptor, "w") as handle:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
             handle.write(content)
         os.replace(temp_name, path)
     except BaseException:

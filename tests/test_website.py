@@ -8,6 +8,7 @@ and the endpoint to it.
 
 from __future__ import annotations
 
+import os
 import re
 from pathlib import Path
 from urllib.parse import urljoin
@@ -223,7 +224,7 @@ def test_the_page_quotes_the_live_run_numbers_it_recorded(page: str) -> None:
     recorded = json.loads(
         (
             Path(__file__).resolve().parent.parent / "evals" / "measured" / "first-live-run.json"
-        ).read_text()
+        ).read_text(encoding="utf-8")
     )
     assert f"{recorded['accuracy']:.1%}" in page
     assert f"{recorded['determinism']:.1%}" in page
@@ -254,13 +255,14 @@ def test_the_page_offers_an_installer_that_is_there(page: str) -> None:
     root = Path(__file__).resolve().parent.parent
     script = root / "install.sh"
     assert script.exists(), "the page's one-line install points at a file that is missing"
-    assert script.stat().st_mode & 0o111, "install.sh is not executable"
+    if os.name != "nt":  # NTFS has no POSIX execute bits; the checkout is enough there
+        assert script.stat().st_mode & 0o111, "install.sh is not executable"
 
     # The page tells the reader how long it is, so they know what they are
     # piping into a shell. Keep that number honest.
     claimed = re.search(r"the script is (\d+) lines", page)
     assert claimed is not None
-    assert int(claimed.group(1)) == len(script.read_text().splitlines())
+    assert int(claimed.group(1)) == len(script.read_text(encoding="utf-8").splitlines())
 
 
 def test_the_pages_own_fonts_are_served(client: TestClient, page: str) -> None:

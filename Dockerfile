@@ -14,12 +14,14 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends libgomp1 default-jre-headless \
     && rm -rf /var/lib/apt/lists/*
 
-# Dependencies first so application edits do not invalidate the layer.
+# Everything the wheel build needs must exist before pip runs: pyproject
+# force-includes web/ into the package, so metadata generation fails without
+# it. The first docker CI run - which only triggers on main - caught this.
 COPY pyproject.toml README.md ./
 COPY src/ ./src/
+COPY web/ ./web/
 RUN pip install --no-cache-dir ".[anthropic,opendataloader]"
 
-COPY web/ ./web/
 COPY documents/ ./documents/
 
 # Run unprivileged. /app/data is the only path that needs to be writable.

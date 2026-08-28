@@ -41,7 +41,7 @@ def test_published_links_name_a_ref_that_resolves(name: str) -> None:
     if not path.exists():
         pytest.skip(f"{name} is not in this checkout")
 
-    named = {a or b for a, b in REFS.findall(path.read_text())}
+    named = {a or b for a, b in REFS.findall(path.read_text(encoding="utf-8"))}
     wrong = named - {"HEAD"}
     assert not wrong, (
         f"{name} links to ref(s) {sorted(wrong)}. Use HEAD: it resolves to the "

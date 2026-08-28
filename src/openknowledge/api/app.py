@@ -168,7 +168,7 @@ def _provision_admin_token(settings: Settings) -> None:
 
     # Another process may have minted between our settings load and now.
     if state.env_file.is_file():
-        for line in state.env_file.read_text().splitlines():
+        for line in state.env_file.read_text(encoding="utf-8").splitlines():
             if line.startswith("OK_ADMIN_TOKEN=") and line.split("=", 1)[1].strip():
                 settings.admin_token = line.split("=", 1)[1].strip()
                 return

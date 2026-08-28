@@ -369,7 +369,7 @@ def test_recording_the_choice_keeps_the_operators_file_intact(tmp_path: Path) ->
     changed = write_env(env, {"OK_LOCAL_MODEL": "qwen3:8b", "OK_LOCAL_CONTEXT_TOKENS": "40960"})
 
     assert changed == ["OK_LOCAL_MODEL", "OK_LOCAL_CONTEXT_TOKENS"]
-    assert env.read_text() == (
+    assert env.read_text(encoding="utf-8") == (
         "# my notes\n"
         "OK_DOCUMENTS_DIR=./policies\n"
         "OK_LOCAL_MODEL=qwen3:8b\n"
@@ -511,9 +511,9 @@ def test_a_model_it_just_built_is_not_then_reported_missing(
     env = tmp_path / ".env"
 
     assert main(["model", "use", "qwen3:8b", "--env-file", str(env)]) == 0
-    built = dict(line.split("=", 1) for line in env.read_text().splitlines() if "=" in line)[
-        "OK_LOCAL_MODEL"
-    ]
+    built = dict(
+        line.split("=", 1) for line in env.read_text(encoding="utf-8").splitlines() if "=" in line
+    )["OK_LOCAL_MODEL"]
 
     monkeypatch.setenv("OK_LOCAL_MODEL", built)
     monkeypatch.setenv("OK_LOCAL_CONTEXT_TOKENS", "8192")

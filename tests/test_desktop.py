@@ -112,7 +112,7 @@ def test_download_verifies_and_marks(tmp_path: Path, cdn) -> None:
     model = _fake_model()
     path = ensure_model(model, tmp_path, base_url=base_url)
     assert path.read_bytes() == _CONTENT
-    assert (tmp_path / "fake-model.gguf.sha256-ok").read_text() == model.sha256
+    assert (tmp_path / "fake-model.gguf.sha256-ok").read_text(encoding="utf-8") == model.sha256
     assert not (tmp_path / "fake-model.gguf.part").exists()
 
 

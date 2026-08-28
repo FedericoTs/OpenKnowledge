@@ -181,7 +181,7 @@ def test_a_frozen_bundle_wins_over_the_checkout(
 
     found = find_asset("widget/index.html")
     assert found is not None
-    assert found.read_text() == "<!-- frozen copy -->"
+    assert found.read_text(encoding="utf-8") == "<!-- frozen copy -->"
 
 
 @pytest.mark.skipif(shutil.which("uv") is None, reason="uv is not installed")
@@ -226,7 +226,7 @@ def test_app_mode_mints_and_persists_an_admin_token(
         assert client.get("/admin/config").status_code == 401
 
     # Persisted: the next start reads the same token rather than minting anew.
-    assert f"OK_ADMIN_TOKEN={token}" in (app_mode / ".env").read_text()
+    assert f"OK_ADMIN_TOKEN={token}" in (app_mode / ".env").read_text(encoding="utf-8")
     assert load_settings().admin_token == token
 
 
@@ -264,7 +264,7 @@ def test_an_existing_token_in_the_state_file_wins_over_minting(
     with TestClient(create_app(settings)):
         pass
     assert settings.admin_token == "already-minted"
-    content = (app_mode / ".env").read_text()
+    content = (app_mode / ".env").read_text(encoding="utf-8")
     assert content.count("OK_ADMIN_TOKEN=") == 1
     assert "OK_OTHER=kept" in content
 
@@ -317,7 +317,7 @@ def test_a_private_env_write_is_never_world_readable(tmp_path: Path) -> None:
     # And the write is atomic: no temp litter left beside it.
     write_env(target, {"OK_OTHER": "x"}, private=True)
     assert [p.name for p in tmp_path.iterdir()] == [".env"]
-    assert "OK_ADMIN_TOKEN=secret" in target.read_text()
+    assert "OK_ADMIN_TOKEN=secret" in target.read_text(encoding="utf-8")
 
 
 # --- the bind and the Host header -------------------------------------------
@@ -331,7 +331,7 @@ def test_serve_binds_this_machine_only_by_default() -> None:
 
     args = build_parser().parse_args(["serve"])
     assert args.host == "127.0.0.1"
-    assert 'serve", "--host", "0.0.0.0"' in (ROOT / "Dockerfile").read_text()
+    assert 'serve", "--host", "0.0.0.0"' in (ROOT / "Dockerfile").read_text(encoding="utf-8")
 
 
 def test_a_rebound_hostname_is_rejected_on_loopback(tmp_path: Path) -> None:

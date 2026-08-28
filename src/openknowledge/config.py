@@ -14,7 +14,13 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_prefix="OK_", env_file=".env", extra="ignore", protected_namespaces=()
+        env_prefix="OK_",
+        env_file=".env",
+        # The state env is written as UTF-8 by write_env; reading it with the
+        # machine locale (cp1252 on Windows) would corrupt any non-ASCII path.
+        env_file_encoding="utf-8",
+        extra="ignore",
+        protected_namespaces=(),
     )
 
     # -- storage ---------------------------------------------------------

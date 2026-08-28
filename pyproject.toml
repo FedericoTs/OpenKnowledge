@@ -121,7 +121,10 @@ pythonpath = ["src", "tests", "."]
 asyncio_mode = "auto"
 
 [tool.mypy]
-python_version = "3.11"
+# No python_version pin: each CI leg checks with its own interpreter, because
+# dependencies ship stubs for the python they were installed under - numpy on
+# 3.12 uses `type` statements that a 3.11-pinned mypy refuses to parse. Our
+# own 3.11 compatibility is enforced by the 3.11 leg itself.
 packages = ["openknowledge"]
 mypy_path = "src"
 ignore_missing_imports = true

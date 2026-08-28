@@ -47,7 +47,7 @@ OPTIONAL = {
 
 
 def _declared() -> set[str]:
-    meta = tomllib.loads((ROOT / "pyproject.toml").read_text())
+    meta = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     names = set()
     for req in meta["project"]["dependencies"]:
         names.add(req.split("[")[0].split(">")[0].split("=")[0].split("<")[0].strip().lower())
@@ -57,7 +57,7 @@ def _declared() -> set[str]:
 def _imported() -> dict[str, list[str]]:
     found: dict[str, list[str]] = {}
     for path in sorted(SRC.rglob("*.py")):
-        tree = ast.parse(path.read_text())
+        tree = ast.parse(path.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
             names: list[str] = []
             if isinstance(node, ast.Import):
@@ -90,7 +90,7 @@ def test_every_import_in_src_is_a_declared_dependency() -> None:
 
 
 def test_optional_imports_are_declared_in_an_extra() -> None:
-    meta = tomllib.loads((ROOT / "pyproject.toml").read_text())
+    meta = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     extras = {
         req.split("[")[0].split(">")[0].split("=")[0].strip().lower()
         for reqs in meta["project"]["optional-dependencies"].values()

@@ -353,7 +353,7 @@ def _cmd_eval(args: argparse.Namespace) -> int:
         print(f"\nbaseline written to {args.save_baseline}", file=sys.stderr)
 
     if args.baseline:
-        baseline = _json.loads(Path(args.baseline).read_text())
+        baseline = _json.loads(Path(args.baseline).read_text(encoding="utf-8"))
         result = compare(report, baseline)
         print()
         for line in result.improvements:

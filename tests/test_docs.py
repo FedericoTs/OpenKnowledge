@@ -64,7 +64,7 @@ def _invocations(text: str) -> list[tuple[list[str], str]]:
 @pytest.mark.parametrize("path", documents(), ids=lambda p: p.name)
 def test_every_command_a_document_shows_is_a_real_command(path: Path) -> None:
     parser = build_parser()
-    for words, _ in _invocations(path.read_text()):
+    for words, _ in _invocations(path.read_text(encoding="utf-8")):
         # A one-word path always has to resolve. A two-word one may be a command
         # followed by an ordinary word ("openknowledge index re-reads..."), so
         # it is enough that its first word does.
@@ -83,7 +83,7 @@ def test_every_flag_a_document_shows_is_a_real_flag(path: Path) -> None:
     the flag existed. That is what this catches.
     """
     parser = build_parser()
-    for words, tail in _invocations(path.read_text()):
+    for words, tail in _invocations(path.read_text(encoding="utf-8")):
         resolved = _resolve(parser, words)
         if resolved is None:
             resolved = _resolve(parser, words[:1])
@@ -99,7 +99,7 @@ def test_every_flag_a_document_shows_is_a_real_flag(path: Path) -> None:
 
 
 def test_the_setup_guide_points_at_the_installer_that_exists() -> None:
-    guide = (ROOT / "docs" / "LOCAL-SETUP.md").read_text()
+    guide = (ROOT / "docs" / "LOCAL-SETUP.md").read_text(encoding="utf-8")
     assert "install.sh" in guide
     assert (ROOT / "install.sh").exists()
 
@@ -112,7 +112,7 @@ def test_the_setup_guide_points_at_the_installer_that_exists() -> None:
     #             to their own .bashrc. Printing that advice is the opposite of
     #             doing it behind their back.
     code, in_heredoc = [], False
-    for line in (ROOT / "install.sh").read_text().splitlines():
+    for line in (ROOT / "install.sh").read_text(encoding="utf-8").splitlines():
         stripped = line.strip()
         if in_heredoc:
             in_heredoc = stripped != "EOF"
