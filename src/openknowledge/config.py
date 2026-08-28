@@ -235,11 +235,22 @@ class Settings(BaseSettings):
     oidc_client_secret: str = ""
     #: Which ID-token claim carries group ids. Entra calls it "groups".
     oidc_groups_claim: str = "groups"
+    #: Members of this group (an Entra group object id) get the admin
+    #: surface without the shared token - grant and revoke admins in the
+    #: directory, like everything else about them. Empty means token-only.
+    oidc_admin_group: str = ""
     #: The URL people reach this server at, for building the OAuth redirect
     #: URI behind proxies. Empty derives it from each request, which is fine
     #: for localhost testing; Entra refuses http:// redirects anywhere else.
     public_url: str = ""
     session_hours: float = Field(default=8.0, gt=0)
+    #: Serve HTTPS directly (both paths, or neither). Sign-in makes TLS
+    #: load-bearing: Entra refuses http:// redirect URIs beyond localhost,
+    #: and a session cookie on a plain-http LAN is readable in flight. A
+    #: reverse proxy works too - these are for the deployment that wants no
+    #: second service.
+    tls_cert: str = ""
+    tls_key: str = ""
 
     @property
     def db_path(self) -> str:

@@ -6,15 +6,18 @@ body** — fine when the caller is a trusted bot backend, useless as access
 control for browsers. This document is the plan for closing that gap with
 OpenID Connect sign-in, Microsoft Entra ID first.
 
-It is a design first and a status report second. **Built and tested so
-far: increments 1 and 2** of the build order at the end - the OIDC
-client and session store (`src/openknowledge/auth/`), the gate, and
-server-minted principals, all proven against the fake IdP described
-below (`tests/test_auth.py`, `tests/test_auth_api.py`), including the
-end-to-end test where an HR-restricted answer serves an HR member and
-refuses everyone else. Increments 3-6 - the widget's sign-in UI,
-admin-by-group, TLS settings and the setup guide, and the real-tenant
-verification - are not built, and nothing below claims otherwise.
+It is a design first and a status report second. **Built and tested:
+increments 1 through 5** of the build order at the end - the OIDC client
+and session store (`src/openknowledge/auth/`), the gate and
+server-minted principals, the sign-in UI in the widget and /manage,
+admin-by-group, and the TLS settings - proven against the fake IdP
+described below (`tests/test_auth.py`, `tests/test_auth_api.py`), in a
+real browser riding the whole redirect chain
+(`tests/test_auth_browser.py`), and including the end-to-end test where
+an HR-restricted answer serves an HR member and refuses everyone else.
+The admin's click-by-click walkthrough is [ENTRA-SETUP.md](ENTRA-SETUP.md).
+What remains is increment 6 alone: verifying Microsoft's half of the
+flow against a real tenant, which only a human with one can do.
 
 ## The lock already exists
 
@@ -94,7 +97,7 @@ OK_OIDC_ISSUER=https://login.microsoftonline.com/<tenant-id>/v2.0
 OK_OIDC_CLIENT_ID=<app registration id>
 OK_OIDC_CLIENT_SECRET=<client secret>
 OK_PUBLIC_URL=https://knowledge.example.com   # builds the redirect URI
-OK_OIDC_ADMIN_GROUP=<group object id>   # optional: this group is admin (increment 4, not built yet)
+OK_OIDC_ADMIN_GROUP=<group object id>   # optional: this group is admin
 OK_OIDC_GROUPS_CLAIM=groups             # default
 OK_SESSION_HOURS=8                      # default
 ```
@@ -139,11 +142,10 @@ endpoint that signs whatever identity a test asks for. Against it:
 Only a human with a tenant can verify Microsoft's half: the app
 registration screens, consent, real group claims, clock skew against
 real tokens. That is the recorded verification step, and it needs from
-the company: a tenant id, an app registration (the setup guide will list
-the exact clicks: Web platform, redirect URI, client secret, groups
-claim set to assigned groups), one test group with two test users, and
-the hostname the server will live at. Every surprise the live tenant
-produces becomes a pinned test, as usual.
+the company: a tenant id, an app registration
+([ENTRA-SETUP.md](ENTRA-SETUP.md) lists the exact clicks), one test
+group with two test users, and the hostname the server will live at.
+Every surprise the live tenant produces becomes a pinned test, as usual.
 
 ## Build order
 

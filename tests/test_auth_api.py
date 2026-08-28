@@ -185,6 +185,7 @@ def test_with_sign_in_off_nothing_changes(tmp_path) -> None:
     )
     with TestClient(create_app(settings)) as client:
         assert client.get("/auth/login").status_code == 404
+        assert client.get("/auth/me").status_code == 404
         response = client.post("/chat", json={"question": "hi", "principals": ["anything"]})
         assert response.status_code == 200, "trusted-caller mode must survive"
 
@@ -192,6 +193,41 @@ def test_with_sign_in_off_nothing_changes(tmp_path) -> None:
 def test_misconfigured_sign_in_fails_at_startup_not_at_noon(tmp_path, idp) -> None:
     with pytest.raises(RuntimeError, match="OK_OIDC_CLIENT_ID"):
         create_app(_settings(tmp_path, idp, oidc_client_id=""))
+
+
+# -- who am I, and admins as a group ----------------------------------------
+
+
+def test_auth_me_renders_the_session_and_nothing_else(client, idp) -> None:
+    assert client.get("/auth/me").json() == {"signed_in": False}
+    sign_in(client, idp, subject="alice", groups=("g-hr",))
+    body = client.get("/auth/me").json()
+    assert body == {"signed_in": True, "name": "Test Person", "admin": False}
+
+
+def test_the_admin_group_is_the_admin_credential(tmp_path, idp) -> None:
+    """Membership in OK_OIDC_ADMIN_GROUP grants /manage's API without the
+    shared token - granted and revoked in the directory, like everything
+    else about a person."""
+    settings = _settings(tmp_path, idp, oidc_admin_group="g-admins", admin_token=None)
+    with TestClient(create_app(settings)) as client:
+        sign_in(client, idp, subject="root", groups=("g-admins",))
+        assert client.get("/admin/costs").status_code == 200, "no token, group is enough"
+        assert client.get("/auth/me").json()["admin"] is True
+
+        client.cookies.clear()
+        sign_in(client, idp, subject="pleb", groups=("g-hr",))
+        denied = client.get("/admin/costs")
+        assert denied.status_code == 403
+        assert "admin group" in denied.json()["detail"]
+        assert client.get("/auth/me").json()["admin"] is False
+
+
+def test_the_token_still_works_beside_the_admin_group(tmp_path, idp) -> None:
+    settings = _settings(tmp_path, idp, oidc_admin_group="g-admins")
+    with TestClient(create_app(settings)) as client:
+        headers = {"Authorization": f"Bearer {ADMIN_TOKEN}"}
+        assert client.get("/admin/costs", headers=headers).status_code == 200
 
 
 # -- the ACL truth, end to end ----------------------------------------------

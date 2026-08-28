@@ -123,6 +123,19 @@ def install_auth(app: FastAPI, settings: Settings) -> None:
         response.delete_cookie(COOKIE_NAME, path="/")
         return response
 
+    @app.get("/auth/me", include_in_schema=False)
+    async def me(request: Request) -> JSONResponse:
+        """Who this browser is, for the pages to render - never for access
+        decisions, which stay server-side in the gate and require_admin."""
+        token = request.cookies.get(COOKIE_NAME)
+        session = store.get(token) if token else None
+        if session is None:
+            return JSONResponse({"signed_in": False})
+        admin = bool(
+            settings.oidc_admin_group and f"group:{settings.oidc_admin_group}" in session.principals
+        )
+        return JSONResponse({"signed_in": True, "name": session.name, "admin": admin})
+
     @app.middleware("http")
     async def gate(
         request: Request, call_next: Callable[[Request], Awaitable[Response]]

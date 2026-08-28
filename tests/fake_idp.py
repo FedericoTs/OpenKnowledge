@@ -18,7 +18,7 @@ import time
 from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
-from urllib.parse import parse_qs
+from urllib.parse import parse_qs, urlparse
 
 import jwt
 from cryptography.hazmat.primitives import serialization
@@ -53,6 +53,10 @@ class FakeIdp:
     codes: dict[str, dict[str, Any]] = field(default_factory=dict)
     #: The form the client posted to the token endpoint, for assertions.
     last_token_request: dict[str, str] = field(default_factory=dict)
+    #: When set, /authorize signs this identity in without any login page -
+    #: what a browser-driven test needs to ride the whole redirect chain.
+    #: Keys are mint_code's identity arguments (subject, name, groups).
+    auto_identity: dict[str, Any] | None = None
 
     def __post_init__(self) -> None:
         self._key = _test_key()
@@ -80,8 +84,28 @@ class FakeIdp:
                     self._json(idp.discovery())
                 elif self.path == "/jwks":
                     self._json(idp.jwks())
+                elif self.path.startswith("/authorize"):
+                    self._authorize()
                 else:
                     self._json({"error": "not found"}, status=404)
+
+            def _authorize(self) -> None:
+                """Auto-approve as the configured identity and redirect back."""
+                if idp.auto_identity is None:
+                    self._json({"error": "no auto_identity configured"}, status=400)
+                    return
+                query = {k: v[0] for k, v in parse_qs(urlparse(self.path).query).items()}
+                code = idp.mint_code(
+                    audience=query.get("client_id", ""),
+                    nonce=query.get("nonce", ""),
+                    **idp.auto_identity,
+                )
+                separator = "&" if "?" in query["redirect_uri"] else "?"
+                location = f"{query['redirect_uri']}{separator}code={code}&state={query['state']}"
+                self.send_response(302)
+                self.send_header("Location", location)
+                self.send_header("Content-Length", "0")
+                self.end_headers()
 
             def do_POST(self) -> None:  # noqa: N802 - http.server API
                 length = int(self.headers.get("Content-Length", 0))

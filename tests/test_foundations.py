@@ -323,6 +323,32 @@ def test_a_private_env_write_is_never_world_readable(tmp_path: Path) -> None:
 # --- the bind and the Host header -------------------------------------------
 
 
+def test_tls_is_both_paths_or_neither(tmp_path: Path) -> None:
+    """Half a certificate pair is a misconfiguration said plainly at start,
+    never a server that came up insecurely."""
+    from openknowledge.cli import _tls_kwargs
+    from openknowledge.config import Settings
+
+    def settings(**kw: str) -> Settings:
+        return Settings(_env_file=None, **kw)  # type: ignore[call-arg]
+
+    assert _tls_kwargs(settings()) == {}
+
+    cert = tmp_path / "server.crt"
+    key = tmp_path / "server.key"
+    cert.write_text("not really a cert")
+    key.write_text("not really a key")
+    assert _tls_kwargs(settings(tls_cert=str(cert), tls_key=str(key))) == {
+        "ssl_certfile": str(cert),
+        "ssl_keyfile": str(key),
+    }
+
+    with pytest.raises(SystemExit, match="together"):
+        _tls_kwargs(settings(tls_cert=str(cert)))
+    with pytest.raises(SystemExit, match="not a file"):
+        _tls_kwargs(settings(tls_cert=str(cert), tls_key=str(tmp_path / "missing.key")))
+
+
 def test_serve_binds_this_machine_only_by_default() -> None:
     """0.0.0.0 was the old default: LAN exposure and a firewall prompt for a
     personal tool. The container, which genuinely serves a network, passes

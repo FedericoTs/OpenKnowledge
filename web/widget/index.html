@@ -81,6 +81,11 @@
   .side-foot a { color:var(--side-ink); text-decoration:none; }
   .side-foot a:hover { text-decoration:underline; text-underline-offset:2px; }
   .side-foot .links { display:flex; gap:14px; margin-bottom:7px; }
+  .side-foot #who { display:none; margin-bottom:7px; }
+  .side-foot #who b { color:var(--side-ink); font-weight:600; }
+  .side-foot #who button { background:none; border:0; padding:0; margin-left:6px;
+                           color:var(--side-ink); font:inherit; cursor:pointer;
+                           text-decoration:underline; text-underline-offset:2px; }
 
   /* ---- main: the conversation ------------------------------------------ */
   main { display:flex; flex-direction:column; min-height:0; }
@@ -194,6 +199,7 @@
       <select id="dest"></select>
     </div>
     <div class="side-foot">
+      <div id="who"></div>
       <div class="links"><a href="/manage">Manage ↗</a><a href="/docs">API ↗</a></div>
       <div>Everything stays on this machine.</div>
     </div>
@@ -234,6 +240,14 @@
 
 <script>
 let uploadsEnabled = false;
+
+// A 401 mid-session means the session expired under us: go sign back in.
+// Access is enforced server-side; this only spares the person a dead page.
+function needsSignIn(res) {
+  if (res.status !== 401) return false;
+  location.href = '/auth/login';
+  return true;
+}
 
 function el(tag, cls, text) {
   const n = document.createElement(tag);
@@ -278,7 +292,10 @@ function refreshCorpus() {
 // renders exactly as before - structure appears only when structure exists.
 function refreshDocuments() {
   if (!uploadsEnabled) return;
-  return fetch('/documents').then(r => r.ok ? r.json() : null).then(body => {
+  return fetch('/documents').then(r => {
+    if (!r.ok) { needsSignIn(r); return null; }
+    return r.json();
+  }).then(body => {
     if (!body) return;
     updateDestinations(body.folders || []);
     const list = document.getElementById('doc-list');
@@ -371,6 +388,7 @@ async function removeDocument(name) {
   if (!confirm('Remove "' + name + '" from the knowledge base?\nAnswers derived from it become unreachable.')) return;
   try {
     const res = await fetch('/documents/' + encodeURIComponent(name), { method: 'DELETE' });
+    if (needsSignIn(res)) return;
     if (!res.ok) throw new Error('HTTP ' + res.status);
     systemNote(name + ' — removed. Answers that cited it are no longer served.');
     refreshCorpus();
@@ -380,6 +398,23 @@ async function removeDocument(name) {
 }
 
 refreshCorpus();
+
+// Who is signed in, when sign-in is on. The endpoint does not exist with
+// sign-in off (404), and the row stays hidden - this page renders identity,
+// it never decides access.
+fetch('/auth/me').then(r => r.ok ? r.json() : null).then(who => {
+  if (!who || !who.signed_in) return;
+  const row = document.getElementById('who');
+  row.style.display = 'block';
+  row.appendChild(document.createTextNode('Signed in as '));
+  row.appendChild(el('b', null, who.name));
+  const out = el('button', null, 'Sign out');
+  out.onclick = async () => {
+    try { await fetch('/auth/logout', { method: 'POST' }); } catch (e) { /* leaving anyway */ }
+    location.href = '/';
+  };
+  row.appendChild(out);
+}).catch(() => {});
 
 // The desktop app's first run happens in the browser: while models are being
 // consented to, downloaded or loaded, the chat hands over to the setup page.
@@ -439,6 +474,7 @@ async function uploadFiles(fileList) {
   if (folder && folder !== '__new__') form.append('folder', folder);
   try {
     const res = await fetch('/documents', { method: 'POST', body: form });
+    if (needsSignIn(res)) return;
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const report = await res.json();
     note.textContent = '';
@@ -564,6 +600,7 @@ async function streamAnswer(body, pending) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
+  if (needsSignIn(res)) return;
   if (!res.ok || !res.body) throw new Error('HTTP ' + res.status);
 
   const status = workingLine(pending);
@@ -667,6 +704,7 @@ form.addEventListener('submit', async (e) => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
+    if (needsSignIn(res)) return;
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const data = await res.json();
     remember('assistant', data.answer);

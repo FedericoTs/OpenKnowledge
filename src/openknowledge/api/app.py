@@ -73,14 +73,37 @@ def get_engine(request: Request) -> Engine:
     return engine
 
 
+def _session_is_admin(request: Request) -> bool:
+    """A signed-in member of the configured admin group is an admin.
+
+    Organising the knowledge base "directly by admins" must not need a
+    shared token passed around on chat: with sign-in on, membership in
+    OK_OIDC_ADMIN_GROUP grants the admin surface to the person, revocable
+    in the directory like everything else about them.
+    """
+    settings: Settings = request.app.state.settings
+    group = settings.oidc_admin_group if settings.auth_mode == "oidc" else ""
+    if not group:
+        return False
+    session = getattr(request.state, "session", None)
+    return session is not None and f"group:{group}" in session.principals
+
+
 def require_admin(
     request: Request,
     authorization: Annotated[str | None, Header()] = None,
 ) -> None:
-    """Fail closed: no configured token means the admin API is unavailable."""
+    """Fail closed: with neither a token set nor an admin group matched,
+    the admin API is unavailable."""
+    if _session_is_admin(request):
+        return
     settings: Settings = request.app.state.settings
     expected = settings.admin_token
     if not expected:
+        if settings.auth_mode == "oidc" and settings.oidc_admin_group:
+            raise HTTPException(
+                403, "admin access is granted by the admin group; this account is not in it"
+            )
         raise HTTPException(
             503,
             "Admin API is disabled because no admin token is set. Set OK_ADMIN_TOKEN to enable it.",

@@ -40,8 +40,36 @@ def _cmd_serve(args: argparse.Namespace) -> int:
         # from their network.
         print("serving this machine only; pass --host 0.0.0.0 to serve the network")
     os.environ["OK_BIND_HOST"] = args.host
-    uvicorn.run("openknowledge.api.app:app", host=args.host, port=args.port, reload=args.reload)
+    tls = _tls_kwargs(load_settings())
+    uvicorn.run(
+        "openknowledge.api.app:app",
+        host=args.host,
+        port=args.port,
+        reload=args.reload,
+        ssl_certfile=tls.get("ssl_certfile"),
+        ssl_keyfile=tls.get("ssl_keyfile"),
+    )
     return 0
+
+
+def _tls_kwargs(settings: Any) -> dict[str, str]:
+    """TLS straight from uvicorn, when a certificate is configured.
+
+    Sign-in makes HTTPS load-bearing: Entra refuses http:// redirect URIs
+    beyond localhost, and a session cookie on a plain-http LAN is readable
+    in flight. A reverse proxy is the classic answer; OK_TLS_CERT and
+    OK_TLS_KEY are the answer that needs no second service. Half a pair is
+    a misconfiguration, said plainly rather than served insecurely.
+    """
+    cert, key = settings.tls_cert, settings.tls_key
+    if not cert and not key:
+        return {}
+    if not cert or not key:
+        raise SystemExit("OK_TLS_CERT and OK_TLS_KEY must be set together, or neither")
+    for label, path in (("OK_TLS_CERT", cert), ("OK_TLS_KEY", key)):
+        if not Path(path).is_file():
+            raise SystemExit(f"{label} points at {path}, which is not a file")
+    return {"ssl_certfile": cert, "ssl_keyfile": key}
 
 
 def _cmd_desktop(_: argparse.Namespace) -> int:
