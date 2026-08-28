@@ -230,8 +230,37 @@ openknowledge serve
 | | |
 |---|---|
 | `http://localhost:8080/` | chat widget |
+| `http://localhost:8080/manage` | management page |
 | `http://localhost:8080/docs` | HTTP API |
 | `http://localhost:8080/site` | the public page, when enabled |
+
+### Manage it from the browser
+
+`/manage` is where the folder-and-CLI work moves into the browser: add and
+remove documents, re-index, approve or reject drafted answers, resolve
+contradictions, change settings, read the cost report. The page itself is
+just a page — every action on it calls the admin API, which wants the admin
+token. Print it where the server runs and paste it once; it stays in that
+browser:
+
+```sh
+openknowledge token
+```
+
+Uploading through the browser — the page's **Add documents…**, or dropping
+files straight onto the chat widget — is off by default on a server, because
+a deployed answer engine should not accept writes nobody asked for. Turn it
+on with `OK_UPLOAD_ENABLED=true`, or flip `upload_enabled` in the settings
+grid on the page. When the server runs from your own per-user state (no
+checkout, no `OK_STATE_DIR`), uploads are on and a private token has already
+been minted for you — that is your machine, and `openknowledge paths` shows
+where everything is.
+
+Settings marked **live** apply from the next question. Settings marked
+**rebuild** swap the engine in place — the new one is built first, so if the
+change is bad (a wrong URL, a missing model) the old engine keeps serving
+and nothing is saved. Every applied change is written to the state `.env`,
+so it survives a restart.
 
 To serve the marketing page and its contact form as well:
 

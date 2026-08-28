@@ -345,6 +345,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
 
+    @app.get("/manage", response_class=HTMLResponse, include_in_schema=False)
+    async def manage() -> str:
+        """The management surface: documents, review, conflicts, settings.
+
+        A static page like the widget; everything privileged it does goes
+        through the admin API with the bearer token the person pastes once.
+        Serving the page itself is harmless - it is the calls that are guarded.
+        """
+        page = find_asset("manage/index.html")
+        if page is None:  # pragma: no cover - packaging fallback
+            return "<h1>OpenKnowledge</h1><p>Manage page not found.</p>"
+        return page.read_text(encoding="utf-8")
+
     @app.get("/healthz")
     async def healthz(engine: EngineDep) -> dict[str, Any]:
         return {

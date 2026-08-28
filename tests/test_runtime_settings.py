@@ -120,3 +120,34 @@ def test_every_editable_field_actually_exists_on_settings() -> None:
     """The whitelist is data; a typo in it would 500 at request time."""
     for key in EDITABLE:
         assert key in Settings.model_fields, key
+
+
+# --- the manage page --------------------------------------------------------
+
+
+def test_the_manage_page_is_served(client) -> None:
+    c, _, _ = client
+    response = c.get("/manage")
+    assert response.status_code == 200
+    for needed in ("Admin token", "Review queue", "Contradictions", "Settings", "Documents"):
+        assert needed in response.text
+
+
+def test_the_manage_page_only_calls_endpoints_that_exist(client) -> None:
+    """The page is fetch calls against string paths; a renamed endpoint would
+    fail only when a person clicks. Pin every path it mentions to the app."""
+    import re
+
+    c, _, _ = client
+    page = c.get("/manage").text
+    called = set(re.findall(r"""(?:api|fetch)\('(/[a-z/]+)'""", page))
+    assert called, "the page no longer calls anything?"
+
+    routes = {getattr(r, "path", "") for r in c.app.routes}
+    for path in called:
+        assert any(
+            path == route
+            or route.startswith(path + "/")
+            or path.startswith(route.split("{")[0].rstrip("/"))
+            for route in routes
+        ), f"the manage page calls {path}, which no route serves"

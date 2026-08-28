@@ -1,0 +1,427 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OpenKnowledge · Manage</title>
+<style>
+  :root {
+    --bg: #fbfbfa; --panel: #fff; --ink: #1a1a19; --muted: #6b6b66;
+    --line: #e5e4e0; --accent: #2f5d50; --warn: #8a5a2b; --bad: #b3261e;
+    --radius: 10px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#191917; --panel:#232320; --ink:#eceae4; --muted:#9a978e;
+            --line:#35342f; --accent:#7fb3a2; --warn:#d0a06a; --bad:#f2b8b5; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.55 ui-sans-serif,
+         system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  .wrap { max-width: 860px; margin: 0 auto; padding: 32px 20px 80px; }
+  header { display:flex; align-items:baseline; gap:12px; flex-wrap:wrap; margin-bottom:4px; }
+  h1 { font-size:19px; margin:0; }
+  header a { color:var(--muted); font-size:13px; text-decoration:none; }
+  header a:hover { color:var(--accent); }
+  .sub { color:var(--muted); font-size:13px; margin:0 0 20px; }
+  section { background:var(--panel); border:1px solid var(--line); border-radius:var(--radius);
+            padding:18px 20px; margin:0 0 18px; }
+  h2 { font-size:14px; margin:0 0 4px; letter-spacing:.02em; }
+  .hint { color:var(--muted); font-size:12.5px; margin:0 0 12px; }
+  table { border-collapse:collapse; width:100%; font-size:13.5px; }
+  th { text-align:left; color:var(--muted); font-weight:600; font-size:11px;
+       text-transform:uppercase; letter-spacing:.06em; padding:6px 8px 6px 0; }
+  td { padding:7px 8px 7px 0; border-top:1px solid var(--line); vertical-align:top; }
+  td.n { text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap; }
+  .quiet { color:var(--muted); } .warn { color:var(--warn); } .bad { color:var(--bad); }
+  button, .btn { padding:7px 14px; font:inherit; font-size:13px; font-weight:600;
+    color:var(--bg); background:var(--accent); border:0; border-radius:8px; cursor:pointer; }
+  button.ghost { background:transparent; color:var(--ink); border:1px solid var(--line); }
+  button.small { padding:4px 10px; font-size:12px; }
+  button:disabled { opacity:.5; cursor:default; }
+  input[type=text], input[type=password], input[type=number], select {
+    padding:8px 10px; font:inherit; font-size:14px; color:var(--ink);
+    background:var(--bg); border:1px solid var(--line); border-radius:8px; }
+  input:focus, select:focus { outline:2px solid var(--accent); outline-offset:-1px; }
+  .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  .grid { display:grid; grid-template-columns:minmax(180px,1fr) 150px 70px; gap:8px 14px;
+          align-items:center; font-size:13.5px; }
+  .grid label { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .grid .applies { color:var(--muted); font-size:11px; text-transform:uppercase;
+                   letter-spacing:.05em; }
+  #status { font-size:13px; min-height:1.3em; margin-top:8px; }
+  #status.ok { color:var(--accent); } #status.bad { color:var(--bad); }
+  .empty { color:var(--muted); font-size:13.5px; padding:8px 0 2px; }
+  details.item { border-top:1px solid var(--line); padding:8px 0; }
+  details.item summary { cursor:pointer; display:flex; gap:10px; align-items:baseline;
+                         flex-wrap:wrap; list-style:none; }
+  details.item summary::-webkit-details-marker { display:none; }
+  details.item .body { padding:8px 0 4px; font-size:13.5px; }
+  .answer { white-space:pre-wrap; background:var(--bg); border:1px solid var(--line);
+            border-radius:8px; padding:10px 12px; margin:6px 0; }
+  .tag { font-size:11px; font-weight:600; padding:1px 8px; border-radius:999px;
+         border:1px solid currentColor; color:var(--muted); white-space:nowrap; }
+  .locked-note { color:var(--muted); font-size:13.5px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>OpenKnowledge · Manage</h1>
+    <a href="/">← back to chat</a>
+  </header>
+  <p class="sub" id="corpus-line">…</p>
+
+  <section id="unlock-section">
+    <h2>Admin token</h2>
+    <p class="hint">
+      The management surface is guarded by the admin token. Run
+      <code>openknowledge token</code> where the server runs and paste it here —
+      it is kept in this browser only.
+    </p>
+    <div class="row">
+      <input type="password" id="token-input" placeholder="admin token" size="34">
+      <button id="unlock">Unlock</button>
+      <button id="forget" class="ghost" hidden>Forget token</button>
+    </div>
+    <div id="status"></div>
+  </section>
+
+  <section>
+    <h2>Documents</h2>
+    <p class="hint">
+      The knowledge base is this folder. Files that could not be read are listed
+      with the reason — that is where “I uploaded it and it knows nothing” gets
+      diagnosed.
+    </p>
+    <div class="row" style="margin-bottom:10px">
+      <button id="add-docs" class="ghost">Add documents…</button>
+      <button id="reindex" class="ghost" data-admin>Re-index</button>
+      <input id="file-input" type="file" multiple hidden
+             accept=".pdf,.docx,.xlsx,.xlsm,.pptx,.md,.markdown,.rst,.txt">
+    </div>
+    <div id="documents"><p class="empty">Loading…</p></div>
+  </section>
+
+  <section data-admin-section>
+    <h2>Review queue</h2>
+    <p class="hint">
+      Answers drafted from your documents, ranked by what approving them saves.
+      Approving pins the answer; rejecting is permanent.
+    </p>
+    <div id="proposals"><p class="locked-note">Unlock to load.</p></div>
+  </section>
+
+  <section data-admin-section>
+    <h2>Contradictions</h2>
+    <p class="hint">
+      Documents that disagree. Questions touching these are refused until
+      resolved — and resolving records the decision, it does not edit your
+      documents.
+    </p>
+    <div id="conflicts"><p class="locked-note">Unlock to load.</p></div>
+  </section>
+
+  <section data-admin-section>
+    <h2>Settings</h2>
+    <p class="hint">
+      Applied on save and persisted for the next start. <b>live</b> takes effect
+      on the next question; <b>rebuild</b> swaps the engine in place.
+    </p>
+    <div id="settings"><p class="locked-note">Unlock to load.</p></div>
+    <div class="row" style="margin-top:10px">
+      <button id="save-settings" data-admin hidden>Save changes</button>
+      <span id="settings-status" class="quiet"></span>
+    </div>
+  </section>
+
+  <section data-admin-section>
+    <h2>Costs</h2>
+    <div id="costs"><p class="locked-note">Unlock to load.</p></div>
+  </section>
+</div>
+
+<script>
+'use strict';
+const $ = (id) => document.getElementById(id);
+const state = { token: localStorage.getItem('ok-admin-token') || '', settings: null };
+
+function el(tag, cls, text) {
+  const n = document.createElement(tag);
+  if (cls) n.className = cls;
+  if (text !== undefined) n.textContent = text;
+  return n;
+}
+function say(text, ok) { const s = $('status'); s.textContent = text; s.className = ok ? 'ok' : 'bad'; }
+function authHeaders() { return state.token ? { 'Authorization': 'Bearer ' + state.token } : {}; }
+
+async function api(path, options = {}) {
+  const res = await fetch(path, {
+    ...options,
+    headers: { ...(options.headers || {}), ...authHeaders() },
+  });
+  if (!res.ok) {
+    let detail = 'HTTP ' + res.status;
+    try { detail = (await res.json()).detail || detail; } catch (e) { /* keep the status */ }
+    throw new Error(detail);
+  }
+  return res.json();
+}
+
+// ---- corpus line + documents (no token needed when uploads are on) ---------
+async function refreshCorpus() {
+  try {
+    const h = await api('/healthz');
+    $('corpus-line').textContent =
+      `${h.documents_indexed} document${h.documents_indexed === 1 ? '' : 's'} indexed, `
+      + `in ${h.chunks_indexed} passages · corpus ${h.corpus_version}`;
+    return h;
+  } catch (e) { $('corpus-line').textContent = 'Server unreachable: ' + e.message; return null; }
+}
+
+async function refreshDocuments() {
+  const box = $('documents');
+  try {
+    const body = await api('/documents');
+    box.textContent = '';
+    if (!body.files.length) {
+      box.appendChild(el('p', 'empty', 'The documents folder is empty. Add some.'));
+      return;
+    }
+    const table = el('table');
+    table.appendChild(el('thead')).innerHTML =
+      '<tr><th>File</th><th>Status</th><th></th></tr>';
+    const tbody = table.appendChild(el('tbody'));
+    for (const f of body.files) {
+      const tr = tbody.appendChild(el('tr'));
+      tr.appendChild(el('td', null, f.name));
+      tr.appendChild(el('td', f.skipped ? 'warn' : 'quiet',
+        f.skipped ? f.skipped : (Math.round(f.size / 1024) || 1) + ' KB · indexed'));
+      const actions = tr.appendChild(el('td'));
+      const del = actions.appendChild(el('button', 'ghost small', 'Remove'));
+      del.onclick = async () => {
+        if (!confirm('Remove ' + f.name + ' and the knowledge that came from it?')) return;
+        try { await api('/documents/' + encodeURIComponent(f.name), { method: 'DELETE' }); }
+        catch (e) { alert('Could not remove: ' + e.message); }
+        refreshDocuments(); refreshCorpus();
+      };
+    }
+    box.appendChild(table);
+  } catch (e) {
+    box.textContent = '';
+    box.appendChild(el('p', 'empty',
+      e.message.includes('not enabled')
+        ? 'Uploads are disabled (OK_UPLOAD_ENABLED). Files still index from the documents folder.'
+        : 'Could not list documents: ' + e.message));
+  }
+}
+
+async function uploadFiles(files) {
+  const form = new FormData();
+  for (const f of files) form.append('files', f, f.name);
+  try {
+    const report = await api('/documents', { method: 'POST', body: form });
+    const refused = report.skipped.map(s => s.name + ' (' + s.reason + ')');
+    say(report.stored.length + ' added' + (refused.length ? '; refused: ' + refused.join('; ') : ''), true);
+  } catch (e) { say('Upload failed: ' + e.message, false); }
+  refreshDocuments(); refreshCorpus();
+}
+$('add-docs').onclick = () => $('file-input').click();
+$('file-input').addEventListener('change', (e) => {
+  if (e.target.files.length) uploadFiles(e.target.files);
+  e.target.value = '';
+});
+$('reindex').onclick = async () => {
+  try { const r = await api('/admin/reindex', { method: 'POST' });
+        say('Re-indexed: ' + r.documents + ' documents, ' + r.chunks + ' passages.', true); }
+  catch (e) { say('Re-index failed: ' + e.message, false); }
+  refreshDocuments(); refreshCorpus();
+};
+
+// ---- admin sections --------------------------------------------------------
+async function refreshProposals() {
+  const box = $('proposals');
+  try {
+    const body = await api('/admin/proposals');
+    box.textContent = '';
+    if (!body.pending.length) {
+      box.appendChild(el('p', 'empty', 'Nothing awaiting review.'));
+      return;
+    }
+    for (const p of body.pending) {
+      const item = box.appendChild(el('details', 'item'));
+      const head = item.appendChild(el('summary'));
+      head.appendChild(el('b', null, p.question));
+      head.appendChild(el('span', 'tag', 'asked ' + p.times_asked + '×'));
+      head.appendChild(el('span', 'quiet', 'support ' + Math.round(p.support_ratio * 100) + '%'));
+      const body_ = item.appendChild(el('div', 'body'));
+      body_.appendChild(el('div', 'answer', p.answer));
+      body_.appendChild(el('p', 'quiet', 'cites: ' + p.cited.join(', ')));
+      const row = body_.appendChild(el('div', 'row'));
+      const ok = row.appendChild(el('button', 'small', 'Approve & pin'));
+      const no = row.appendChild(el('button', 'ghost small', 'Reject'));
+      ok.onclick = async () => {
+        try { await api('/admin/proposals/' + p.id + '/approve',
+          { method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ reviewer: 'manage-page' }) }); refreshProposals(); }
+        catch (e) { alert(e.message); }
+      };
+      no.onclick = async () => {
+        try { await api('/admin/proposals/' + p.id + '/reject',
+          { method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ reviewer: 'manage-page' }) }); refreshProposals(); }
+        catch (e) { alert(e.message); }
+      };
+    }
+  } catch (e) { box.innerHTML = ''; box.appendChild(el('p', 'empty', e.message)); }
+}
+
+async function refreshConflicts() {
+  const box = $('conflicts');
+  try {
+    const rows = await api('/admin/conflicts');
+    box.textContent = '';
+    if (!rows.length) {
+      box.appendChild(el('p', 'empty', 'No open contradictions.'));
+      return;
+    }
+    for (const c of rows) {
+      const item = box.appendChild(el('details', 'item'));
+      const head = item.appendChild(el('summary'));
+      head.appendChild(el('b', null, c.left.document + ' vs ' + c.right.document));
+      head.appendChild(el('span', 'tag warn', c.left.value + ' ↔ ' + c.right.value));
+      const body_ = item.appendChild(el('div', 'body'));
+      body_.appendChild(el('p', 'quiet', '“' + c.left.sentence + '”'));
+      body_.appendChild(el('p', 'quiet', '“' + c.right.sentence + '”'));
+      const row = body_.appendChild(el('div', 'row'));
+      const pick = row.appendChild(el('select'));
+      pick.appendChild(new Option('Keep ' + c.left.document, c.left.document));
+      pick.appendChild(new Option('Keep ' + c.right.document, c.right.document));
+      const go = row.appendChild(el('button', 'small', 'Resolve'));
+      go.onclick = async () => {
+        try {
+          const r = await api('/admin/conflicts/' + encodeURIComponent(c.key) + '/resolve',
+            { method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ keep: pick.value, reviewer: 'manage-page' }) });
+          alert(r.note);
+          refreshConflicts();
+        } catch (e) { alert(e.message); }
+      };
+    }
+  } catch (e) { box.innerHTML = ''; box.appendChild(el('p', 'empty', e.message)); }
+}
+
+async function refreshSettings() {
+  const box = $('settings');
+  try {
+    const body = await api('/admin/settings');
+    state.settings = body.settings;
+    box.textContent = '';
+    const grid = box.appendChild(el('div', 'grid'));
+    for (const [key, meta] of Object.entries(body.settings)) {
+      grid.appendChild(el('label', null, key));
+      const holder = grid.appendChild(el('div'));
+      let input;
+      if (typeof meta.value === 'boolean') {
+        input = el('input'); input.type = 'checkbox'; input.checked = meta.value;
+      } else if (typeof meta.value === 'number' || meta.value === null) {
+        // null means "unset" (e.g. no budget cap). It renders as an empty
+        // number field and an empty field saves back as null - the first
+        // version rendered null as empty TEXT, and the save loop then read
+        // "" as a change and sent a string where a number-or-null belongs.
+        input = el('input'); input.type = 'number'; input.step = 'any';
+        input.value = meta.value === null ? '' : meta.value;
+        input.style.width = '130px';
+      } else {
+        input = el('input'); input.type = 'text'; input.value = meta.value;
+        input.style.width = '150px';
+      }
+      input.dataset.key = key;
+      holder.appendChild(input);
+      grid.appendChild(el('span', 'applies', meta.applies));
+    }
+    $('save-settings').hidden = false;
+    $('settings-status').textContent = 'persists to ' + body.persists_to;
+  } catch (e) { box.innerHTML = ''; box.appendChild(el('p', 'empty', e.message)); }
+}
+
+$('save-settings').onclick = async () => {
+  const changes = {};
+  for (const input of $('settings').querySelectorAll('[data-key]')) {
+    const key = input.dataset.key;
+    const before = state.settings[key].value;
+    let value;
+    if (input.type === 'checkbox') value = input.checked;
+    else if (input.type === 'number') value = input.value === '' ? null : Number(input.value);
+    else value = input.value.trim() === '' && before === null ? null : input.value;
+    if (JSON.stringify(value) !== JSON.stringify(before)) changes[key] = value;
+  }
+  if (!Object.keys(changes).length) { say('Nothing changed.', true); return; }
+  try {
+    const r = await api('/admin/settings', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(changes),
+    });
+    const note = 'Applied ' + Object.keys(r.applied).join(', ')
+        + (r.engine_rebuilt ? ' — engine rebuilt.' : '.');
+    say(note, true);
+    await refreshSettings();
+    refreshCorpus(); refreshDocuments();
+    // The Save button sits at the bottom of a long page and the banner at the
+    // top - repeat the outcome next to the button so it is visible where the
+    // click happened.
+    $('settings-status').textContent = note + '  (' + $('settings-status').textContent + ')';
+  } catch (e) {
+    say('Not applied: ' + e.message, false);
+    $('settings-status').textContent = 'Not applied: ' + e.message;
+  }
+};
+
+async function refreshCosts() {
+  const box = $('costs');
+  try {
+    const report = await api('/admin/costs');
+    box.textContent = '';
+    const pre = box.appendChild(el('div', 'answer'));
+    pre.textContent = JSON.stringify(report, null, 2);
+  } catch (e) { box.innerHTML = ''; box.appendChild(el('p', 'empty', e.message)); }
+}
+
+// ---- unlock flow -----------------------------------------------------------
+async function unlock(token) {
+  state.token = token;
+  try {
+    await api('/admin/settings');
+  } catch (e) {
+    state.token = '';
+    say('That token was not accepted: ' + e.message, false);
+    return false;
+  }
+  localStorage.setItem('ok-admin-token', token);
+  say('Unlocked.', true);
+  $('forget').hidden = false;
+  $('token-input').value = '';
+  refreshProposals(); refreshConflicts(); refreshSettings(); refreshCosts();
+  return true;
+}
+$('unlock').onclick = () => {
+  const token = $('token-input').value.trim();
+  if (token) unlock(token);
+};
+$('token-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('unlock').click(); });
+$('forget').onclick = () => {
+  localStorage.removeItem('ok-admin-token');
+  state.token = '';
+  $('forget').hidden = true;
+  say('Token forgotten.', true);
+  for (const section of document.querySelectorAll('[data-admin-section] > div[id]')) {
+    section.innerHTML = '';
+    section.appendChild(el('p', 'locked-note', 'Unlock to load.'));
+  }
+};
+
+refreshCorpus();
+refreshDocuments();
+if (state.token) unlock(state.token);
+</script>
+</body>
+</html>

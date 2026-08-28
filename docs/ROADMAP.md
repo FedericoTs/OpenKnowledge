@@ -90,9 +90,12 @@ Honest status. "Built" means implemented and covered by tests in this repository
   tell "parental leave weeks" from "annual leave days" - 0.810, inside the
   paraphrase band), retrieval's top-ranked document must be one the cached answer
   cites, every content word of the new question must appear in the cached
-  question-plus-answer, and the grounding gate re-verifies against the new
-  question's own retrieval. Both extra arbiters exist because a test and then a
-  live run each defeated the design with one fewer. Measured live: a paraphrase
+  question — the question alone, because matching against the answer's text let a
+  sentence the model had volunteered serve "20 weeks" to a contractors question;
+  an entry vouches for its question, never for its answer's ramblings — and the
+  grounding gate re-verifies against the new question's own retrieval. Each
+  arbiter beyond similarity exists because a defeat demanded it: a unit trap, a
+  live run, then the golden gate itself at 94.1%. Measured live: a paraphrase
   serves in 1.4s where the model path took 27s; the trap falls through to the
   model, which refuses it.
 - **Model management and keep-warm** — `openknowledge model list/use/status`
@@ -108,6 +111,22 @@ Honest status. "Built" means implemented and covered by tests in this repository
   serving mints an owner-only admin token; windows-latest CI leg; tracked
   lockfile. Ten findings from an adversarial review of the first version are
   fixed and pinned as tests.
+- **Management surface** — knowledge managed from the browser instead of the
+  server's filesystem. Uploads land through the chat widget (drag-and-drop) or
+  the manage page, filenames flattened and whitelisted because they are
+  attacker-controlled strings, one re-index per batch; the reply is a report,
+  not a toast: stored, replaced, refused-with-reason, corpus size, and any
+  contradiction the new document just opened. A whitelist of settings is
+  editable at runtime — validated with their full field constraints (a
+  constraint dropped in validation accepted `retrieval_k=999` in the first
+  version), **live** ones apply on the next question, **rebuild** ones build
+  the new engine first and only then swap, so a bad change leaves the old
+  engine serving and nothing persisted. `/manage` puts documents, the review
+  queue, contradiction resolution, settings and the cost report behind one
+  pasted admin token; a test pins every endpoint the page calls to a route the
+  app actually serves. Driven live in a real browser: the settings save
+  correctly rejected a whole batch over one bad null before the fix, and the
+  re-drive persisted `OK_RETRIEVAL_K=5` to the state `.env`.
 - **Website** — a single self-contained page (`web/site/`) leading with the free audit,
   quoting only numbers this repository produces, and stating what the project cannot do yet.
   It fetches nothing from any other host, asserted by a test. Its contact form posts to the
