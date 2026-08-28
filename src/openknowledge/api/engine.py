@@ -279,6 +279,7 @@ def _build_retriever(settings: Settings) -> Retriever:
     lexical = BM25Retriever(
         target_words=settings.chunk_target_words,
         overlap_words=settings.chunk_overlap_words,
+        tag_routing=settings.tag_routing,
     )
     if not settings.embedding_enabled:
         return lexical

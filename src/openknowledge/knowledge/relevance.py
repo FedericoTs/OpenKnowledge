@@ -33,7 +33,7 @@ means somebody is told EUR 500 while the current policy says EUR 1,000.
 
 from __future__ import annotations
 
-from ..retrieval.base import tokenize
+from ..retrieval.base import fold_word, tokenize
 from .claims import _STOPWORDS
 from .store import StoredConflict
 
@@ -51,33 +51,11 @@ DEFAULT_MIN_OVERLAP = 0.3
 DEFAULT_MIN_SHARED = 2
 
 
-#: Longest prefix compared when matching words. Folding to a prefix beats
-#: suffix stripping here: a stripper turns "expenses" into "expens" while
-#: leaving "expense" alone, so the two stop matching - which is worse than not
-#: normalising at all.
-_PREFIX = 5
-
-#: Never fold these. Negations and modals decide what a rule means, and a
-#: normaliser that mangles them could match a claim to its own opposite.
-_NEVER_FOLD = frozenset(
-    {"is", "was", "has", "does", "goes", "less", "unless", "yes", "this", "its", "as"}
-)
-
-
-def _fold(word: str) -> str:
-    """Reduce a word to a comparable form.
-
-    Strips a plural ending, then truncates, so "expense"/"expenses",
-    "submit"/"submitted" and "day"/"days" all land on the same token. Short
-    words are left alone - truncating them would collide unrelated terms.
-    """
-    if word in _NEVER_FOLD or len(word) <= 3:
-        return word
-    if word.endswith("es") and len(word) > 5:
-        word = word[:-2]
-    elif word.endswith("s") and not word.endswith("ss"):
-        word = word[:-1]
-    return word[:_PREFIX]
+#: Word folding lives in retrieval.base now, shared with tag routing - two
+#: subtly different normalisers is how a question matches a contested claim
+#: but misses the document tagged with the same word. Kept as the old private
+#: name because this module's tests and callers grew up with it.
+_fold = fold_word
 
 
 def _content_words(text: str) -> frozenset[str]:

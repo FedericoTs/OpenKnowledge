@@ -17,6 +17,7 @@ import math
 from collections import Counter
 
 from .base import Chunk, Document, ScoredChunk, chunk_document, demote_superseded, tokenize
+from .tags import corpus_document_frequency, derive_tags, fold_tags, route_by_tags
 
 _K1 = 1.5
 _B = 0.75
@@ -25,9 +26,12 @@ _B = 0.75
 class BM25Retriever:
     """In-memory BM25 over chunked documents."""
 
-    def __init__(self, *, target_words: int = 350, overlap_words: int = 60) -> None:
+    def __init__(
+        self, *, target_words: int = 350, overlap_words: int = 60, tag_routing: bool = True
+    ) -> None:
         self._target_words = target_words
         self._overlap_words = overlap_words
+        self.tag_routing = tag_routing
         self._chunks: list[Chunk] = []
         self._term_freqs: list[Counter[str]] = []
         self._lengths: list[int] = []
@@ -35,6 +39,8 @@ class BM25Retriever:
         self._avg_length = 0.0
         self._corpus_version = "empty"
         self._doc_principals: dict[str, frozenset[str]] = {}
+        self._doc_tags: dict[str, tuple[str, ...]] = {}
+        self._doc_tags_folded: dict[str, frozenset[str]] = {}
 
     @property
     def corpus_version(self) -> str:
@@ -85,9 +91,18 @@ class BM25Retriever:
         self._lengths = []
         self._doc_freq = Counter()
         self._doc_principals = {}
+        self._doc_tags = {}
+        self._doc_tags_folded = {}
 
+        # Tags are derived here rather than in the connector because tf-idf
+        # needs the whole corpus: "expenses" is distinctive only against the
+        # documents that never mention it.
+        corpus_df = corpus_document_frequency(documents)
         for doc in documents:
             self._doc_principals[doc.document_id] = doc.allowed_principals
+            tags = derive_tags(doc, corpus_df, len(documents))
+            self._doc_tags[doc.document_id] = tags
+            self._doc_tags_folded[doc.document_id] = fold_tags(tags)
             for chunk in chunk_document(
                 doc, target_words=self._target_words, overlap_words=self._overlap_words
             ):
@@ -117,6 +132,10 @@ class BM25Retriever:
         if not query_terms:
             return []
 
+        # Tag routing shrinks the radius when the question names its documents
+        # decisively; None - the common case - means search everything.
+        within = route_by_tags(query, self._doc_tags_folded) if self.tag_routing else None
+
         n = len(self._chunks)
         scored: list[ScoredChunk] = []
 
@@ -128,6 +147,8 @@ class BM25Retriever:
                 and chunk.allowed_principals
                 and not (chunk.allowed_principals & principals)
             ):
+                continue
+            if within is not None and chunk.document_id not in within:
                 continue
 
             tf = self._term_freqs[i]
@@ -173,6 +194,15 @@ class BM25Retriever:
             if allowed and not (allowed & principals):
                 return False
         return True
+
+    def document_tags(self) -> dict[str, tuple[str, ...]]:
+        """Each indexed document's derived tags, as readable words for
+        listings. Routing uses the folded form via :meth:`routing_tags`."""
+        return dict(self._doc_tags)
+
+    def routing_tags(self) -> dict[str, frozenset[str]]:
+        """The folded tag sets routing matches against."""
+        return self._doc_tags_folded
 
     def document_ids(self) -> frozenset[str]:
         """Every document currently indexed.

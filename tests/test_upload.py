@@ -221,3 +221,14 @@ def test_a_hostile_folder_refuses_the_whole_batch(client) -> None:
         assert response.status_code == 400, folder
     outside = [p for p in root.parent.rglob("a.md")]
     assert outside == [], "a refused folder still stored something"
+
+
+def test_the_listing_shows_each_documents_tags(client) -> None:
+    """Uploading saves tags: the listing names what the index will find the
+    document by, derived from its own name, title and vocabulary."""
+    c, _ = client
+    c.post("/documents", files=[_file("expenses-policy.md")], data={"folder": "hr"})
+    files = c.get("/documents").json()["files"]
+    (row,) = [f for f in files if f["name"] == "hr/expenses-policy.md"]
+    assert "expenses" in row["tags"]
+    assert "hr" in row["tags"]

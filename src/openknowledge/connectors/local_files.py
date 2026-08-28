@@ -108,7 +108,7 @@ class LocalFilesConnector:
             text = parsed.text
             documents.append(
                 Document(
-                    document_id=_document_id(path.relative_to(self.root)),
+                    document_id=document_id_for(path.relative_to(self.root)),
                     title=_usable_title(parsed.title) or _fallback_title(path),
                     text=text,
                     url=path.as_uri(),
@@ -120,7 +120,7 @@ class LocalFilesConnector:
         return documents
 
 
-def _document_id(rel: Path) -> str:
+def document_id_for(rel: Path) -> str:
     """A stable, citable id: 'policies/expenses.pdf' -> 'policies-expenses'.
 
     Models have to reproduce this exactly in citations, so it stays short and

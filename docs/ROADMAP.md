@@ -69,6 +69,15 @@ Honest status. "Built" means implemented and covered by tests in this repository
   embedding endpoint exists. Gated by the golden set, which caught the first
   version at 23.5% accuracy — fused scores from two scales had re-sorted the
   reranker — before it shipped.
+- **Document tags and routed retrieval** — every indexed document gets a derived,
+  readable tag set (folder taxonomy, title, headings, top tf-idf terms — free, no
+  model, shown in the listing), and a question that names its documents decisively
+  is searched only against those documents. Routing is deliberately cowardly: two
+  folded tag hits to match, a small matched share to fire, and any ambiguity falls
+  open to the whole corpus, because the catastrophic failure is a question routed
+  away from its answer. `OK_TAG_ROUTING=false` restores global search exactly; the
+  eval preflight runs in the unit suite so no golden case's evidence can be
+  stranded outside a route. See ADR 0011.
 - **Streaming answers** — the same resolution, narrated: `answer()` and
   `answer_stream()` drain one event generator, so tier, caching, notes and cost
   cannot fork between them. Only the first self-hosted rung streams (billed rungs

@@ -26,6 +26,7 @@ from dataclasses import dataclass, field
 from .base import Chunk, Document, ScoredChunk, demote_superseded
 from .bm25 import BM25Retriever
 from .embed import Embedder, EmbeddingError, normalise, text_key
+from .tags import route_by_tags
 
 log = logging.getLogger(__name__)
 
@@ -147,6 +148,9 @@ class HybridRetriever:
     def document_ids(self) -> frozenset[str]:
         return self.lexical.document_ids()
 
+    def document_tags(self) -> dict[str, tuple[str, ...]]:
+        return self.lexical.document_tags()
+
     @property
     def chunks(self) -> list[Chunk]:
         return self.lexical._chunks  # noqa: SLF001 - one object, split for clarity
@@ -208,6 +212,14 @@ class HybridRetriever:
             log.warning("could not embed the question, using BM25 alone: %s", exc)
             return lexical[:k]
 
+        # The same route the lexical half used, recomputed - it is a pure
+        # function of the question and the index, and cheaper than threading
+        # it through the call. Without this the dense half smuggles excluded
+        # documents back in, because cosine scores every chunk.
+        within = (
+            route_by_tags(query, self.lexical.routing_tags()) if self.lexical.tag_routing else None
+        )
+
         chunks = self.chunks
         dense: list[ScoredChunk] = []
         for index, score in self.vectors.search(query_vector, depth * 2):
@@ -217,6 +229,8 @@ class HybridRetriever:
                 and chunk.allowed_principals
                 and not (chunk.allowed_principals & principals)
             ):
+                continue
+            if within is not None and chunk.document_id not in within:
                 continue
             dense.append(ScoredChunk(chunk=chunk, score=score))
             if len(dense) >= depth:

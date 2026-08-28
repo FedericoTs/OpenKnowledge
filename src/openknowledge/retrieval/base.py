@@ -18,6 +18,40 @@ def tokenize(text: str) -> list[str]:
     return _WORD_RE.findall(text.lower())
 
 
+#: Longest prefix compared when matching words across phrasings. Folding to a
+#: prefix beats suffix stripping: a stripper turns "expenses" into "expens"
+#: while leaving "expense" alone, so the two stop matching - which is worse
+#: than not normalising at all.
+_FOLD_PREFIX = 5
+
+#: Never fold these. Negations and modals decide what a rule means, and a
+#: normaliser that mangles them could match a claim to its own opposite.
+_NEVER_FOLD = frozenset(
+    {"is", "was", "has", "does", "goes", "less", "unless", "yes", "this", "its", "as"}
+)
+
+
+def fold_word(word: str) -> str:
+    """Reduce a word to a comparable form.
+
+    Strips a plural ending, then truncates, so "expense"/"expenses",
+    "submit"/"submitted" and "day"/"days" all land on the same token. Short
+    words are left alone - truncating them would collide unrelated terms.
+
+    One folder, used everywhere phrasings are matched - conflict relevance
+    and tag routing both - because two subtly different normalisers is how
+    "travelling" matches a contested claim but misses the document tagged
+    "travel".
+    """
+    if word in _NEVER_FOLD or len(word) <= 3:
+        return word
+    if word.endswith("es") and len(word) > 5:
+        word = word[:-2]
+    elif word.endswith("s") and not word.endswith("ss"):
+        word = word[:-1]
+    return word[:_FOLD_PREFIX]
+
+
 @dataclass(frozen=True, slots=True)
 class Document:
     """A source file pulled from a connector."""

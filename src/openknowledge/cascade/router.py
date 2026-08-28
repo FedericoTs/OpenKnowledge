@@ -149,6 +149,10 @@ class Cascade:
                 # documents demoted at search. Answers produced when they
                 # still competed must not be served under the new policy.
                 ":rp1"
+                # Tag routing changes which chunks a question is answered
+                # from, so flipping it must re-key. Its thresholds live in
+                # retrieval/tags.py; changing those means bumping rp.
+                f":tr{int(self.settings.tag_routing)}"
             ),
             model_id=self.route_id,
         )

@@ -163,6 +163,14 @@ class Settings(BaseSettings):
     azure_openai_input_per_mtok: float | None = Field(default=None, ge=0.0)
     azure_openai_output_per_mtok: float | None = Field(default=None, ge=0.0)
 
+    # -- tag routing ------------------------------------------------------
+    #: Shrink the search radius using per-document tags derived at index time.
+    #: When a question's words match a few documents' tags decisively, only
+    #: those documents are searched; any ambiguity falls open to the whole
+    #: corpus. Free, deterministic, and measured: both golden sets hold their
+    #: accuracy with it on. Off restores pre-tag retrieval exactly.
+    tag_routing: bool = True
+
     # -- reranking --------------------------------------------------------
     #: Retrieve this many candidates, then rerank down to `retrieval_k`. Free and
     #: model-less: it fixes one document taking every slot, near-duplicate

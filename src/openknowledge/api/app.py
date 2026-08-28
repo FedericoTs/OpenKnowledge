@@ -172,6 +172,14 @@ def _folder_readable(
     return not ruled or bool(ruled & viewer)
 
 
+def _connector_document_id(relative: str) -> str:
+    """The index's id for a listed file - the same derivation the connector
+    uses, so the listing can look up what the index knows about it."""
+    from ..connectors.local_files import document_id_for
+
+    return document_id_for(Path(relative))
+
+
 def _find_site() -> Path | None:
     return find_asset("site/index.html")
 
@@ -535,6 +543,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         root = Path(engine.settings.documents_dir)
         rows = []
         folders = []
+        # Tags were derived when the file was indexed; the listing shows them
+        # so an operator can see what a document will be found by. A file the
+        # index does not know (skipped, or not yet indexed) has none.
+        tags: dict[str, tuple[str, ...]] = getattr(engine.retriever, "document_tags", dict)()
         if root.is_dir():
             for path in sorted(root.rglob("*")):
                 relative = path.relative_to(root).as_posix()
@@ -554,6 +566,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                         "name": relative,
                         "size": path.stat().st_size,
                         "skipped": skip_reason(path),
+                        "tags": sorted(tags.get(_connector_document_id(relative), ())),
                     }
                 )
         return {"documents_dir": str(root), "folders": folders, "files": rows}

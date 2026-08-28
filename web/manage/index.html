@@ -33,6 +33,7 @@
   td { padding:7px 8px 7px 0; border-top:1px solid var(--line); vertical-align:top; }
   td.n { text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap; }
   .quiet { color:var(--muted); } .warn { color:var(--warn); } .bad { color:var(--bad); }
+  .tags { font-size:11px; margin-top:2px; }
   button, .btn { padding:7px 14px; font:inherit; font-size:13px; font-weight:600;
     color:var(--bg); background:var(--accent); border:0; border-radius:8px; cursor:pointer; }
   button.ghost { background:transparent; color:var(--ink); border:1px solid var(--line); }
@@ -212,7 +213,11 @@ async function refreshDocuments() {
     const tbody = table.appendChild(el('tbody'));
     for (const f of body.files) {
       const tr = tbody.appendChild(el('tr'));
-      tr.appendChild(el('td', null, f.name));
+      const nameCell = tr.appendChild(el('td', null, f.name));
+      if (f.tags && f.tags.length) {
+        // What the index will find this document by; derived, not typed in.
+        nameCell.appendChild(el('div', 'quiet tags', f.tags.join(' · ')));
+      }
       tr.appendChild(el('td', f.skipped ? 'warn' : 'quiet',
         f.skipped ? f.skipped : (Math.round(f.size / 1024) || 1) + ' KB · indexed'));
       const actions = tr.appendChild(el('td'));
