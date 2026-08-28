@@ -14,6 +14,8 @@ thread means no half of the state is ever stale.
 
 from __future__ import annotations
 
+import os
+import sys
 from pathlib import Path
 from typing import Protocol
 
@@ -83,9 +85,21 @@ class TkReporter:
 
 
 def make_reporter() -> Reporter:
+    """Console when a console exists; the Tk window only when nothing else does.
+
+    The Tk window exists for the windowed executable, where ``sys.stdout``
+    is ``None`` and printed progress would vanish. Anywhere a real stdout
+    exists - the ``desktop`` CLI command, a terminal, CI - the console line
+    is where the person is already looking, and unlike Tk it cannot fail:
+    a broken Tcl installation can abort the whole process natively, below
+    Python's ability to catch it, which a progress nicety must never risk.
+    ``OK_HEADLESS`` forces console mode for automation either way.
+    """
+    if os.environ.get("OK_HEADLESS") or sys.stdout is not None:
+        return ConsoleReporter()
     try:
         return TkReporter()
-    except Exception:  # no display, no tkinter - the console still works
+    except Exception:  # no display, no tkinter - degrade to silent no-op prints
         return ConsoleReporter()
 
 

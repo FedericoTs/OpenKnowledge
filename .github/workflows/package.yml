@@ -150,46 +150,69 @@ jobs:
         with:
           name: OpenKnowledge-Setup
 
-      - name: Install and launch, exactly as a person would
+      # One step from install to answered question: the launched process must
+      # outlive every check, and a single step leaves no room for questions
+      # about what survives a step boundary. OK_HEADLESS keeps first-run
+      # progress on the console (visible in this log); the first Windows e2e
+      # died in under a second with empty logs, so an early exit now reports
+      # the process exit code instead of a bare "never reached serving".
+      - name: Install, launch, download models, ask, ask again
         id: launch
         shell: pwsh
+        env:
+          OK_HEADLESS: "1"
         run: |
           $setup = Get-ChildItem OpenKnowledge-Setup-*.exe | Select-Object -First 1
           Start-Process -FilePath $setup.FullName -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART" -Wait
           $app = "$env:LOCALAPPDATA\Programs\OpenKnowledge"
-          # No OK_STATE_DIR override: this is the true first run - app mode,
-          # per-user state, admin token minted, uploads on.
+          # No OK_STATE_DIR override: the true first run - app mode, per-user
+          # state, admin token minted, uploads on.
           $p = Start-Process -FilePath "$app\openknowledge.exe" -ArgumentList "desktop" `
             -PassThru -NoNewWindow `
             -RedirectStandardOutput desktop-out.log -RedirectStandardError desktop-err.log
           "pid=$($p.Id)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
 
-      - name: First run reaches serving (downloads and verifies the models)
-        shell: pwsh
-        run: |
+          function Dump-Logs {
+            foreach ($f in "desktop-out.log","desktop-err.log") {
+              if (Test-Path $f) { Write-Host "== $f"; Get-Content $f -Tail 80 }
+            }
+          }
+
+          Start-Sleep -Seconds 5
+          if ($p.HasExited) {
+            Write-Host "launcher exited immediately with code $($p.ExitCode)"
+            Dump-Logs
+            throw "the launcher died at startup (exit $($p.ExitCode))"
+          }
+
           $deadline = (Get-Date).AddMinutes(20)
+          $started = Get-Date
           $ok = $false
           while ((Get-Date) -lt $deadline) {
-            if (-not (Get-Process -Id ${{ steps.launch.outputs.pid }} -ErrorAction SilentlyContinue)) {
-              break  # launcher died; the log steps below say why
+            if ($p.HasExited) {
+              Write-Host "launcher exited with code $($p.ExitCode) before serving"
+              Dump-Logs
+              throw "the launcher died mid-first-run (exit $($p.ExitCode))"
             }
             try {
               $r = Invoke-RestMethod -Uri "http://127.0.0.1:8080/healthz" -TimeoutSec 3
               if ($r.status -eq "ok") { $ok = $true; break }
-            } catch { Start-Sleep -Seconds 5 }
+            } catch {
+              $waited = [math]::Round(((Get-Date) - $started).TotalSeconds)
+              if ($waited % 30 -lt 5) { Write-Host "still preparing (${waited}s; models download and load on first run)" }
+              Start-Sleep -Seconds 5
+            }
           }
-          if (-not $ok) { throw "the installed app never reached serving" }
+          if (-not $ok) { Dump-Logs; throw "the installed app never reached serving" }
+          $ready = [math]::Round(((Get-Date) - $started).TotalSeconds)
           $h = Invoke-RestMethod -Uri "http://127.0.0.1:8080/healthz"
           if (-not $h.upload_enabled) { throw "app-mode provisioning did not enable uploads" }
           $env_file = "$env:LOCALAPPDATA\OpenKnowledge\.env"
           if (-not (Select-String -Path $env_file -Pattern "OK_ADMIN_TOKEN" -Quiet)) {
             throw "no admin token was minted into $env_file"
           }
-          Write-Host "serving; corpus=$($h.corpus_version) uploads=$($h.upload_enabled)"
+          Write-Host "serving after ${ready}s; corpus=$($h.corpus_version) uploads=$($h.upload_enabled)"
 
-      - name: A real document, a real question, a real answer, twice
-        shell: pwsh
-        run: |
           Set-Content -Path pet-policy.md -Value @"
           # Office Pets Policy
 

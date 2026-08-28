@@ -471,9 +471,13 @@ def write_env(path: Path, values: dict[str, str], *, private: bool = False) -> l
     content = "\n".join(lines).rstrip("\n") + "\n"
     descriptor, temp_name = tempfile.mkstemp(dir=str(path.parent), prefix=f".{path.name}.")
     try:
+        # os.fchmod is Unix-only (until 3.13); on Windows the boundary is the
+        # per-user profile ACL, which mkstemp's file already sits inside, so
+        # skipping the POSIX bits there loses nothing that Windows offers.
         if private:
-            os.fchmod(descriptor, 0o600)
-        elif path.exists():
+            if hasattr(os, "fchmod"):
+                os.fchmod(descriptor, 0o600)
+        elif path.exists() and hasattr(os, "fchmod"):
             os.fchmod(descriptor, path.stat().st_mode & 0o777)
         with os.fdopen(descriptor, "w") as handle:
             handle.write(content)
@@ -481,7 +485,7 @@ def write_env(path: Path, values: dict[str, str], *, private: bool = False) -> l
     except BaseException:
         os.unlink(temp_name)
         raise
-    if private:
+    if private and hasattr(os, "fchmod"):
         os.chmod(path, 0o600)
     return changed
 
