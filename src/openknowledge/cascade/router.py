@@ -597,7 +597,7 @@ class Cascade:
             # more than it should is that nobody turned escalation on.
             notes.append(
                 "escalation is disabled, so there was no rung above "
-                f"{self.ladder.rungs[0].name!r} to fall back to"
+                f"{_rung_display(self.ladder.rungs[0].name)!r} to fall back to"
             )
         elif not affordable:
             notes.append("every rung was withheld by the budget ceiling")
@@ -767,6 +767,18 @@ def _citations(chunks: list[Chunk]) -> tuple[Citation, ...]:
             url=chunk.url,
         )
     return tuple(seen.values())
+
+
+def _rung_display(name: str) -> str:
+    """A model id fit for a sentence.
+
+    The desktop app pins the exact GGUF it runs, so the rung's name is a
+    filesystem path - the truth for the ledger, noise in a refusal note.
+    Reported from the first real-laptop session, where the note quoted
+    'C:\\Users\\...\\Qwen3-4B-Instruct-2507-Q4_K_M.gguf' at a person.
+    """
+    last = name.replace("\\", "/").rsplit("/", 1)[-1]
+    return last.removesuffix(".gguf")
 
 
 def _price(usage: Usage, provider: ChatProvider) -> tuple[float, tuple[str, ...]]:

@@ -551,3 +551,16 @@ async def test_a_contested_refusal_is_not_counted_as_a_cache_hit() -> None:
     """It answers nothing, so it must not inflate the free share."""
     assert not Tier.CONTESTED.is_cache_hit
     assert Tier.DRAFT.is_cache_hit
+
+
+def test_a_refusal_note_names_the_model_not_its_path() -> None:
+    """The desktop app pins the exact GGUF it runs, so the rung's name is a
+    Windows path - which a field refusal note then quoted at a person,
+    backslashes and all. The ledger keeps the path; the sentence gets the
+    model."""
+    from openknowledge.cascade.router import _rung_display
+
+    windows = "C:\\Users\\Samsung\\AppData\\Local\\OpenKnowledge\\data\\models\\Qwen3-4B.gguf"
+    assert _rung_display(windows) == "Qwen3-4B"
+    assert _rung_display("/opt/models/nomic-embed.gguf") == "nomic-embed"
+    assert _rung_display("qwen3:8b") == "qwen3:8b"

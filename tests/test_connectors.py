@@ -97,3 +97,25 @@ def test_content_hash_tracks_edits(corpus: Path) -> None:
 def test_unimplemented_connectors_say_what_they_need() -> None:
     with pytest.raises(NotImplementedError, match="Entra ID"):
         SharePointConnector().fetch()
+
+
+def test_an_email_from_line_is_not_a_title(tmp_path: Path) -> None:
+    """Reported from the first real-tenant corpus: a mail printed to PDF
+    opens with its From line, and the corpus listing then introduced the
+    document as 'Federico Sciuca <federico@...>'. A heading containing an
+    email address names a correspondent; the filename names the document."""
+    from openknowledge.connectors.local_files import _usable_title
+
+    assert _usable_title("Federico Sciuca <federico@arvexlab.com>") is None
+    assert _usable_title("mail from federico@arvexlab.com today") is None
+    assert _usable_title(None) is None
+    assert _usable_title("Expenses Policy 2026") == "Expenses Policy 2026"
+
+    (tmp_path / "ArvexLab-Mail---Cambiamenti-WEBSITE.md").write_text(
+        "# Federico Sciuca <federico@arvexlab.com>\n\nPriority 1: change the site.\n",
+        encoding="utf-8",
+    )
+    from openknowledge.connectors.local_files import LocalFilesConnector
+
+    (document,) = LocalFilesConnector(tmp_path).fetch()
+    assert document.title == "Arvexlab Mail   Cambiamenti Website"

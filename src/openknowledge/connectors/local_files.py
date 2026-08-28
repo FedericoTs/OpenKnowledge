@@ -18,6 +18,7 @@ somebody is told.
 from __future__ import annotations
 
 import logging
+import re
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -107,7 +108,7 @@ class LocalFilesConnector:
             documents.append(
                 Document(
                     document_id=_document_id(path.relative_to(self.root)),
-                    title=parsed.title or _fallback_title(path),
+                    title=_usable_title(parsed.title) or _fallback_title(path),
                     text=parsed.text,
                     url=path.as_uri(),
                     allowed_principals=ruled or self.allowed_principals,
@@ -125,6 +126,24 @@ def _document_id(rel: Path) -> str:
     """
     stem = rel.with_suffix("").as_posix()
     return "".join(ch if ch.isalnum() or ch in "-_/" else "-" for ch in stem).replace("/", "-")
+
+
+_EMAIL_ADDRESS = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
+
+
+def _usable_title(title: str | None) -> str | None:
+    """A parsed heading that can actually serve as a title, or None.
+
+    An email printed to PDF opens with its From line, and the parser dutifully
+    promoted 'Federico Sciuca <federico@...>' to the document's title - which
+    is what the corpus listing then called the document. Reported from the
+    first real-tenant corpus, which was exactly such a mail. A heading that
+    contains an email address names a correspondent, not a document; the
+    filename is the better title.
+    """
+    if not title or _EMAIL_ADDRESS.search(title):
+        return None
+    return title
 
 
 def _fallback_title(path: Path) -> str:

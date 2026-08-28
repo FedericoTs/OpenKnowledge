@@ -48,7 +48,10 @@ jobs:
           enable-cache: true
 
       - name: Install
-        run: uv venv --python 3.12 && uv pip install -e ".[desktop,packaging,anthropic]"
+        # auth is in the bundle so a company server on Windows can turn
+        # sign-in on without a second install; with OK_AUTH_MODE=off (the
+        # default) none of it is ever imported.
+        run: uv venv --python 3.12 && uv pip install -e ".[desktop,packaging,anthropic,auth]"
 
       # An installer whose manifest no longer matches upstream would ship a
       # first run that can only fail its own hash check. Two HEAD requests
@@ -74,6 +77,24 @@ jobs:
           if (-not $v) { throw "--version printed nothing (GUI-subsystem exe? console exe lost?)" }
           & dist\OpenKnowledge\openknowledge.exe paths
           if ($LASTEXITCODE -ne 0) { throw "paths exited $LASTEXITCODE" }
+
+      - name: The frozen bundle carries sign-in
+        shell: pwsh
+        run: |
+          # v0.1.4 shipped before auth existed, and a field tester lost an
+          # evening to a .env that could not do anything. Prove the auth
+          # module rides in the bundle: with sign-in half-configured the
+          # server must refuse naming the missing setting - the config
+          # error. An import error would mean PyJWT never made it in.
+          $env:OK_STATE_DIR = "$env:TEMP\ok-auth-smoke"
+          $env:OK_AUTH_MODE = "oidc"
+          $env:OK_OIDC_CLIENT_ID = "smoke"
+          & dist\OpenKnowledge\openknowledge.exe serve --port 18096 2> auth-smoke.log
+          $log = Get-Content auth-smoke.log -Raw
+          if ($log -notmatch "OK_OIDC_ISSUER") {
+            Write-Host $log
+            throw "expected the missing-issuer config error; the auth module may be absent from the bundle"
+          }
 
       - name: The frozen server serves
         shell: pwsh

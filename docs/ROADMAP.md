@@ -296,6 +296,23 @@ Honest status. "Built" means implemented and covered by tests in this repository
    with "as many layers as actually fit". Worth doing when it stabilizes;
    the fallback stays as the floor either way.
 
+13. **A grounding gate that knows a summary from an extraction.** Measured
+   in the field, on a real corpus, the same session that verified the
+   tenant: "what does the document cover?" produced a faithful six-bullet
+   summary, every bullet cited, withdrawn at 42% content-word support
+   against the 45% floor - because a good summary compresses and
+   rephrases, which is exactly what the ratio penalises. The gate did what
+   it is configured to do; the finding is that summary-shaped questions
+   deserve a different measurement than extraction-shaped ones (support
+   per cited claim, or a ratio floor conditioned on citation coverage).
+   Until that is designed and measured against the golden set, the
+   deployment-level lever exists and is live-editable in /manage:
+   `min_support_ratio`. The default does not move on one anecdote.
+   Related, same session: "what is the list of priorities?" refused by
+   the model's own restraint while "what is priority 1?" answered
+   perfectly - retrieval and prompting treat an enumeration question as
+   answerable only when the document uses the asker's own framing.
+
 ### Known gaps in document parsing
 
 - **No OCR.** A scanned PDF is reported and indexed as nothing.
