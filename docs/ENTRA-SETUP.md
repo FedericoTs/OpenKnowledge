@@ -8,6 +8,28 @@ behind it — and what is enforced once sign-in is on — is in
 You need: rights to create an app registration in your tenant (or someone
 who has them), and the URL your server will live at.
 
+## No company yet? Test on a personal tenant
+
+You do not need a registered company to test any of this. An individual
+Azure account (sign up at azure.microsoft.com/free with any Microsoft
+account — "individual" is a normal choice at signup; the card is for
+identity verification) comes with its own **Microsoft Entra ID tenant**,
+and the free tier of Entra covers everything OpenKnowledge uses: app
+registrations, users, security groups, the groups claim. Create test
+users (`alice@<yourtenant>.onmicrosoft.com`, Users → New user), put them
+in test groups, and follow the steps below unchanged — the tokens, the
+claims and the consent screens are the same machinery a company tenant
+produces, which is exactly why a personal tenant is a valid dress
+rehearsal.
+
+Two personal-tenant papercuts worth knowing in advance: new tenants ship
+with **security defaults** on, so a test user's first sign-in asks them
+to register the Authenticator app — register it (or turn security
+defaults off under Entra ID → Overview → Properties, a reasonable call
+for a throwaway test tenant, not for production). And after registering
+the app, **API permissions → Grant admin consent** spares every test
+user an individual consent prompt.
+
 ---
 
 ## 1. Register the application

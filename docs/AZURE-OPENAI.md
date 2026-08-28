@@ -25,6 +25,17 @@ that comes back is graded by the same grounding gate as every other
 tier, cached like every other answer, and refused if it cannot cite
 your documents.
 
+## No company yet?
+
+An individual Azure account works — the same one a personal Entra test
+tenant comes from ([ENTRA-SETUP.md](ENTRA-SETUP.md) has the signup
+notes). Azure OpenAI no longer requires a company use-case application
+for standard models. One catch: if resource creation is refused on a
+free-trial subscription, upgrade it to pay-as-you-go (Cost Management →
+upgrade) — you still pay only per token, and a test run of a few hundred
+escalated questions on a small deployment costs cents. Set
+`OK_BUDGET_DAILY_USD` anyway; that is what it is for.
+
 ## 1. Create the resource and deploy a model
 
 In the [Azure portal](https://portal.azure.com): **Create a resource →
