@@ -1,0 +1,64 @@
+# Publishing a version: push a v* tag and a GitHub Release appears with the
+# Windows installer attached - a direct download, no Actions login, no zip.
+#
+# The build is not re-implemented here: this calls the Package workflow, so
+# the published exe went through the identical pipeline that gates every
+# packaging change - including the end-to-end job that installs the artifact
+# on a clean Windows machine, sits through the real first run, and asks it a
+# real question. An installer nobody installed does not get published.
+
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    uses: ./.github/workflows/package.yml
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: OpenKnowledge-Setup
+
+      - name: Publish the release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          setup=$(ls OpenKnowledge-Setup-*.exe)
+          sha=$(sha256sum "$setup" | cut -d' ' -f1)
+          cat > notes.md <<EOF
+          The Windows desktop app, as one installer.
+
+          **Install:** download \`$setup\` below and run it. Windows SmartScreen
+          will warn about an unrecognised app because this build is not yet
+          code-signed - choose **More info → Run anyway**. No administrator
+          rights are needed; it installs for your user only.
+
+          **First launch** (Start menu → OpenKnowledge) downloads the two
+          models it answers with - about 2.6 GB, once, each verified against a
+          pinned SHA-256 - starts the local inference servers, and opens the
+          chatbot in your browser. Add documents by dragging them into the
+          chat; manage everything at /manage. Nothing leaves your machine.
+
+          **Verified before publishing:** this pipeline silent-installed this
+          artifact on a clean Windows machine, sat through the real first run,
+          uploaded a document, and asked a real question - the answer had to be
+          grounded, cost \$0, and come back byte-identical when asked twice.
+          The first recorded run of that proof lives in
+          \`evals/measured/windows-e2e-first-run.json\`.
+
+          SHA-256 of \`$setup\`:
+          \`$sha\`
+          EOF
+          gh release create "${GITHUB_REF_NAME}" "$setup" \
+            --title "OpenKnowledge ${GITHUB_REF_NAME#v}" \
+            --notes-file notes.md

@@ -15,6 +15,9 @@ name: Package
 
 on:
   workflow_dispatch:
+  # release.yml reuses this whole workflow so a published installer is built
+  # and proven by exactly the pipeline that gates every packaging change.
+  workflow_call:
   push:
     branches: ["main"]
     paths:
@@ -143,7 +146,9 @@ jobs:
   # run the identical launcher code path.
   windows-e2e:
     needs: windows-installer
-    if: github.event_name == 'workflow_dispatch'
+    # On demand, and on every release tag: an installer nobody installed
+    # does not get published.
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
     runs-on: windows-latest
     steps:
       - uses: actions/download-artifact@v4
