@@ -21,8 +21,9 @@ the right file is a matter of faith until someone asks one.
 ## Decision
 
 **Every indexed document gets a derived tag set, and a question that names
-its documents decisively gets those documents put first - guaranteed into
-the search radius, with the weakest strangers displaced off its end.**
+its documents decisively is guaranteed to find them among its candidates -
+their best chunks rescued from below the cut, displacing the weakest
+strangers. Nothing is filtered and nothing is reordered.**
 
 Derivation is free, deterministic, and runs at index time - no model call,
 because indexing must never spend money by surprise. Four sources, in the
@@ -34,17 +35,24 @@ and shown in the document listing; they are folded (plural stripping plus
 prefix truncation, the same `fold_word` conflict relevance uses) only for
 matching, so "travelling" finds the document tagged "travel".
 
-A route is a *priority*, not a filter. The first implementation filtered,
-and the repository golden set caught it within one run: routed to a
-document that chunks to a single window, the local model saw a one-chunk
-context and refused a question it answers happily with a fuller one - a
-paraphrase of the same question answered correctly, which is exactly the
-inconsistency the eval exists to catch. So the routed documents' chunks go
-first, the rest of the ranking follows, and the cut to k does the
-shrinking: when the named documents alone can fill the radius - the
-many-document corpus this feature exists for - the strangers are excluded
-entirely; when they cannot, the context stays as full as the unrouted
-search would have made it. A route must never starve the model.
+A route is a *guarantee of candidacy* - the third shape this took, each
+stronger one rejected by a golden set within a run. The filter starved the
+model: routed to a document that chunks to a single window, it saw a
+one-chunk context and refused a question it answers happily with a fuller
+one, while a paraphrase answered - exactly the inconsistency the paraphrase
+check exists to catch. Routed-first ordering starved it differently: the
+context filled with same-topic tables and the aveline set came back at
+0.88, one question refused as scope-ambiguous, another answering with a
+neighbouring row's figures. The mixed, score-earned context was doing
+quiet work no design intuition predicted.
+
+So rank is earned by score exactly as without tags, and the route's one
+power is rescue: a named document with no chunk above the cut gets its
+best-ranked chunk into the candidates. Measured on the shipped corpora,
+every question retrieves an identical context with routing on and off,
+because the named documents already rank - the rescue exists for the
+thousand-document corpus where they will not. Demotion runs first, so a
+superseded twin cannot be rescued back in.
 
 The route itself is deliberately cowardly, because the catastrophic failure
 is a question routed *away* from the document that held its answer:
@@ -57,10 +65,9 @@ is a question routed *away* from the document that held its answer:
 * no match, or any ambiguity, means **no route** - retrieval behaves
   exactly as it did before tags existed.
 
-In hybrid mode the route is applied to the fused ranking; the dense half
-scores every chunk by cosine and would otherwise put a stranger ahead of
-the named documents. Access control is unchanged and applied before the
-route; tag routing can only ever reorder what an asker may already see.
+In hybrid mode the guarantee is applied to the fused ranking, after both
+halves vote. Access control is unchanged and applied before the route, so
+a rescue can only surface what the asker may already see.
 `OK_TAG_ROUTING=false` restores pre-tag retrieval exactly, and the flag is
 part of the cache key.
 
@@ -68,16 +75,16 @@ part of the cache key.
 
 - Both golden sets hold their bars with routing on - accuracy 1.0, zero
   false answers, determinism 1.0 - and the eval preflight for both shipped
-  corpus-and-set pairings now runs in the unit suite. The preflight checks
-  evidence presence, not context width, so the starvation failure above is
-  additionally pinned by a unit test asserting a route never returns fewer
-  chunks than the unrouted search.
+  corpus-and-set pairings runs in the unit suite. The two rejected designs
+  are pinned as unit tests: a route never thins or reorders the context,
+  and a buried named document is rescued into the cut.
 - The listing answers "what will this be found by?" per file, which turns a
   retrieval mystery into something an operator can read.
-- The honest claim is precision at scale, not speed: search time at the
+- The honest claim is recall at scale, not speed: search time at the
   current corpus size is microseconds either way, and answer latency is
-  dominated by generation. The speed that matters arrives indirectly -
-  fewer off-topic chunks means fewer grounding failures means fewer
+  dominated by generation. What the rescue buys is the named document
+  reliably reaching the candidates on corpora large enough to bury it -
+  fewer wrong-context answers, fewer grounding failures, fewer
   escalations to slower, costlier tiers.
 - Thresholds (two hits, a third of the corpus, floor of two) are choices,
   measured only against the shipped corpora. Changing them means bumping
