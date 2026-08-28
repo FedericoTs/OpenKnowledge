@@ -1,11 +1,12 @@
-"""Tags derived at upload, and the retrieval radius they shrink.
+"""Tags derived at upload, and the candidacy they guarantee.
 
 The promise under test: indexing a document also derives a readable set of
 tags from its name, title, headings and distinctive vocabulary - free, no
-model - and a question that names its documents decisively is searched only
-against those documents. The promise that matters more: any ambiguity means
-the radius does not shrink at all, because the catastrophic failure here is
-a question routed away from the document that held its answer.
+model - and a question that names its documents decisively is guaranteed to
+find them among its candidates. The promise that matters more: the route
+never removes and never reorders - a filter and a routed-first ordering
+were both measured against the golden sets and both made the local model
+worse. Ambiguity means no route at all.
 """
 
 from __future__ import annotations
@@ -131,19 +132,42 @@ def test_word_forms_still_route() -> None:
 # -- retrieval integration ---------------------------------------------------
 
 
-def test_the_named_document_leads_the_radius() -> None:
+def test_the_named_document_is_always_in_the_radius() -> None:
     retriever = BM25Retriever()
     retriever.index(CORPUS)
     hits = retriever.search("what does the expenses policy say about meal claims?", k=6)
-    assert hits
-    assert hits[0].chunk.document_id == "hr-expenses-policy"
+    assert any(h.chunk.document_id == "hr-expenses-policy" for h in hits)
+
+
+def test_a_route_rescues_a_buried_document_and_changes_nothing_else() -> None:
+    """The mechanism itself, as a pure function: a named document below the
+    cut is rescued at the tail, displacing the weakest stranger; a named
+    document already present leaves the ranking untouched; no route, no
+    change. Order is never rewritten - two stronger designs (filtering, and
+    routed-first ordering) were measured and both made the model worse."""
+    from openknowledge.retrieval.base import ScoredChunk, chunk_document
+    from openknowledge.retrieval.tags import guarantee_routed
+
+    ranked = [
+        ScoredChunk(chunk=chunk_document(Document(doc_id, doc_id, "words " * 30))[0], score=score)
+        for doc_id, score in (("a", 4.0), ("b", 3.0), ("c", 2.0), ("target", 1.0))
+    ]
+
+    rescued = guarantee_routed(ranked, frozenset({"target"}), k=2)
+    assert [s.chunk.document_id for s in rescued] == ["a", "target"]
+
+    untouched = guarantee_routed(ranked, frozenset({"a"}), k=2)
+    assert [s.chunk.document_id for s in untouched] == ["a", "b"]
+
+    unrouted = guarantee_routed(ranked, None, k=2)
+    assert [s.chunk.document_id for s in unrouted] == ["a", "b"]
 
 
 def test_a_route_never_thins_the_context() -> None:
     """The regression the repository golden set caught live: routed to a
     document that chunks to a single window, a hard filter handed the model
     a one-chunk context and it refused a question it answers happily with a
-    fuller one. A route reorders; only the cut to k excludes."""
+    fuller one. A route only rescues; it never removes or reorders."""
     retriever = BM25Retriever()
     retriever.index(CORPUS)
     question = "what does the expenses policy say about meal claims?"
@@ -151,24 +175,10 @@ def test_a_route_never_thins_the_context() -> None:
     unrouted_retriever = BM25Retriever(tag_routing=False)
     unrouted_retriever.index(CORPUS)
     unrouted = unrouted_retriever.search(question, k=6)
-    assert len(routed) == len(unrouted)  # same radius, different order
-    assert {h.chunk.chunk_id for h in routed} == {h.chunk.chunk_id for h in unrouted}
-
-
-def test_exclusion_happens_when_the_named_documents_fill_the_radius() -> None:
-    """At scale the named documents have chunks to spare, and the cut to k
-    then excludes the strangers entirely - the radius decrease, earned only
-    when it costs no context."""
-    wordy = Document(
-        "hr-expenses-policy",
-        "Expenses Policy",
-        "Expenses policy for meal claims. " * 12,
-    )
-    retriever = BM25Retriever(target_words=12, overlap_words=3)
-    retriever.index([wordy, SECURITY, PARKING])
-    hits = retriever.search("what does the expenses policy say about meal claims?", k=3)
-    assert len(hits) == 3
-    assert {h.chunk.document_id for h in hits} == {"hr-expenses-policy"}
+    # On a corpus where the named document already ranks in the head, the
+    # context is byte-identical with routing on and off - measured on the
+    # aveline corpus for the questions that regressed under stronger designs.
+    assert [h.chunk.chunk_id for h in routed] == [h.chunk.chunk_id for h in unrouted]
 
 
 def test_routing_off_restores_the_old_behaviour_exactly() -> None:
@@ -216,14 +226,14 @@ def test_the_route_admits_the_archive_and_demotion_still_drops_it() -> None:
     retriever = BM25Retriever()
     retriever.index([EXPENSES, archive, SECURITY, PARKING])
     hits = retriever.search("what does the expenses policy say about meal allowances?", k=6)
-    assert hits
-    assert hits[0].chunk.document_id == "hr-expenses-policy"
+    assert any(h.chunk.document_id == "hr-expenses-policy" for h in hits)
     assert all(h.chunk.document_id != "hr-expenses-policy-2023" for h in hits)
 
 
-def test_the_dense_half_respects_the_route() -> None:
-    """Cosine scores every chunk, so without the shared route the dense half
-    would smuggle excluded documents back into the fused ranking."""
+def test_the_route_applies_to_the_fused_ranking() -> None:
+    """The guarantee runs on the combined view, after both halves vote -
+    at k=1 the rescue is visible: the stub buries the named document under
+    a parking chunk it loves, and the route pulls it back into the cut."""
 
     class LovesParking:
         model = "stub"
@@ -238,11 +248,8 @@ def test_the_dense_half_respects_the_route() -> None:
 
     retriever = HybridRetriever(lexical=_BM25(), embedder=LovesParking())  # type: ignore[arg-type]
     retriever.index(CORPUS)
-    hits = retriever.search("what does the expenses policy say about meal claims?", k=3)
-    assert hits
-    # Without the fused-level route the parking chunk would lead - the stub
-    # ranks it first for every question. The named document must lead.
-    assert hits[0].chunk.document_id == "hr-expenses-policy"
+    hits = retriever.search("what does the expenses policy say about meal claims?", k=1)
+    assert [h.chunk.document_id for h in hits] == ["hr-expenses-policy"]
 
 
 # -- the shipped corpus, as a spec -------------------------------------------

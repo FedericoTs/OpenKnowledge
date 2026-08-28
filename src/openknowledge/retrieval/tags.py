@@ -7,17 +7,16 @@ document's own name, title, headings, and its statistically distinctive
 vocabulary - so indexing stays free and byte-identical across runs, which the
 answer cache depends on.
 
-The point of the tags is to shrink the search radius. On a corpus of a
-thousand documents, a question about the expenses policy is scored against
-every chunk of every engineering runbook, and the noise has two costs: the
-right document's chunks can miss the candidate list entirely, buried under a
-thousand near-matches, and off-topic chunks crowd the context so the
-grounding gate fails answers that would have been clean. When the question's
-own words match a *few* documents' tags decisively, those documents' chunks
-are put first - guaranteed into the radius - and the weakest strangers fall
-off the end. When the named documents alone can fill the request, that is a
-hard exclusion; when they cannot, the context stays as full as it would have
-been unrouted, because a route must never starve the model.
+The point of the tags is to keep the right documents inside the search
+radius. On a corpus of a thousand documents, the chunk that answers an
+expenses question can be buried below a thousand near-matches and never
+reach the candidate list at all. When the question's own words match a
+*few* documents' tags decisively, those documents are *guaranteed*
+representation among the candidates - their best chunks rescued from below
+the cut, displacing the weakest strangers. Nothing is reordered: rank is
+earned by score exactly as without tags, because two stronger designs -
+filtering to the routed documents, and putting them first - both measurably
+degraded the local model's answers (see :func:`guarantee_routed`).
 
 The failure mode to fear is a question routed away from the document that
 held its answer. So the route itself is deliberately cowardly - **any doubt
@@ -148,10 +147,9 @@ def route_by_tags(question: str, folded_tags: dict[str, frozenset[str]]) -> froz
 
     None is the common and safe answer: it means "search everything", which
     is exactly what retrieval did before tags existed. A frozenset is a
-    *priority*, applied by :func:`prefer_routed` - never a hard filter,
-    because a filter can starve the model's context (measured: routed to a
-    one-chunk document, the local model refused a question it answers
-    happily with a fuller context).
+    *guarantee of candidacy*, applied by :func:`guarantee_routed` - never a
+    filter and never a reordering; both were measured and both made the
+    local model worse.
     """
     if not folded_tags:
         return None
@@ -173,23 +171,40 @@ def route_by_tags(question: str, folded_tags: dict[str, frozenset[str]]) -> froz
     return matched
 
 
-def prefer_routed(ranked: list[ScoredChunk], within: frozenset[str] | None) -> list[ScoredChunk]:
-    """Apply a route as a priority: named documents first, everything else after.
+def guarantee_routed(
+    ranked: list[ScoredChunk], within: frozenset[str] | None, k: int
+) -> list[ScoredChunk]:
+    """Cut to k, first making sure every named document is represented.
 
-    Not a filter, deliberately. The first version excluded everything outside
-    the route, and the repository golden set caught it within one run: routed
-    to a document that chunks to a single window, the local model saw a
-    one-chunk context and refused a question it answers happily with a fuller
-    one. A route must never make the context *thinner* than the unrouted
-    search would have - so the stranger chunks stay in the ranking, after the
-    named documents, and the caller's cut to k does the shrinking. When the
-    named documents alone can fill k - the many-document corpus this feature
-    exists for - that cut excludes the strangers entirely, which is the
-    radius decrease, earned only when it costs nothing.
+    Two stronger designs were measured and rejected on the golden sets. A
+    hard filter starved the model: routed to a document that chunks to one
+    window, it saw a one-chunk context and refused a question it answers
+    with a fuller one. Putting routed chunks first starved it differently:
+    the context filled with same-topic tables, and on the aveline set the
+    local model refused one scope-ambiguous question and recited a
+    neighbouring row's figures on another (accuracy 0.88 against a passing
+    1.0). The mixed, score-earned context was doing quiet work.
+
+    So order is earned by score, exactly as without tags. The route's one
+    power is rescue: a named document with no chunk above the cut gets its
+    best-ranked chunk in, displacing the weakest strangers. On a small
+    corpus the named documents are already in the head and routing changes
+    nothing - measured: identical contexts with routing on and off. On the
+    thousand-document corpus this exists for, it is the difference between
+    the right document being in the candidates and being buried below them.
     """
+    head = ranked[:k]
     if within is None:
-        return ranked
-    routed = [s for s in ranked if s.chunk.document_id in within]
-    if not routed:
-        return ranked
-    return routed + [s for s in ranked if s.chunk.document_id not in within]
+        return head
+    present = {s.chunk.document_id for s in head}
+    missing = sorted(within - present)
+    if not missing:
+        return head
+    rescued = []
+    for doc_id in missing:
+        best = next((s for s in ranked[k:] if s.chunk.document_id == doc_id), None)
+        if best is not None:
+            rescued.append(best)
+    if not rescued:
+        return head
+    return head[: max(0, k - len(rescued))] + rescued

@@ -17,7 +17,7 @@ import math
 from collections import Counter
 
 from .base import Chunk, Document, ScoredChunk, chunk_document, demote_superseded, tokenize
-from .tags import corpus_document_frequency, derive_tags, fold_tags, prefer_routed, route_by_tags
+from .tags import corpus_document_frequency, derive_tags, fold_tags, guarantee_routed, route_by_tags
 
 _K1 = 1.5
 _B = 0.75
@@ -132,8 +132,9 @@ class BM25Retriever:
         if not query_terms:
             return []
 
-        # Tag routing puts the named documents first when the question names
-        # them decisively; None - the common case - changes nothing.
+        # Tag routing guarantees the named documents a place among the
+        # results when the question names them decisively; None - the
+        # common case - changes nothing.
         within = route_by_tags(query, self._doc_tags_folded) if self.tag_routing else None
 
         n = len(self._chunks)
@@ -164,11 +165,11 @@ class BM25Retriever:
                 scored.append(ScoredChunk(chunk=chunk, score=score))
 
         # Sort by score, then chunk_id: ties must break the same way on every
-        # run or identical questions would retrieve different context. The
-        # route reorders the full ranking before the cut, so the radius only
-        # shrinks when the named documents can fill it themselves.
+        # run or identical questions would retrieve different context.
+        # Demotion sees the full ranking so it can backfill; the route then
+        # rescues any named document still below the cut.
         scored.sort(key=lambda s: (-s.score, s.chunk.chunk_id))
-        return demote_superseded(prefer_routed(scored, within), k)
+        return guarantee_routed(demote_superseded(scored, len(scored)), within, k)
 
     def visible_to(self, document_ids: set[str], principals: frozenset[str] | None) -> bool:
         """Whether ``principals`` may see every document in ``document_ids``.

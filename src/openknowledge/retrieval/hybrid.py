@@ -26,7 +26,7 @@ from dataclasses import dataclass, field
 from .base import Chunk, Document, ScoredChunk, demote_superseded
 from .bm25 import BM25Retriever
 from .embed import Embedder, EmbeddingError, normalise, text_key
-from .tags import prefer_routed, route_by_tags
+from .tags import guarantee_routed, route_by_tags
 
 log = logging.getLogger(__name__)
 
@@ -239,8 +239,9 @@ class HybridRetriever:
         within = (
             route_by_tags(query, self.lexical.routing_tags()) if self.lexical.tag_routing else None
         )
-        fused = prefer_routed(_interleave(dense, lexical), within)
-        return demote_superseded(fused, k)
+        fused = _interleave(dense, lexical)
+        fused = demote_superseded(fused, len(fused))
+        return guarantee_routed(fused, within, k)
 
 
 def _chunk_key(chunk: Chunk) -> str:
