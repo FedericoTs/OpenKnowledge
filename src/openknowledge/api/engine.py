@@ -184,16 +184,17 @@ def _build_frontier(settings: Settings) -> ChatProvider | None:
         )
 
     if settings.escalation_provider == "azure":
+        api_key = settings.azure_openai_api_key
         missing = [
             name
             for name, value in (
                 ("OK_AZURE_OPENAI_ENDPOINT", settings.azure_openai_endpoint),
                 ("OK_AZURE_OPENAI_DEPLOYMENT", settings.azure_openai_deployment),
-                ("OK_AZURE_OPENAI_API_KEY", settings.azure_openai_api_key),
+                ("OK_AZURE_OPENAI_API_KEY", api_key),
             )
             if not value
         ]
-        if missing:
+        if missing or api_key is None:
             log.warning(
                 "escalation is enabled but %s is unset; staying local", " and ".join(missing)
             )
@@ -208,7 +209,7 @@ def _build_frontier(settings: Settings) -> ChatProvider | None:
         return AzureOpenAIProvider(
             endpoint=settings.azure_openai_endpoint,
             deployment=settings.azure_openai_deployment,
-            api_key=settings.azure_openai_api_key,
+            api_key=api_key,
             api_version=settings.azure_openai_api_version,
             input_per_mtok=settings.azure_openai_input_per_mtok,
             output_per_mtok=settings.azure_openai_output_per_mtok,
