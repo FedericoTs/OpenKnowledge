@@ -1,0 +1,36 @@
+{
+  "cases": 26,
+  "accuracy": 1.0,
+  "false_answers": 0,
+  "false_answer_rate": 0.0,
+  "determinism": 1.0,
+  "paraphrase_consistency": 1.0,
+  "cost_per_question_usd": 0.0,
+  "total_cost_usd": 0.0,
+  "free_share": 0.0,
+  "support_separation": null,
+  "tiers": {
+    "local": 17,
+    "refused": 8,
+    "contested": 1
+  },
+  "failures": [],
+  "provenance": {
+    "what": "Tenth live run: both golden sets with self-reference recognised by grammar and evidence instead of vocabulary. Four field transcripts in a row had been four missing words - 'manage', then 'formats', each gap sending a question about the assistant to a paid frontier call and then a refusal, the worst outcome the cascade can produce. Measured against evals/capability/questions.py, a 40-question set written to defeat the word lists rather than flatter them, the lists recognised 10: 25%. A question is now treated as being about the assistant when it addresses 'you' in a question frame AND the passages retrieved for it say nothing about its subject - both closed-class or measured, so neither has a vocabulary tail. Recognition 38/40; 19/19 document questions still reach retrieval.",
+    "models": "Chat: Qwen3-4B-Instruct-2507 Q4_K_M via llama-cpp-python. Embeddings: nomic-embed-text v1.5 Q4_K_M, task prefixes applied.",
+    "corpus": "evals/corpus/aveline in full (11 documents); companion run on the repository documents/",
+    "companion": {
+      "cases": 13,
+      "accuracy": 1.0,
+      "false_answers": 0,
+      "determinism": 1.0,
+      "paraphrase_consistency": 1.0,
+      "tiers": {
+        "local": 8,
+        "refused": 5
+      }
+    },
+    "hardware": "4-core CPU container, no GPU; both model servers local",
+    "caveat": "The bar this run had to clear is do-no-harm in a specific way: a route that answers more questions free must not take any question the documents can answer. Both sets came back with their tier splits unchanged - golden 8 local / 5 refused, aveline 17 / 8 / 1 - so nothing moved to the corpus tier. The recognition gain itself is measured by the capability set, which these corpora do not exercise; it is enforced in CI by tests/test_self_reference.py. Two of the 40 still miss here only because this repository's own corpus is about this software, so 'cost' and 'run' appear throughout its docs."
+  }
+}
