@@ -45,6 +45,22 @@ _API_LATEST = f"https://api.github.com/repos/{REPO}/releases/latest"
 #: At most one check per this many seconds, remembered across restarts.
 CHECK_INTERVAL_SECONDS = 24 * 3600
 
+#: Whether this process has checked yet. Starting the app is a person
+#: showing up, so the first check of a launch ignores the stamp: measured
+#: in the field, a stamp written hours before a release hid that release
+#: for the rest of the day, and restarting - the obvious remedy, and the
+#: one every other desktop app rewards - changed nothing, because the
+#: stamp outlives the process. Everything after the first check in a
+#: launch obeys the daily throttle, and OK_UPDATE_CHECK=false still turns
+#: the whole thing off for fleets that want no outbound call at all.
+_checked_this_launch = False
+
+
+def forget_launch_check() -> None:
+    """Reset the per-launch flag. For tests, which share one process."""
+    global _checked_this_launch
+    _checked_this_launch = False
+
 
 class UpdateError(RuntimeError):
     """A failure worth telling the person about, in a full sentence."""
@@ -105,12 +121,21 @@ def check_latest(
     check is a note, never an error dialog and never a crash. The throttle
     stamp lives beside the rest of the state; ``force`` belongs to the
     explicit "check now" click and the apply path.
+
+    The first call of a launch always checks for real - see
+    ``_checked_this_launch``. That costs one request per app start, which
+    is what every other desktop updater does, and it makes "restart the
+    app" the working remedy people already expect it to be.
     """
+    global _checked_this_launch
+
     current = current_version()
     moment = time.time() if now is None else now
+    first_of_launch = not _checked_this_launch
+    _checked_this_launch = True
 
     stamp = state_dir / "update-check.json"
-    if not force:
+    if not force and not first_of_launch:
         try:
             saved = json.loads(stamp.read_text(encoding="utf-8"))
             if moment - float(saved.get("checked_at", 0)) < CHECK_INTERVAL_SECONDS:

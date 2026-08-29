@@ -75,6 +75,15 @@ jobs:
           $v = & dist\OpenKnowledge\openknowledge.exe --version
           if ($LASTEXITCODE -ne 0) { throw "--version exited $LASTEXITCODE" }
           if (-not $v) { throw "--version printed nothing (GUI-subsystem exe? console exe lost?)" }
+          # It must print the RIGHT version, not merely something. Without the
+          # bundled dist-info the app reads its own version as 0.0.0, and the
+          # updater then compares every release against that - offering an
+          # update to a build that is already current. "Printed something"
+          # passed happily through that for four releases.
+          $expected = (Select-String -Path pyproject.toml -Pattern '^version = "(.+)"').Matches[0].Groups[1].Value
+          if ("$v".Trim() -notmatch [regex]::Escape($expected)) {
+            throw "frozen --version said '$v' but pyproject says '$expected' (dist-info missing from the bundle?)"
+          }
           & dist\OpenKnowledge\openknowledge.exe paths
           if ($LASTEXITCODE -ne 0) { throw "paths exited $LASTEXITCODE" }
 

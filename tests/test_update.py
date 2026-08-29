@@ -88,6 +88,7 @@ def test_the_check_runs_at_most_once_a_day(tmp_path: Path) -> None:
         calls["n"] += 1
         return release_json("v99.0.0")
 
+    update.forget_launch_check()
     first = check_latest(state_dir=tmp_path, fetch=counted, now=1000.0)
     again = check_latest(state_dir=tmp_path, fetch=counted, now=2000.0)
     later = check_latest(state_dir=tmp_path, fetch=counted, now=1000.0 + 25 * 3600)
@@ -255,3 +256,25 @@ def test_refresh_bypasses_the_daily_throttle(client, tmp_path: Path, monkeypatch
     assert calls["force"] is False
     client.get("/update/status?refresh=1")
     assert calls["force"] is True
+
+
+def test_starting_the_app_always_checks_for_real(tmp_path: Path) -> None:
+    """The field complaint, pinned: a stamp written before a release hid it
+    for the rest of the day, and restarting the app - the obvious remedy -
+    changed nothing, because the stamp outlives the process. The first check
+    of a launch ignores the stamp; the ones after it do not."""
+    calls = {"n": 0}
+
+    def counted() -> dict:
+        calls["n"] += 1
+        return release_json("v99.0.0")
+
+    update.forget_launch_check()
+    check_latest(state_dir=tmp_path, fetch=counted, now=1000.0)
+    check_latest(state_dir=tmp_path, fetch=counted, now=1100.0)
+    assert calls["n"] == 1, "the second check of a launch obeys the throttle"
+
+    update.forget_launch_check()  # a restart
+    result = check_latest(state_dir=tmp_path, fetch=counted, now=1200.0)
+    assert calls["n"] == 2, "restarting the app must re-check, stamp or no stamp"
+    assert result.update_available

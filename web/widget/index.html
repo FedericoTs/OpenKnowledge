@@ -35,6 +35,12 @@
     background:var(--green-glow, rgba(111,191,164,.12)); color:var(--green, #6fbfa4);
     border:1px solid var(--green-dim, #3d7a67); border-radius:6px; cursor:pointer; }
   #update-chip .update-btn:disabled { opacity:.7; cursor:default; }
+  /* The version line is always present. Silence is what made a missing
+     update button undiagnosable in the field for three rounds: every
+     failure - throttled, offline, disabled, server-managed - rendered
+     exactly nothing, so nobody could tell them apart. */
+  #update-chip .update-state { margin-top:8px; font-size:12px; opacity:.72; line-height:1.5; }
+  #update-chip .update-state a { color:inherit; text-decoration:underline; cursor:pointer; }
   aside { background:var(--side-bg); color:var(--side-ink); display:flex;
           flex-direction:column; min-height:0; }
   .brand { padding:22px 20px 16px; }
@@ -276,33 +282,76 @@ function prettyModel(m) {
 // installer, verifies it against the release's own SHA-256 digest, closes
 // the app cleanly, installs silently and reopens. Nothing here is silent
 // or automatic - unsigned binaries earn an explicit click.
-function refreshUpdateChip() {
-  fetch('/update/status').then(r => r.ok ? r.json() : null).then(u => {
-    const chip = document.getElementById('update-chip');
-    if (!chip) return;
+function refreshUpdateChip(force) {
+  const url = force ? '/update/status?refresh=1' : '/update/status';
+  const chip = document.getElementById('update-chip');
+  if (!chip) return;
+  if (force) { chip.textContent = ''; chip.appendChild(el('div', 'update-state', 'Checking…')); }
+  fetch(url).then(r => r.ok ? r.json() : null).then(u => {
     chip.textContent = '';
-    if (!u || !u.update_available || !u.can_apply) return;
-    const btn = el('button', 'update-btn', `Update to v${u.latest}`);
-    btn.onclick = async () => {
-      if (!confirm(`Update OpenKnowledge to v${u.latest}? The app closes, installs silently, and reopens in about a minute. Your documents, settings and answers all stay.`)) return;
-      btn.disabled = true;
-      btn.textContent = 'Downloading and verifying…';
-      try {
-        const r = await fetch('/update/apply', { method: 'POST' });
-        const body = await r.json().catch(() => ({}));
-        if (!r.ok) { alert(body.detail || 'The update could not start.'); btn.disabled = false; btn.textContent = `Update to v${u.latest}`; return; }
-        btn.textContent = 'Installing — this page will reconnect…';
-        // The server is going down on purpose; poll until the new build serves.
-        const probe = setInterval(() => {
-          fetch('healthz').then(r2 => { if (r2.ok) { clearInterval(probe); location.reload(); } }).catch(() => {});
-        }, 3000);
-      } catch (e) {
-        alert('The update could not start: ' + e.message);
-        btn.disabled = false; btn.textContent = `Update to v${u.latest}`;
+    // Every branch below says something. An empty chip cannot be told from
+    // a broken one, which is exactly how this feature failed in the field.
+    if (!u) {
+      chip.appendChild(el('div', 'update-state', 'Update status unavailable.'));
+      return;
+    }
+    const state = el('div', 'update-state');
+    const version = u.current ? `v${u.current}` : 'this build';
+    if (u.disabled) {
+      state.textContent = `Running ${version}. Update checks are turned off.`;
+      chip.appendChild(state);
+      return;
+    }
+    if (u.error) {
+      state.textContent = `Running ${version}. Could not check for updates: ${u.error} `;
+    } else if (u.update_available && !u.can_apply) {
+      // A server install, or a build the launcher never handed off to:
+      // name the new version and where to get it rather than going quiet.
+      state.textContent = `v${u.latest} is available. This install updates from its release page: `;
+      if (u.release_url) {
+        const link = el('a', null, 'open it');
+        link.href = u.release_url;
+        link.target = '_blank';
+        link.rel = 'noopener';
+        state.appendChild(link);
+        state.appendChild(document.createTextNode(' '));
       }
-    };
-    chip.appendChild(btn);
-  }).catch(() => {});
+    } else if (!u.update_available) {
+      state.textContent = `Running ${version} - up to date. `;
+    }
+    if (u.update_available && u.can_apply) {
+      const btn = el('button', 'update-btn', `Update to v${u.latest}`);
+      btn.onclick = async () => {
+        if (!confirm(`Update OpenKnowledge to v${u.latest}? The app closes, installs silently, and reopens in about a minute. Your documents, settings and answers all stay.`)) return;
+        btn.disabled = true;
+        btn.textContent = 'Downloading and verifying…';
+        try {
+          const r = await fetch('/update/apply', { method: 'POST' });
+          const body = await r.json().catch(() => ({}));
+          if (!r.ok) { alert(body.detail || 'The update could not start.'); btn.disabled = false; btn.textContent = `Update to v${u.latest}`; return; }
+          btn.textContent = 'Installing — this page will reconnect…';
+          // The server is going down on purpose; poll until the new build serves.
+          const probe = setInterval(() => {
+            fetch('healthz').then(r2 => { if (r2.ok) { clearInterval(probe); location.reload(); } }).catch(() => {});
+          }, 3000);
+        } catch (e) {
+          alert('The update could not start: ' + e.message);
+          btn.disabled = false; btn.textContent = `Update to v${u.latest}`;
+        }
+      };
+      chip.appendChild(btn);
+      state.textContent = `Running ${version}. `;
+    }
+    // A manual "check now" always exists, so nobody has to delete a file
+    // in the state directory to ask a question the UI should answer.
+    const again = el('a', null, 'Check for updates');
+    again.onclick = (e) => { e.preventDefault(); refreshUpdateChip(true); };
+    state.appendChild(again);
+    chip.appendChild(state);
+  }).catch(() => {
+    chip.textContent = '';
+    chip.appendChild(el('div', 'update-state', 'Update status unavailable.'));
+  });
 }
 
 function refreshCorpus() {

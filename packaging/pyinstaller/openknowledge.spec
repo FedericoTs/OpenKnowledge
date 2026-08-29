@@ -23,12 +23,23 @@ Output lands in dist/OpenKnowledge/.
 import sys
 from pathlib import Path
 
+from PyInstaller.utils.hooks import copy_metadata
+
 ROOT = Path(SPECPATH).resolve().parents[1]  # noqa: F821 - SPECPATH is injected
 
 datas = [
     (str(ROOT / "src" / "openknowledge" / "pricing.yaml"), "openknowledge"),
     (str(ROOT / "web"), "web"),
 ]
+
+# The app has to know its own version. Without the dist-info,
+# importlib.metadata raises PackageNotFoundError inside the bundle,
+# __version__ falls back to "0.0.0", and the updater compares every
+# release against that - so it can never tell "already current" from
+# "one behind". Dependencies get their metadata from their own hooks;
+# ours has no hook, so it is asked for here. package.yml asserts the
+# frozen --version matches pyproject, which is what keeps this honest.
+datas += copy_metadata("openknowledge")
 
 hiddenimports = []
 if sys.platform == "win32":

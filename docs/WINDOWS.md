@@ -65,15 +65,25 @@ if you want it gone.
 
 ## Updating
 
-From v0.2.2 the app updates itself in one click. It asks github.com once a
-day whether a newer release exists (an outbound call, documented here;
-`OK_UPDATE_CHECK=false` turns it off entirely for air-gapped or IT-managed
-installs). When one does, a quiet "Update to vX.Y.Z" button appears in the
-sidebar. Clicking it downloads the new installer, verifies it against the
-SHA-256 digest GitHub records for that exact release asset, closes the app
-cleanly, installs silently, and reopens - about a minute, and your
-documents, settings, caches and models are untouched (the 2.6 GB of models
-live outside the install directory and are never re-downloaded).
+From v0.2.2 the app updates itself in one click. It asks github.com whether
+a newer release exists - once when the app starts, and at most once a day
+after that (an outbound call, documented here; `OK_UPDATE_CHECK=false`
+turns it off entirely for air-gapped or IT-managed installs). When one
+does, a quiet "Update to vX.Y.Z" button appears in the sidebar. Clicking it
+downloads the new installer, verifies it against the SHA-256 digest GitHub
+records for that exact release asset, closes the app cleanly, installs
+silently, and reopens - about a minute, and your documents, settings,
+caches and models are untouched (the 2.6 GB of models live outside the
+install directory and are never re-downloaded).
+
+The sidebar always states what it knows: the version you are running, and
+whether it is current, one behind, or could not be checked. There is a
+"Check for updates" link beside it for the impatient. Up to v0.2.4 the
+check ran only once a day and said nothing at all in every other case, so
+a release published an hour after a check stayed invisible until the next
+day - and restarting, the obvious remedy, did not help, because the
+throttle stamp outlives the process. Both halves of that are fixed: a
+launch always checks, and the panel is never silent.
 
 Deliberately not automatic: unsigned binaries earn an explicit click, and
 enterprise IT rightly bans software that changes itself unannounced. With
