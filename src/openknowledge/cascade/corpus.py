@@ -20,7 +20,12 @@ qualifies only when removing the meta-vocabulary leaves no content behind.
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from ..retrieval.base import Chunk
 
 _WORDS = re.compile(r"[a-z0-9']+")
 
@@ -291,6 +296,95 @@ _FORMAT_NAMES = {
     ".rst": "Markdown",
     ".txt": "plain text",
 }
+
+
+#: Ways to address the assistant. Unlike verbs and nouns, this is a genuinely
+#: closed class - English has no long tail of words for "you" - which is what
+#: makes the check below immune to the vocabulary gap that sent "what files
+#: can you manage?" to a paid refusal.
+_SECOND_PERSON = frozenset(["you", "your", "yours", "yourself", "u"])
+
+#: The openings of a question rather than an instruction. Also closed-class.
+#: A wider set than ``_ASKING_ABOUT_YOU`` because this check does not have to
+#: carry the whole decision on its own - the corpus gets the second vote.
+_QUESTION_OPENERS = frozenset(
+    (  # noqa: SIM905
+        "do does did can could will would shall should are is was were am have "
+        "has what how who which why when where whats"
+    ).split()
+)
+
+
+def asks_about_the_assistant(question: str) -> bool:
+    """Whether the question addresses the assistant itself.
+
+    Grammar, not vocabulary. Every word list in this module is open-class -
+    there is always another verb someone will use - and each gap costs a
+    paid call and a refusal before anyone notices. Measured against a set
+    written to defeat those lists, the lists recognised 25% of real
+    self-referential questions.
+
+    This asks two closed-class questions instead: does the sentence address
+    "you", and does it open like a question rather than an instruction. That
+    is deliberately loose - "can you tell me what the handbook says?" passes
+    it - because on its own it decides nothing. The caller pairs it with
+    what the documents actually contain, and only a question the corpus has
+    no answer for is treated as being about the assistant.
+    """
+    words = re.findall(r"[a-z']+", question.lower())
+    if not words:
+        return False
+    if not _SECOND_PERSON & set(words):
+        return False
+    # An imperative addressed at the assistant ("summarise the handbook for
+    # yourself") opens with its verb, not with an interrogative. Looking at
+    # the first two words rather than the first keeps that exclusion - an
+    # imperative has no interrogative in either slot - while surviving the
+    # typo a real user made twice: "whaat can you do for me?".
+    return any(w in _QUESTION_OPENERS for w in words[:2])
+
+
+def evidence_text(chunks: Sequence[Chunk]) -> str:
+    """What the retrieved passages offer, labels included.
+
+    The title carries the subject as often as the body does - a document
+    called "Expenses Policy" may never repeat the word "expenses" in its
+    text - and an early version of the check below missed exactly that,
+    treating a question the corpus could answer as one about the assistant.
+    The grounding gate learned the same lesson as policy g2.
+    """
+    return " ".join(
+        f"{c.document_id} {c.document_title} {c.locator or ''} {c.text}" for c in chunks
+    )
+
+
+def corpus_has_nothing_to_say(question: str, evidence: str, *, floor: float = 0.34) -> bool:
+    """Whether the best passages retrieved say anything about this question.
+
+    The second vote, and the one that keeps the first from doing harm. A
+    real document question - "can you tell me what the handbook says about
+    parental leave?" - lands its content words in the passages it retrieves.
+    A question about the assistant does not, because no corpus describes the
+    software reading it.
+
+    The floor is deliberately low: firing this when the documents *do* have
+    an answer would replace a real answer with a description of the product,
+    which is far worse than the refusal it exists to prevent.
+    """
+    # Function words carry no subject, so counting them dilutes the ratio and
+    # makes the net fire on questions the corpus can answer: "what does the
+    # policy say you should do about expenses?" landed its only real word and
+    # still scored 1/3, because "say" and "should" were counted as subject.
+    # The grounding gate already maintains this list for the same reason.
+    from ..retrieval.grounding import _FUNCTION_WORDS
+
+    ignored = _SECOND_PERSON | _EMPTY | _META | _CAPABILITY | _FUNCTION_WORDS
+    subject = [w for w in re.findall(r"[a-z']+", question.lower()) if w not in ignored]
+    if not subject:
+        return True
+    seen = set(re.findall(r"[a-z']+", evidence.lower()))
+    landed = sum(1 for w in subject if w in seen)
+    return landed / len(subject) < floor
 
 
 def _readable_formats() -> str:

@@ -40,7 +40,13 @@ from ..retrieval.grounding import check_grounding
 from ..retrieval.rerank import Reranker, StructuralReranker
 from ..types import Answer, Citation, Tier
 from .budget import Budget, BudgetGovernor
-from .corpus import describe, recognise
+from .corpus import (
+    asks_about_the_assistant,
+    corpus_has_nothing_to_say,
+    describe,
+    evidence_text,
+    recognise,
+)
 from .followup import resolve
 from .ladder import Ladder, Rung
 
@@ -407,6 +413,53 @@ class Cascade:
         if self.reranker is not None:
             hits = self.reranker.rerank(question, hits, k=wanted)
         chunks = [h.chunk for h in hits]
+
+        # The safety net for questions about the assistant that the word
+        # lists above did not recognise. Measured against a set written to
+        # defeat those lists, they caught 25% - the rest escalated to a paid
+        # model and were then refused, which is the worst outcome the
+        # cascade can produce: charged for nothing, and wrong.
+        #
+        # Two votes, neither of which is a vocabulary list. The question must
+        # address "you" in a question frame, and the passages retrieved for
+        # it must say nothing about it. A real document question - "can you
+        # tell me what the handbook says about parental leave?" - passes the
+        # first and fails the second, so it goes to retrieval exactly as
+        # before. Only a question the documents have no answer for is treated
+        # as being about the assistant, and it is answered free.
+        if asks_about_the_assistant(question) and corpus_has_nothing_to_say(
+            question, evidence_text(chunks)
+        ):
+            titles, hidden = self.retriever.documents_visible_to(principals)
+            tags_of = getattr(self.retriever, "visible_document_tags", None)
+            yield _final(
+                Answer(
+                    # Both halves are true, which is what makes this safe on
+                    # the genuinely ambiguous case. "What is your company's
+                    # refund policy?" reads as a question about the assistant
+                    # and is really a question about the documents; leading
+                    # with the refusal keeps the honest answer honest, and
+                    # the description then tells the person what this thing
+                    # actually is. Neither reading gets a fabricated answer,
+                    # and neither costs a model call.
+                    text=REFUSAL_TEXT
+                    + "\n\n"
+                    + describe(
+                        titles,
+                        chunks=len(self.retriever),
+                        hidden=hidden,
+                        tags=tags_of(principals) if tags_of is not None else None,
+                        wants="help",
+                    ),
+                    tier=Tier.CORPUS,
+                    model_id="none",
+                    cache_key=key,
+                    grounded=True,
+                    notes=("asked about me; the documents have nothing on it",),
+                )
+            )
+            return
+
         if not chunks:
             yield _final(
                 Answer(
