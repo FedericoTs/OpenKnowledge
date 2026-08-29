@@ -151,6 +151,11 @@ class HybridRetriever:
     def document_tags(self) -> dict[str, tuple[str, ...]]:
         return self.lexical.document_tags()
 
+    def visible_document_tags(
+        self, principals: frozenset[str] | None
+    ) -> dict[str, tuple[str, ...]]:
+        return self.lexical.visible_document_tags(principals)
+
     @property
     def chunks(self) -> list[Chunk]:
         return self.lexical._chunks  # noqa: SLF001 - one object, split for clarity

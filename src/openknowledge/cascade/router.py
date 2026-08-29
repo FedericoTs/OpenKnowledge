@@ -264,9 +264,18 @@ class Cascade:
         asking_about_the_corpus = recognise(question)
         if asking_about_the_corpus is not None:
             titles, hidden = self.retriever.documents_visible_to(principals)
+            # Tags turn "what topics do you cover?" into an answerable
+            # question; a retriever without them (a test fake) just lists.
+            tags_of = getattr(self.retriever, "visible_document_tags", None)
             yield _final(
                 Answer(
-                    text=describe(titles, chunks=len(self.retriever), hidden=hidden),
+                    text=describe(
+                        titles,
+                        chunks=len(self.retriever),
+                        hidden=hidden,
+                        tags=tags_of(principals) if tags_of is not None else None,
+                        wants=asking_about_the_corpus.wants,
+                    ),
                     tier=Tier.CORPUS,
                     model_id="none",
                     cache_key=key,

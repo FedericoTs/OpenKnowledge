@@ -120,3 +120,55 @@ async def test_the_cascade_answers_it_without_calling_a_model(store, retriever, 
     assert answer.cost_usd == 0.0
     assert local.calls == [], "called a model for a question the index answers"
     assert "documents indexed" in answer.text
+
+
+def test_the_first_question_every_new_user_asks_is_free() -> None:
+    """"What can you help me with?" mentions no document, and in the field it
+    cost a frontier call and came back "that isn't covered by the documents I
+    have" - the worst possible first impression. It is a question about the
+    assistant, answered from the index like every other meta-question."""
+    for question in (
+        "what can you help me with?",
+        "how can you help me?",
+        "what are you able to do?",
+    ):
+        got = recognise(question)
+        assert got is not None, question
+        assert got.wants == "help", question
+
+
+def test_a_capability_question_with_a_real_subject_is_not_hijacked() -> None:
+    assert recognise("how can you help me claim travel expenses?") is None
+    assert recognise("can you help me with the parental leave policy?") is None
+
+
+def test_topic_questions_are_about_the_collection() -> None:
+    """Field case, verbatim typo included: it went to a frontier model and was
+    refused for a derived count the gate could never verify."""
+    for question in (
+        "what are the macro-categories of info they covers?",
+        "what topics do you cover?",
+        "what categories of information do you have?",
+    ):
+        assert recognise(question) is not None, question
+
+
+def test_the_capability_answer_leads_with_what_the_assistant_does() -> None:
+    text = describe(
+        ["Expenses Policy"],
+        chunks=6,
+        tags={"Expenses Policy": ("expenses", "policy", "meals")},
+        wants="help",
+    )
+    assert text.startswith("I answer questions from the documents indexed here")
+    assert "covering: expenses, policy, meals" in text
+
+
+def test_tags_answer_what_topics_are_covered() -> None:
+    text = describe(
+        ["Expenses Policy", "Security Policy"],
+        chunks=12,
+        tags={"Expenses Policy": ("expenses", "meals"), "Security Policy": ("security", "usb")},
+    )
+    assert "Expenses Policy - covering: expenses, meals" in text
+    assert "Security Policy - covering: security, usb" in text

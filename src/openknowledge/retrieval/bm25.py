@@ -205,6 +205,26 @@ class BM25Retriever:
         """The folded tag sets routing matches against."""
         return self._doc_tags_folded
 
+    def visible_document_tags(
+        self, principals: frozenset[str] | None
+    ) -> dict[str, tuple[str, ...]]:
+        """Each visible document's tags, keyed by title, for the corpus tier.
+
+        Filtered exactly as the listing is: tags derive from a document's own
+        vocabulary, so showing a walled document's tags would leak what the
+        asker may not read."""
+        visible: dict[str, tuple[str, ...]] = {}
+        seen: set[str] = set()
+        for chunk in self._chunks:
+            if chunk.document_id in seen:
+                continue
+            seen.add(chunk.document_id)
+            allowed = chunk.allowed_principals
+            if principals is not None and allowed and not (allowed & principals):
+                continue
+            visible[chunk.document_title] = self._doc_tags.get(chunk.document_id, ())
+        return visible
+
     def document_ids(self) -> frozenset[str]:
         """Every document currently indexed.
 
