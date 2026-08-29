@@ -1,0 +1,36 @@
+{
+  "cases": 26,
+  "accuracy": 1.0,
+  "false_answers": 0,
+  "false_answer_rate": 0.0,
+  "determinism": 1.0,
+  "paraphrase_consistency": 1.0,
+  "cost_per_question_usd": 0.0,
+  "total_cost_usd": 0.0,
+  "free_share": 0.0,
+  "support_separation": null,
+  "tiers": {
+    "local": 17,
+    "refused": 8,
+    "contested": 1
+  },
+  "failures": [],
+  "provenance": {
+    "what": "Eighth live run: both golden sets under prompt v4, whose rule 10 is an identity guard. Motivated by a real-corpus field transcript: asked 'whaat can you do for me?', the assistant escalated to a frontier rung and answered AS the company in the documents - grounded, cited, and spoken by the wrong voice, presenting the corpus's products as its own abilities; a follow-up 'do you summarize documents?' paid for a second call and then refused. The fix is three-layered: the corpus tier's you-frame now answers capability and identity questions free of any model call (pinned by unit tests on the verbatim field questions), rule 10 guards the answers that do reach a model, and this run proves the new rule costs nothing on both golden sets - accuracy, determinism and paraphrase consistency all hold at 1.0 with zero false answers.",
+    "models": "Chat: Qwen3-4B-Instruct-2507 Q4_K_M via llama-cpp-python. Embeddings: nomic-embed-text v1.5 Q4_K_M, task prefixes applied.",
+    "corpus": "evals/corpus/aveline in full (11 documents); companion run on the repository documents/",
+    "companion": {
+      "cases": 13,
+      "accuracy": 1.0,
+      "false_answers": 0,
+      "determinism": 1.0,
+      "paraphrase_consistency": 1.0,
+      "tiers": {
+        "local": 8,
+        "refused": 5
+      }
+    },
+    "hardware": "4-core CPU container, no GPU; both model servers local",
+    "caveat": "These sets ask about the documents, not about the assistant, so this run proves rule 10 does no harm - the do-no-harm bar every prompt change must clear. The behaviour it fixes was measured in the field on a frontier rung and is pinned by the corpus-tier unit tests; the you-frame answers those questions before any model sees them."
+  }
+}
