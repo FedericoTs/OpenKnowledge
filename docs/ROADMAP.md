@@ -80,6 +80,14 @@ Honest status. "Built" means implemented and covered by tests in this repository
   sets are for. Two folded tag hits to match, a small matched share to fire, any
   ambiguity changes nothing. `OK_TAG_ROUTING=false` restores pre-tag retrieval
   exactly; both corpus-and-set preflights run in the unit suite. See ADR 0011.
+- **One-click verified updates** — the desktop app checks the pinned GitHub repo
+  once a day (`OK_UPDATE_CHECK=false` disables; the check is documented as the
+  outbound call it is) and offers new releases as a sidebar button: download,
+  verify against the release asset's own SHA-256 digest, clean shutdown through
+  the launcher's quit path, silent install, relaunch. Never silent-by-default and
+  never unverified: a release without a digest is not an update, a tampered
+  download is deleted and refused, a server install tells you its operator
+  updates it. Admin-only when sign-in is on.
 - **Streaming answers** — the same resolution, narrated: `answer()` and
   `answer_stream()` drain one event generator, so tier, caching, notes and cost
   cannot fork between them. Only the first self-hosted rung streams (billed rungs

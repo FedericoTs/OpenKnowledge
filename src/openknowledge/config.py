@@ -163,6 +163,13 @@ class Settings(BaseSettings):
     azure_openai_input_per_mtok: float | None = Field(default=None, ge=0.0)
     azure_openai_output_per_mtok: float | None = Field(default=None, ge=0.0)
 
+    # -- updates ----------------------------------------------------------
+    #: Ask github.com once a day whether a newer release exists, so the
+    #: desktop app can offer its one-click verified update. This is an
+    #: outbound call and is documented as one; turn it off for air-gapped or
+    #: IT-managed installs and nothing ever phones anywhere.
+    update_check: bool = True
+
     # -- tag routing ------------------------------------------------------
     #: Use per-document tags, derived free at index time, to guarantee that a
     #: question naming its documents finds them among its retrieval candidates

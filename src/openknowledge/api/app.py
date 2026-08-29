@@ -29,6 +29,7 @@ from typing import Annotated, Any
 
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, Response, StreamingResponse
+from starlette.concurrency import run_in_threadpool
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from ..access import effective_principals, validate_principals
@@ -502,6 +503,70 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if page is None:  # pragma: no cover - packaging fallback
             return "<h1>OpenKnowledge</h1><p>Manage page not found.</p>"
         return page.read_text(encoding="utf-8")
+
+    @app.get("/update/status")
+    async def update_status(engine: EngineDep, request: Request) -> dict[str, Any]:
+        """Whether a newer release exists, checked at most once a day.
+
+        Read-only and failing soft: an offline install answers with the
+        error note, never a 500. The gate middleware already keeps this
+        behind sign-in when sign-in is on.
+        """
+        from ..desktop import update as updates
+
+        if not engine.settings.update_check:
+            return {
+                "current": updates.current_version(),
+                "update_available": False,
+                "disabled": True,
+            }
+        result = updates.check_latest(state_dir=Path(engine.settings.data_dir))
+        payload = result.as_dict()
+        payload["can_apply"] = updates.HANDOFF.bound
+        return payload
+
+    @app.post("/update/apply")
+    async def update_apply(engine: EngineDep, request: Request) -> dict[str, Any]:
+        """One click: download, verify against the release digest, restart.
+
+        Only the desktop launcher can apply - a server install is updated by
+        its operator - and with sign-in on, only an admin may click. With no
+        auth configured at all this is the localhost desktop trust model:
+        whoever can reach 127.0.0.1 is the person whose machine it is.
+        """
+        from ..desktop import update as updates
+
+        settings = engine.settings
+        if settings.auth_mode == "oidc" and not _session_is_admin(request):
+            raise HTTPException(403, "updates are applied by an administrator")
+        if not settings.update_check:
+            raise HTTPException(409, "update checks are disabled (OK_UPDATE_CHECK=false)")
+        if not updates.HANDOFF.bound:
+            raise HTTPException(
+                409,
+                "this server is not the desktop app, so it does not update itself - "
+                "its operator updates it",
+            )
+
+        result = updates.check_latest(state_dir=Path(settings.data_dir), force=True)
+        if not result.update_available:
+            raise HTTPException(409, result.error or "already on the newest release")
+        try:
+            installer = await run_in_threadpool(
+                updates.download_and_verify,
+                result,
+                dest_dir=Path(settings.data_dir) / "updates",
+            )
+        except updates.UpdateError as exc:
+            raise HTTPException(502, str(exc)) from exc
+        updates.HANDOFF.request(installer)
+        return {
+            "applying": result.latest,
+            "message": (
+                f"Updating to {result.latest}: the app will close, install silently, "
+                "and reopen in about a minute."
+            ),
+        }
 
     @app.get("/healthz")
     async def healthz(engine: EngineDep) -> dict[str, Any]:

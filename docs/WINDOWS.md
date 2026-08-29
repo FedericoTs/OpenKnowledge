@@ -63,6 +63,25 @@ Uninstalling removes the program, **not** your knowledge base. The state
 folder survives on purpose; delete `%LOCALAPPDATA%\OpenKnowledge` yourself
 if you want it gone.
 
+## Updating
+
+From v0.2.2 the app updates itself in one click. It asks github.com once a
+day whether a newer release exists (an outbound call, documented here;
+`OK_UPDATE_CHECK=false` turns it off entirely for air-gapped or IT-managed
+installs). When one does, a quiet "Update to vX.Y.Z" button appears in the
+sidebar. Clicking it downloads the new installer, verifies it against the
+SHA-256 digest GitHub records for that exact release asset, closes the app
+cleanly, installs silently, and reopens - about a minute, and your
+documents, settings, caches and models are untouched (the 2.6 GB of models
+live outside the install directory and are never re-downloaded).
+
+Deliberately not automatic: unsigned binaries earn an explicit click, and
+enterprise IT rightly bans software that changes itself unannounced. With
+sign-in on, only an administrator sees the button do anything. And honesty
+about the trust model: the digest check defeats a corrupted download or a
+tampering mirror, not a compromised publisher account - that is what code
+signing is for, one section down.
+
 ## Building it
 
 The build runs in CI on every packaging change

@@ -31,6 +31,10 @@
   .app { display:grid; grid-template-columns:296px 1fr; height:100vh; }
 
   /* ---- sidebar: the knowledge, always in view --------------------------- */
+  #update-chip .update-btn { margin-top:8px; width:100%; padding:7px 10px; font-size:13px;
+    background:var(--green-glow, rgba(111,191,164,.12)); color:var(--green, #6fbfa4);
+    border:1px solid var(--green-dim, #3d7a67); border-radius:6px; cursor:pointer; }
+  #update-chip .update-btn:disabled { opacity:.7; cursor:default; }
   aside { background:var(--side-bg); color:var(--side-ink); display:flex;
           flex-direction:column; min-height:0; }
   .brand { padding:22px 20px 16px; }
@@ -190,6 +194,7 @@
       <p class="side-label">Knowledge base</p>
       <p id="side-stats">Checking…</p>
       <div id="conflict-chip"></div>
+      <div id="update-chip"></div>
     </div>
     <ul id="doc-list"></ul>
     <button id="add-docs" type="button">＋ Add documents
@@ -267,6 +272,39 @@ function prettyModel(m) {
 // What is indexed, stated rather than asked: the count is a fact the server
 // already has, and refusing "how many documents do you have?" reads as the
 // system not knowing what it holds.
+// A newer release, offered rather than imposed: one click downloads the
+// installer, verifies it against the release's own SHA-256 digest, closes
+// the app cleanly, installs silently and reopens. Nothing here is silent
+// or automatic - unsigned binaries earn an explicit click.
+function refreshUpdateChip() {
+  fetch('/update/status').then(r => r.ok ? r.json() : null).then(u => {
+    const chip = document.getElementById('update-chip');
+    if (!chip) return;
+    chip.textContent = '';
+    if (!u || !u.update_available || !u.can_apply) return;
+    const btn = el('button', 'update-btn', `Update to v${u.latest}`);
+    btn.onclick = async () => {
+      if (!confirm(`Update OpenKnowledge to v${u.latest}? The app closes, installs silently, and reopens in about a minute. Your documents, settings and answers all stay.`)) return;
+      btn.disabled = true;
+      btn.textContent = 'Downloading and verifying…';
+      try {
+        const r = await fetch('/update/apply', { method: 'POST' });
+        const body = await r.json().catch(() => ({}));
+        if (!r.ok) { alert(body.detail || 'The update could not start.'); btn.disabled = false; btn.textContent = `Update to v${u.latest}`; return; }
+        btn.textContent = 'Installing — this page will reconnect…';
+        // The server is going down on purpose; poll until the new build serves.
+        const probe = setInterval(() => {
+          fetch('healthz').then(r2 => { if (r2.ok) { clearInterval(probe); location.reload(); } }).catch(() => {});
+        }, 3000);
+      } catch (e) {
+        alert('The update could not start: ' + e.message);
+        btn.disabled = false; btn.textContent = `Update to v${u.latest}`;
+      }
+    };
+    chip.appendChild(btn);
+  }).catch(() => {});
+}
+
 function refreshCorpus() {
   return fetch('healthz').then(r => r.ok ? r.json() : null).then(h => {
     if (!h) return;
@@ -392,6 +430,7 @@ async function removeDocument(name) {
     if (!res.ok) throw new Error('HTTP ' + res.status);
     systemNote(name + ' — removed. Answers that cited it are no longer served.');
     refreshCorpus();
+refreshUpdateChip();
   } catch (err) {
     systemNote('Could not remove ' + name + ': ' + err.message, true);
   }

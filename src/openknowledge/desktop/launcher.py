@@ -41,7 +41,7 @@ import httpx
 
 from ..models import write_env
 from ..paths import StatePaths, state_paths
-from . import llama
+from . import llama, update
 from .download import (
     DownloadError,
     TransientDownloadError,
@@ -435,6 +435,10 @@ def main() -> int:
     needed = models_needed(plan)
     servers: list[LlamaServer] = []
     on_quit = threading.Event()
+    # One-click updates end through this same quit event: the endpoint hands
+    # over a verified installer, everything below shuts down cleanly, and the
+    # finally block runs it once nothing of this process still holds files.
+    update.HANDOFF.bind(on_quit)
 
     # The first-run state is decided and published BEFORE the app serves:
     # the e2e caught a request reading the default "ready" in the gap
@@ -484,3 +488,7 @@ def main() -> int:
         web_server.should_exit = True  # type: ignore[attr-defined]
         web_thread.join(timeout=10)
         llama.terminate(servers)
+        pending = update.HANDOFF.installer()
+        if pending is not None:  # pragma: no cover - windows desktop path
+            print(f"installing update from {pending}", flush=True)
+            update.spawn_installer(pending, relaunch=Path(sys.executable))
