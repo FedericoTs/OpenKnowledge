@@ -32,6 +32,7 @@ from fastapi.responses import FileResponse, HTMLResponse, Response, StreamingRes
 from starlette.concurrency import run_in_threadpool
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
+from .. import __version__
 from ..access import effective_principals, validate_principals
 from ..assets import find_asset
 from ..cache import citations_for
@@ -415,11 +416,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     # -- public --------------------------------------------------------------
     @app.get("/", response_class=HTMLResponse, include_in_schema=False)
-    async def widget() -> str:
+    async def widget() -> HTMLResponse:
+        # Never cached. This page carries the update UI, so a browser
+        # holding yesterday's copy would hide the very control that
+        # replaces it - and it is a few KB served from localhost, so
+        # caching it buys nothing worth that risk.
+        headers = {"Cache-Control": "no-store"}
         widget_path = _find_widget()
         if widget_path is None:  # pragma: no cover - packaging fallback
-            return "<h1>OpenKnowledge</h1><p>Chat widget not found. POST to /chat.</p>"
-        return widget_path.read_text(encoding="utf-8")
+            return HTMLResponse(
+                "<h1>OpenKnowledge</h1><p>Chat widget not found. POST to /chat.</p>",
+                headers=headers,
+            )
+        return HTMLResponse(widget_path.read_text(encoding="utf-8"), headers=headers)
 
     @app.get("/favicon.ico", include_in_schema=False)
     async def favicon() -> Response:
@@ -583,6 +592,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "corpus_version": engine.retriever.corpus_version,
             "escalation_enabled": engine.settings.escalation_enabled,
             "upload_enabled": engine.settings.upload_enabled,
+            # Which build is answering. There was no way to ask a running
+            # install this, and four rounds of "the update button is
+            # missing" turned on not knowing it. /healthz is public, so
+            # the answer costs one URL and no sign-in.
+            "version": __version__,
         }
 
     def require_uploads(engine: EngineDep) -> None:

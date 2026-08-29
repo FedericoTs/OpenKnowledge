@@ -213,6 +213,11 @@
       <div id="who"></div>
       <div class="links"><a href="/manage">Manage ↗</a><a href="/docs">API ↗</a></div>
       <div>Everything stays on this machine.</div>
+      <!-- The running version, always. Read from /healthz, which is public
+           and needs no sign-in, so it appears even when the update check
+           is off, blocked or broken - four rounds of "no update button"
+           turned on nobody being able to say which build was answering. -->
+      <div id="build-version"></div>
     </div>
   </aside>
 
@@ -480,6 +485,12 @@ async function removeDocument(name) {
     systemNote(name + ' — removed. Answers that cited it are no longer served.');
     refreshCorpus();
 refreshUpdateChip();
+
+// Which build this is, stated plainly and independently of everything above.
+fetch('healthz').then(r => r.ok ? r.json() : null).then(h => {
+  const el2 = document.getElementById('build-version');
+  if (el2 && h && h.version) el2.textContent = `OpenKnowledge v${h.version}`;
+}).catch(() => {});
   } catch (err) {
     systemNote('Could not remove ' + name + ': ' + err.message, true);
   }

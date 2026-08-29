@@ -278,3 +278,35 @@ def test_starting_the_app_always_checks_for_real(tmp_path: Path) -> None:
     result = check_latest(state_dir=tmp_path, fetch=counted, now=1200.0)
     assert calls["n"] == 2, "restarting the app must re-check, stamp or no stamp"
     assert result.update_available
+
+
+# -- the install can always say what it is (field regression) -----------------
+#
+# Four rounds of "I still don't see the update button" turned on nobody being
+# able to say which build was answering. Neither /healthz nor the UI reported
+# a version, so every diagnosis started with a guess.
+
+
+def test_healthz_reports_the_running_version(client) -> None:
+    """Public, no sign-in, one URL. The question "what am I running?" must
+    never again need a code reading to answer."""
+    from openknowledge import __version__
+
+    body = client.get("/healthz").json()
+    assert body["version"] == __version__
+
+
+def test_the_widget_page_is_never_cached(client) -> None:
+    """The page carries the update UI, so a browser holding yesterday's copy
+    would hide the control that replaces it."""
+    assert client.get("/").headers["cache-control"] == "no-store"
+
+
+def test_the_widget_shows_the_version_independently_of_the_update_check(client) -> None:
+    """Read from /healthz, not /update/status: the version has to appear even
+    when update checks are off, blocked, or failing - which is exactly when
+    someone needs to know it."""
+    page = client.get("/").text
+    assert 'id="build-version"' in page
+    marker = page.index('id="build-version"')
+    assert "healthz" in page[marker:], "the version line must not depend on the update endpoint"
