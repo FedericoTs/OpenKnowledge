@@ -33,6 +33,8 @@ _META = frozenset(
         "docs",
         "file",
         "files",
+        "format",
+        "formats",
         "policy",
         "policies",
         "paper",
@@ -75,11 +77,18 @@ _CAPABILITY = frozenset(
 #: real work requests - "summarize the documents" is an instruction, not a
 #: question about abilities, and hijacking it would be worse than any miss.
 _ASSISTANT_VERBS = frozenset(
-    (  # noqa: SIM905 - a 29-item list literal here is far less readable
+    (  # noqa: SIM905 - a list literal this long is far less readable
         "summarize summarise summarizing summarising translate translating compare "
         "comparing analyze analyse analyzing analysing explain explaining cite "
         "citing quote quoting extract extracting provide provided providing upload "
-        "uploaded uploading remember work works"
+        "uploaded uploading remember work works "
+        # Measured in the field: "what files can you manage?" - a question
+        # every new user asks - fell out of this frame on the verb alone,
+        # escalated to a paid model, and was refused. The nouns were already
+        # here; the verbs people pair them with were not.
+        "manage manages managing handle handles handling support supports "
+        "supported read reads reading accept accepts accepting ingest ingests "
+        "ingesting process processes take takes open opens"
     ).split()
 )
 
@@ -267,6 +276,46 @@ def recognise(question: str) -> CorpusQuestion | None:
     return CorpusQuestion(wants="count" if "many" in words or "much" in words else "list")
 
 
+#: What people call the formats, rather than what the filesystem calls them.
+#: Unmapped suffixes fall through to the bare extension, so a parser added
+#: without a name here is still named to the person - understated, never
+#: omitted.
+_FORMAT_NAMES = {
+    ".pdf": "PDF",
+    ".docx": "Word",
+    ".pptx": "PowerPoint",
+    ".xlsx": "Excel",
+    ".xlsm": "Excel",
+    ".md": "Markdown",
+    ".markdown": "Markdown",
+    ".rst": "Markdown",
+    ".txt": "plain text",
+}
+
+
+def _readable_formats() -> str:
+    """The file types this build can actually parse, in prose.
+
+    Read from the registry that does the parsing: a list typed out here by
+    hand would drift the moment a parser is added or dropped, and this
+    sentence is a promise the ingest path has to keep.
+    """
+    from ..documents import SUPPORTED_SUFFIXES
+
+    # Named in the order above - the order a person would say them in -
+    # then anything the registry has that this map does not.
+    seen: list[str] = []
+    for suffix, name in _FORMAT_NAMES.items():
+        if suffix in SUPPORTED_SUFFIXES and name not in seen:
+            seen.append(name)
+    for suffix in sorted(SUPPORTED_SUFFIXES):
+        if suffix not in _FORMAT_NAMES:
+            seen.append(suffix.lstrip(".").upper())
+    if len(seen) == 1:
+        return seen[0]
+    return ", ".join(seen[:-1]) + f" and {seen[-1]}"
+
+
 def describe(
     titles: list[str],
     *,
@@ -301,6 +350,11 @@ def describe(
             '"summarise <document name>" - and when the documents do not '
             "cover something I say so rather than guessing."
         )
+        lines.append("")
+        # "What files can you manage?" deserves the real list, and it is
+        # read from the registry that actually parses them so the answer
+        # cannot drift from the code that has to honour it.
+        lines.append(f"You can add {_readable_formats()} files by dragging them in.")
         lines.append("")
     lines.append(f"I have {count} {noun} indexed, in {chunks} passage{'' if chunks == 1 else 's'}:")
     for title in titles[:limit]:

@@ -206,3 +206,48 @@ def test_a_you_question_with_a_named_subject_still_goes_to_retrieval() -> None:
 def test_the_help_answer_mentions_summarising() -> None:
     text = describe(["Expenses Policy"], chunks=6, wants="help")
     assert "summarise" in text
+
+
+# -- "what files can you manage?" (field regression) --------------------------
+#
+# Asked by every new user, and the worst possible outcome: it fell out of the
+# free tier on the verb alone - "files" was already meta vocabulary, "manage"
+# was not - escalated to a paid frontier call, and was refused.
+
+
+def test_asking_what_files_can_be_managed_is_free() -> None:
+    got = recognise("what files can you manage?")
+    assert got is not None and got.wants == "help"
+
+
+def test_asking_about_supported_formats_is_free() -> None:
+    for question in (
+        "what file types do you support?",
+        "what documents can you read?",
+        "what formats can you handle?",
+    ):
+        got = recognise(question)
+        assert got is not None and got.wants == "help", question
+
+
+def test_the_help_answer_names_the_formats_it_can_parse() -> None:
+    """The question deserves the actual list, read from the registry that
+    does the parsing so the promise cannot drift from the code."""
+    from openknowledge.documents import SUPPORTED_SUFFIXES
+
+    answer = describe(["Handbook"], chunks=3, wants="help")
+    assert "PDF" in answer and "Word" in answer and "Excel" in answer
+    assert ".pdf" not in answer, "say PDF, not .pdf - this is prose, not a file dialog"
+    assert ".xlsx" in SUPPORTED_SUFFIXES  # the registry still backs the claim
+
+
+def test_managing_verbs_do_not_hijack_real_work() -> None:
+    """The verbs are spent only in the you-frame. An imperative, or a
+    question with a real subject, still goes to retrieval."""
+    for question in (
+        "manage the vendor list",
+        "read the contract and tell me the notice period",
+        "what files did Giuseppe send about the website?",
+        "can you read the expenses policy?",
+    ):
+        assert recognise(question) is None, question
