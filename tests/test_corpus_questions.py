@@ -123,7 +123,7 @@ async def test_the_cascade_answers_it_without_calling_a_model(store, retriever, 
 
 
 def test_the_first_question_every_new_user_asks_is_free() -> None:
-    """"What can you help me with?" mentions no document, and in the field it
+    """ "What can you help me with?" mentions no document, and in the field it
     cost a frontier call and came back "that isn't covered by the documents I
     have" - the worst possible first impression. It is a question about the
     assistant, answered from the index like every other meta-question."""
