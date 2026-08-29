@@ -505,12 +505,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return page.read_text(encoding="utf-8")
 
     @app.get("/update/status")
-    async def update_status(engine: EngineDep, request: Request) -> dict[str, Any]:
+    async def update_status(
+        engine: EngineDep, request: Request, refresh: bool = False
+    ) -> dict[str, Any]:
         """Whether a newer release exists, checked at most once a day.
 
         Read-only and failing soft: an offline install answers with the
         error note, never a 500. The gate middleware already keeps this
-        behind sign-in when sign-in is on.
+        behind sign-in when sign-in is on. ``refresh=1`` bypasses the daily
+        throttle - the explicit "check now" a person is entitled to.
         """
         from ..desktop import update as updates
 
@@ -520,7 +523,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "update_available": False,
                 "disabled": True,
             }
-        result = updates.check_latest(state_dir=Path(engine.settings.data_dir))
+        result = updates.check_latest(state_dir=Path(engine.settings.data_dir), force=refresh)
         payload = result.as_dict()
         payload["can_apply"] = updates.HANDOFF.bound
         return payload

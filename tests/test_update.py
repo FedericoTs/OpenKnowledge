@@ -237,3 +237,21 @@ def test_the_helper_installs_silently_then_relaunches() -> None:
     assert script.index("Setup.exe") < script.index("OpenKnowledge.exe"), (
         "install must finish before the relaunch"
     )
+
+
+def test_refresh_bypasses_the_daily_throttle(client, tmp_path: Path, monkeypatch) -> None:
+    """The explicit "check now" a person is entitled to: without it, a
+    release published hours after the last check hides behind the throttle
+    for up to a day."""
+    calls = {"n": 0}
+
+    def counted(*, state_dir: Path, force: bool = False) -> CheckResult:
+        calls["n"] += 1
+        calls["force"] = force
+        return CheckResult(current="0.0.1")
+
+    monkeypatch.setattr(update, "check_latest", counted)
+    client.get("/update/status")
+    assert calls["force"] is False
+    client.get("/update/status?refresh=1")
+    assert calls["force"] is True

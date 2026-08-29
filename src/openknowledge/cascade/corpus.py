@@ -70,6 +70,26 @@ _CAPABILITY = frozenset(
     ["help", "helping", "helps", "assist", "assists", "assistance", "able", "capabilities"]
 )
 
+#: Things people ask whether the assistant does: "do you summarize
+#: documents?" Only spent in the you-frame below, because the same verbs open
+#: real work requests - "summarize the documents" is an instruction, not a
+#: question about abilities, and hijacking it would be worse than any miss.
+_ASSISTANT_VERBS = frozenset(
+    (  # noqa: SIM905 - a 29-item list literal here is far less readable
+        "summarize summarise summarizing summarising translate translating compare "
+        "comparing analyze analyse analyzing analysing explain explaining cite "
+        "citing quote quoting extract extracting provide provided providing upload "
+        "uploaded uploading remember work works"
+    ).split()
+)
+
+#: The openings of a question *about* the assistant rather than an instruction
+#: to it. An imperative starts with its verb; these start with an auxiliary or
+#: an interrogative, and the "you" requirement seals the frame.
+_ASKING_ABOUT_YOU = frozenset(
+    ["do", "does", "can", "could", "will", "would", "are", "is", "what", "how", "who", "which"]
+)
+
 #: Words that carry no subject: interrogatives, auxiliaries, pronouns, and the
 #: verbs people use to ask what exists. Anything left after these and the meta
 #: vocabulary is a real subject, and the question is not about the corpus.
@@ -212,11 +232,37 @@ def recognise(question: str) -> CorpusQuestion | None:
     vocabulary = set(words)
     about_collection = bool(_META & vocabulary)
     about_abilities = bool(_CAPABILITY & vocabulary)
-    if not about_collection and not about_abilities:
+
+    # The you-frame: a question that opens interrogatively and addresses
+    # "you" is asking about the assistant, so verbs like "summarize" stop
+    # being subjects - "do you summarize documents?" is a capability
+    # question. An imperative ("summarize the expenses policy") never enters
+    # this frame, and a named subject still leaves residue either way.
+    asking_about_you = "you" in vocabulary and words[0] in _ASKING_ABOUT_YOU
+    allowed_verbs = _ASSISTANT_VERBS if asking_about_you else frozenset()
+
+    residue = [
+        word
+        for word in words
+        if word not in _META
+        and word not in _CAPABILITY
+        and word not in _EMPTY
+        and word not in allowed_verbs
+    ]
+    if residue:
         return None
-    if any(word not in _META and word not in _CAPABILITY and word not in _EMPTY for word in words):
+    # "What can you do for me?" carries no trigger word at all - every word
+    # is function vocabulary. A question with no subject cannot be answered
+    # from documents by construction; addressed to "you", it is about the
+    # assistant. Measured in the field: it reached the frontier model, which
+    # answered as if it were the organisation in the documents.
+    if not about_collection and not about_abilities and not asking_about_you:
         return None
-    if about_abilities and not about_collection:
+    used_verbs = bool(vocabulary & allowed_verbs)
+    if about_abilities or used_verbs or (asking_about_you and not about_collection):
+        # The help answer includes the listing, so it is never less than the
+        # list - and "do you summarize documents?" deserves the sentence
+        # about summarising, not just an inventory.
         return CorpusQuestion(wants="help")
     return CorpusQuestion(wants="count" if "many" in words or "much" in words else "list")
 
@@ -251,8 +297,9 @@ def describe(
     if wants == "help":
         lines.append(
             "I answer questions from the documents indexed here, citing the "
-            "source for every claim - and I say so when they do not cover "
-            "something rather than guessing."
+            "source for every claim. I can summarise any of them - ask "
+            '"summarise <document name>" - and when the documents do not '
+            "cover something I say so rather than guessing."
         )
         lines.append("")
     lines.append(f"I have {count} {noun} indexed, in {chunks} passage{'' if chunks == 1 else 's'}:")

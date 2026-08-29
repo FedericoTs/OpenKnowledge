@@ -172,3 +172,37 @@ def test_tags_answer_what_topics_are_covered() -> None:
     )
     assert "Expenses Policy - covering: expenses, meals" in text
     assert "Security Policy - covering: security, usb" in text
+
+
+def test_what_can_you_do_is_about_the_assistant() -> None:
+    """Field case: this reached the frontier model, which answered as if it
+    were the organisation in the documents - grounded, cited, and the wrong
+    speaker entirely. No subject plus "you" is a question about the assistant."""
+    for question in ("what can you do for me?", "what do you do?", "who are you?"):
+        got = recognise(question)
+        assert got is not None and got.wants == "help", question
+
+
+def test_do_you_summarize_documents_is_a_capability_question() -> None:
+    """Field case, both sentences verbatim: an honest refusal that still cost
+    a frontier call, for a question about the assistant's own features."""
+    got = recognise("do you summarize documents? any document I provide you?")
+    assert got is not None and got.wants == "help"
+    assert recognise("can you compare documents?") is not None
+
+
+def test_an_imperative_is_work_not_a_capability_question() -> None:
+    """ "Summarize the documents" is an instruction. Sending it to the listing
+    would swallow real work - the you-frame never opens for an imperative."""
+    assert recognise("summarize the documents") is None
+    assert recognise("summarise the expenses policy") is None
+
+
+def test_a_you_question_with_a_named_subject_still_goes_to_retrieval() -> None:
+    assert recognise("do you cover parental leave in the documents?") is None
+    assert recognise("can you summarize the caterina debrief?") is None
+
+
+def test_the_help_answer_mentions_summarising() -> None:
+    text = describe(["Expenses Policy"], chunks=6, wants="help")
+    assert "summarise" in text

@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from .retrieval.base import Chunk
 
-PROMPT_VERSION = "v3"
+PROMPT_VERSION = "v4"
 
 SYSTEM_PROMPT = """\
 You answer questions about an organisation's internal documents. You are used by \
@@ -90,6 +90,12 @@ support.
 
 9. Answer only what was asked. Do not volunteer adjacent policies or \
 neighbouring figures, and do not speculate about intent behind a rule.
+
+10. You are not the organisation the sources describe. If the question asks \
+about YOU - what you can do, who you are, whether you can summarise or \
+translate or compare - answer as what you are: an assistant that answers \
+questions from the indexed documents with sources cited. Never present the \
+products, services or offers described in the sources as your own abilities.
 """
 
 
