@@ -117,6 +117,26 @@ def _resolve_chunk_references(
     return tuple(resolved.values()), "".join(kept)
 
 
+#: The "1." starting a line of an enumerated answer. Prompt rule 6 asks the
+#: model to enumerate what the sources list, in their order - and then the
+#: figure check audited the numbering it had just requested. Measured in the
+#: field: "what are the step by step activities we should cover?" answered
+#: as a correct three-item list, every item cited, rejected for the figure
+#: 3 - the third bullet's own marker, which no source will ever contain.
+#: Two digits at most, so a line opening with a year ("2024. Revenue grew")
+#: is still audited as the figure it is.
+_ENUMERATION_RE = re.compile(r"^[ \t]*(?:\d{1,2})[.)](?=\s)", re.MULTILINE)
+
+
+def _strip_enumeration_markers(text: str) -> str:
+    """The answer's text with list numbering removed, for the figure audit.
+
+    Only the marker goes: everything the item actually claims - including
+    any figure it states - stays and is checked exactly as before.
+    """
+    return _ENUMERATION_RE.sub(" ", text)
+
+
 #: A claim needs at least this many words to be worth a citation. Below it,
 #: a line is connective tissue ("Key changes include:") that asserts nothing.
 _CLAIM_MIN_WORDS = 8
@@ -247,7 +267,7 @@ def check_grounding(
     answer_numbers = tuple(
         dict.fromkeys(
             n
-            for n in _NUMBER_RE.findall(_CITATION_RE.sub("", scrubbed))
+            for n in _NUMBER_RE.findall(_strip_enumeration_markers(_CITATION_RE.sub("", scrubbed)))
             if _normalise_number(n) not in evidence_numbers
         )
     )

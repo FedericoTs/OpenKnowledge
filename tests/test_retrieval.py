@@ -441,3 +441,60 @@ def test_genuinely_invented_figures_are_still_rejected() -> None:
     )
     assert not report.passed
     assert "80" in " ".join(report.reasons)
+
+
+# -- an answer's own numbering is not a figure (field regression) -------------
+#
+# "What are the step by step activities we should cover?" - answered as a
+# correct, fully cited list and refused for the figure 3, which was the third
+# item's own marker. Prompt rule 6 asks for exactly this enumeration, so the
+# gate was punishing the shape it requests.
+
+
+def test_list_numbering_is_not_an_invented_figure() -> None:
+    report = check_grounding(
+        "The debrief lists these activities [demo-debrief]:\n"
+        "1. SMEs first assess their own internal compliance [demo-debrief]\n"
+        "2. Vendor management begins after self-assessment [demo-debrief]\n"
+        "3. The entry point of the platform is the self-assessment module "
+        "[demo-debrief]\n",
+        _DEBRIEF,
+    )
+    assert report.passed, report.reasons
+    assert not report.unsupported_numbers
+
+
+def test_paren_style_numbering_is_also_structure() -> None:
+    report = check_grounding(
+        "The order is [demo-debrief]:\n"
+        "1) SMEs first assess their own internal compliance [demo-debrief]\n"
+        "2) Vendor management begins after that self-assessment "
+        "[demo-debrief]\n"
+        "3) The self-assessment module is the entry point [demo-debrief]\n",
+        _DEBRIEF,
+    )
+    assert report.passed, report.reasons
+
+
+def test_a_figure_inside_a_numbered_item_is_still_audited() -> None:
+    """Only the marker is structure. What the item claims is checked exactly
+    as before - otherwise the fix would be a hole, not a correction."""
+    report = check_grounding(
+        "The steps are [demo-debrief]:\n"
+        "1. SMEs first assess their own internal compliance [demo-debrief]\n"
+        "2. Vendor management covers 47 supplier categories [demo-debrief]\n",
+        _DEBRIEF,
+    )
+    assert not report.passed
+    assert "47" in " ".join(report.reasons)
+
+
+def test_a_year_opening_a_line_is_not_treated_as_numbering() -> None:
+    """Markers are capped at two digits, so a line that opens with a year is
+    still the factual claim it looks like."""
+    report = check_grounding(
+        "2019. The self-assessment module was introduced then [demo-debrief]",
+        _DEBRIEF,
+    )
+    assert not report.passed
+    assert "2019" in " ".join(report.reasons)
