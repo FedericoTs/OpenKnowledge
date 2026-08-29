@@ -1,0 +1,36 @@
+{
+  "cases": 26,
+  "accuracy": 1.0,
+  "false_answers": 0,
+  "false_answer_rate": 0.0,
+  "determinism": 1.0,
+  "paraphrase_consistency": 1.0,
+  "cost_per_question_usd": 0.0,
+  "total_cost_usd": 0.0,
+  "free_share": 0.0,
+  "support_separation": null,
+  "tiers": {
+    "local": 17,
+    "refused": 8,
+    "contested": 1
+  },
+  "failures": [],
+  "provenance": {
+    "what": "Ninth live run: both golden sets under grounding policy g3, which makes an answer's own list numbering structure rather than figures. Motivated by a field transcript on a real corpus: 'what are the step by step activities we should cover?' came back as a correct, fully cited three-item list and was refused for the figure 3 - the third item's own marker. The first two markers had passed only by coincidence, matching a locator (p. 1) and a heading (4.2). The collision was self-inflicted: prompt rule 6 asks the model to enumerate what the sources list, in their order, so the gate was rejecting the exact shape the prompt requests - and every steps, activities or priorities question paid for a frontier call before being refused. Markers are stripped only at line start and capped at two digits, so a line opening with a year stays audited and any figure an item claims is checked exactly as before.",
+    "models": "Chat: Qwen3-4B-Instruct-2507 Q4_K_M via llama-cpp-python. Embeddings: nomic-embed-text v1.5 Q4_K_M, task prefixes applied.",
+    "corpus": "evals/corpus/aveline in full (11 documents); companion run on the repository documents/",
+    "companion": {
+      "cases": 13,
+      "accuracy": 1.0,
+      "false_answers": 0,
+      "determinism": 1.0,
+      "paraphrase_consistency": 1.0,
+      "tiers": {
+        "local": 8,
+        "refused": 5
+      }
+    },
+    "hardware": "4-core CPU container, no GPU; both model servers local",
+    "caveat": "The local model on these corpora rarely answers in numbered lists, so this run proves g3 does no harm - the do-no-harm bar every gate change must clear. The behaviour it fixes was measured in the field on a frontier rung and is pinned by four unit tests, including the two that prove the gate keeps its teeth: a figure invented inside a numbered item is still refused, and a line opening with a year is still audited."
+  }
+}
