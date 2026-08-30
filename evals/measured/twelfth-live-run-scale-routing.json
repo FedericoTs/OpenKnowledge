@@ -1,0 +1,44 @@
+{
+  "cases": 26,
+  "accuracy": 1.0,
+  "false_answers": 0,
+  "false_answer_rate": 0.0,
+  "determinism": 1.0,
+  "paraphrase_consistency": 1.0,
+  "cost_per_question_usd": 0.0,
+  "total_cost_usd": 0.0,
+  "free_share": 0.0,
+  "support_separation": null,
+  "tiers": {
+    "local": 17,
+    "refused": 8,
+    "contested": 1
+  },
+  "failures": [],
+  "provenance": {
+    "what": "Twelfth live run: both golden sets under retrieval policy rp2, which stops a tag route from evicting the passage it exists to help. Found by running the product against a thousand documents for the first time - the corpus size it is sold into, and one no eval had covered. Three of five realistic questions were refused, one of them holding a passage ranked FIRST for that question. Route width predicted every hit and miss: routes of 41 and 100 documents spent every rescue slot and left `k - len(rescued)` floored at zero, which means keep none of the score-earned head. A route is now capped at a handful of documents, and rescue may take at most half of k, spent on the best-ranked missing documents rather than the lowest document id.",
+    "scale_measured": {
+      "corpus": "1,000 synthetic documents, 2,568 passages, boilerplate-heavy",
+      "index_seconds_cpu": 926,
+      "resident_mb": 223,
+      "search_p50_ms": 161,
+      "needles_at_k6_before": "4/7 (routing on), 7/7 (routing off)",
+      "needles_at_k6_after": "7/7 (routing on)"
+    },
+    "models": "Chat: Qwen3-4B-Instruct-2507 Q4_K_M via llama-cpp-python. Embeddings: nomic-embed-text v1.5 Q4_K_M, task prefixes applied.",
+    "corpus": "evals/corpus/aveline in full (11 documents); companion run on the repository documents/",
+    "companion": {
+      "cases": 13,
+      "accuracy": 1.0,
+      "false_answers": 0,
+      "determinism": 1.0,
+      "paraphrase_consistency": 1.0,
+      "tiers": {
+        "local": 8,
+        "refused": 5
+      }
+    },
+    "hardware": "4-core CPU container, no GPU; both model servers local",
+    "caveat": "Neither golden set is large enough to have caught this - at eleven documents a route cannot be wide - so they show only that the fix costs nothing on the corpora that gate every change. The scale corpus is synthetic and deliberately harsh: ten filler sentences reused across a thousand documents, and each planted fact given no topical heading, which is the worst case rather than the average one. Its needles are pinned as unit tests on the two mechanisms, not on the corpus, because a synthetic corpus should not be a regression bar."
+  }
+}
