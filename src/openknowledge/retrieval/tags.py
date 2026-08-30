@@ -71,6 +71,20 @@ _MIN_HITS = 2
 #: question, and narrowing it would only add risk for no precision.
 _MAX_MATCHED_SHARE = 1 / 3
 
+#: And never more than this many documents, whatever the share works out to.
+#:
+#: The share rule alone was written against a corpus of three, where the
+#: floor of two did all the work. On a thousand documents a third is three
+#: hundred and thirty, so a question sharing two common words with a hundred
+#: boilerplate documents counted as naming them decisively. It then spent
+#: every rescue slot on them: measured at a thousand documents, a passage
+#: ranked FIRST for its question was evicted from a k=6 search and the
+#: question was refused.
+#:
+#: A route is a document or two that a question names. Past a handful it is
+#: not a route, it is a topic - and topics are what the score is for.
+_MAX_MATCHED_DOCS = 5
+
 
 def derive_tags(
     document: Document, document_frequency: Counter[str], corpus_size: int
@@ -168,6 +182,8 @@ def route_by_tags(question: str, folded_tags: dict[str, frozenset[str]]) -> froz
     # decisive case, not a broad one - superseded demotion settles the pair.
     if len(matched) > max(2, int(len(folded_tags) * _MAX_MATCHED_SHARE)):
         return None
+    if len(matched) > _MAX_MATCHED_DOCS:
+        return None
     return matched
 
 
@@ -194,17 +210,32 @@ def guarantee_routed(
     the right document being in the candidates and being buried below them.
     """
     head = ranked[:k]
-    if within is None:
+    if within is None or k <= 0:
         return head
     present = {s.chunk.document_id for s in head}
-    missing = sorted(within - present)
+    missing = set(within) - present
     if not missing:
         return head
-    rescued = []
-    for doc_id in missing:
-        best = next((s for s in ranked[k:] if s.chunk.document_id == doc_id), None)
-        if best is not None:
-            rescued.append(best)
+
+    # Rescue takes a minority of k, never the whole of it. The head is
+    # earned by score, and the arithmetic that replaced it - keep
+    # ``k - len(rescued)``, floored at zero - quietly meant "keep none"
+    # as soon as the route named k documents or more. Measured on a
+    # thousand-document corpus: the passage ranked FIRST for its question
+    # was evicted from a k=6 search, and the question came back refused
+    # with the answer sitting in the index. Half of k, at least one.
+    budget = max(1, k // 2)
+    rescued: list[ScoredChunk] = []
+    for scored in ranked[k:]:
+        if len(rescued) >= budget:
+            break
+        doc_id = scored.chunk.document_id
+        if doc_id in missing:
+            # Best-ranked first, because the tail is in score order: when
+            # the budget cannot cover every named document, it should
+            # spend on the strongest rather than the alphabetically first.
+            rescued.append(scored)
+            missing.discard(doc_id)
     if not rescued:
         return head
-    return head[: max(0, k - len(rescued))] + rescued
+    return head[: k - len(rescued)] + rescued

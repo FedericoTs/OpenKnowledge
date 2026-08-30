@@ -14,12 +14,14 @@ from __future__ import annotations
 from pathlib import Path
 
 from openknowledge.retrieval import BM25Retriever, Document
+from openknowledge.retrieval.base import Chunk, ScoredChunk
 from openknowledge.retrieval.bm25 import BM25Retriever as _BM25
 from openknowledge.retrieval.hybrid import HybridRetriever
 from openknowledge.retrieval.tags import (
     corpus_document_frequency,
     derive_tags,
     fold_tags,
+    guarantee_routed,
     route_by_tags,
 )
 
@@ -324,3 +326,67 @@ def test_tag_routing_is_part_of_the_cache_key() -> None:
         return cascade._key_context().policy_version
 
     assert policy() != policy(tag_routing=False)
+
+
+# -- what a thousand documents exposed (scale regression) ---------------------
+#
+# Both faults below were invisible on a corpus of three and severe on a
+# thousand. Measured there: three of five realistic questions came back
+# refused, one of them holding a passage ranked FIRST for that question -
+# evicted from a k=6 search by its own routing.
+
+
+def test_rescue_never_evicts_the_whole_scored_head() -> None:
+    """The arithmetic that did: keep ``k - len(rescued)``, floored at zero,
+    which means keep NOTHING once the route names k documents or more."""
+    ranked = [
+        ScoredChunk(Chunk(f"top#{i}", f"top-{i}", "Top", f"the best passage {i}"), 10.0 - i)
+        for i in range(6)
+    ] + [
+        ScoredChunk(Chunk(f"far#{i}", f"routed-{i}", "Routed", f"a weaker passage {i}"), 1.0)
+        for i in range(40)
+    ]
+    within = frozenset(f"routed-{i}" for i in range(40))
+
+    got = guarantee_routed(ranked, within, 6)
+
+    assert len(got) <= 6, "the cut is k, even when the route is wide"
+    ids = [s.chunk.document_id for s in got]
+    assert "top-0" in ids, "the best-scoring passage in the corpus must survive its own route"
+    kept = sum(1 for i in ids if i.startswith("top-"))
+    assert kept >= 3, f"score-earned chunks must keep a majority of k, kept {kept}"
+
+
+def test_rescue_spends_its_budget_on_the_best_ranked_missing_document() -> None:
+    """When the budget cannot cover every named document, it must buy the
+    strongest candidates - not whichever document sorts first by id."""
+    ranked = [
+        ScoredChunk(Chunk(f"top#{i}", f"top-{i}", "Top", f"passage {i}"), 10.0 - i)
+        for i in range(6)
+    ] + [
+        ScoredChunk(Chunk("z#0", "zzz-strong", "Strong", "a strong routed passage"), 5.0),
+        ScoredChunk(Chunk("a#0", "aaa-weak", "Weak", "a weak routed passage"), 0.1),
+    ]
+    got = guarantee_routed(ranked, frozenset({"zzz-strong", "aaa-weak"}), 6)
+    ids = [s.chunk.document_id for s in got]
+    assert "zzz-strong" in ids, "the better-ranked routed document must be rescued first"
+
+
+def test_a_route_naming_many_documents_is_not_a_route() -> None:
+    """A third of a thousand documents is three hundred and thirty. The share
+    rule alone called that decisive; it is a topic, and topics are what the
+    score is for."""
+    tags = {f"doc-{i}": fold_tags(("notice", "period")) for i in range(100)}
+    tags.update({f"other-{i}": fold_tags(("unrelated", "words")) for i in range(900)})
+    assert route_by_tags("what is the notice period for senior engineers?", tags) is None
+
+
+def test_a_route_naming_a_couple_of_documents_still_routes() -> None:
+    """The cap must not cost the feature its purpose."""
+    tags = {
+        "handbook": fold_tags(("parental", "leave")),
+        "archive": fold_tags(("parental", "leave")),
+    }
+    tags.update({f"other-{i}": fold_tags(("unrelated", "words")) for i in range(50)})
+    got = route_by_tags("how long is parental leave?", tags)
+    assert got == frozenset({"handbook", "archive"})
