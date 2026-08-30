@@ -99,6 +99,21 @@ class Settings(BaseSettings):
     #: answered in two minutes has failed; a local one has probably just
     #: finished reading eight gigabytes off disk.
     local_timeout_seconds: float = Field(default=600.0, gt=0)
+    #: How many questions the local model server answers at once.
+    #:
+    #: One number for two things that must never disagree: llama-server is
+    #: started with this many slots, and this many requests are allowed
+    #: through to it. A request arriving with no slot free does not queue at
+    #: the server - its stream is severed mid-answer, and the cascade reports
+    #: a model it could not reach. Measured on a shared install: four
+    #: simultaneous questions, one answered, three refused while telling the
+    #: asker their configuration was broken.
+    #:
+    #: One slot is right for a laptop, where four full-context KV buffers are
+    #: what an integrated GPU refused. A company server with memory to spare
+    #: should raise this - both halves move together, so raising it here is
+    #: the whole change.
+    local_parallel: int = Field(default=1, ge=1)
     #: Load the model at server start, in the background, instead of letting
     #: the first question absorb the load time. Costs nothing when the model
     #: is already resident.

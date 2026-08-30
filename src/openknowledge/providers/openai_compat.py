@@ -21,9 +21,12 @@ other direction silently corrupts the ledger.
 
 from __future__ import annotations
 
+import asyncio
 import ipaddress
 import json
 from collections.abc import AsyncIterator
+from contextlib import AbstractAsyncContextManager, nullcontext
+from typing import Any
 from urllib.parse import urlparse
 
 import httpx
@@ -65,6 +68,7 @@ class OpenAICompatProvider:
         self_hosted: bool | None = None,
         timeout: float = 120.0,
         context_tokens: int = 0,
+        parallel: int = 0,
     ) -> None:
         self.model_id = model_id
         self.tier = tier
@@ -77,6 +81,24 @@ class OpenAICompatProvider:
         self.self_hosted = is_self_hosted(base_url) if self_hosted is None else self_hosted
         self._api_key = api_key
         self._timeout = timeout
+        #: How many requests this endpoint can serve at once; 0 means no
+        #: limit, which is right for a hosted API and wrong for a local one.
+        #:
+        #: llama-server runs with a fixed number of slots, and a request
+        #: arriving with none free has its stream severed mid-answer:
+        #: "peer closed connection without sending complete message body".
+        #: The desktop app never noticed because one person asks one
+        #: question at a time - an assumption about behaviour, not a
+        #: property of the code. Measured on a shared server, four
+        #: simultaneous questions answered one and refused three, and the
+        #: refusal blamed the operator's configuration.
+        #:
+        #: So requests queue here instead, sized to the slots that actually
+        #: exist. Waiting a few seconds is the correct behaviour; failing
+        #: while telling someone their setup is broken is not.
+        self._parallel = max(0, parallel)
+        self._gate_sem: asyncio.Semaphore | None = None
+        self._gate_loop: asyncio.AbstractEventLoop | None = None
         #: Parameters this endpoint has refused, learned from its own 400s.
         #: Reasoning-family models (gpt-5*, o*) reject `max_tokens` in favour
         #: of `max_completion_tokens` and reject any pinned `temperature` -
@@ -84,6 +106,38 @@ class OpenAICompatProvider:
         #: cannot be known up front. The first refusal teaches the dialect;
         #: every later call speaks it directly.
         self._unsupported: set[str] = set()
+
+    def _gate(self) -> AbstractAsyncContextManager[Any]:
+        """The queue in front of this endpoint, or nothing when it has none.
+
+        The semaphore is bound to the loop that first uses it, so it is
+        rebuilt when the loop changes - a provider outliving its loop is
+        normal in tests and would otherwise raise from asyncio's internals
+        rather than from anything a reader would recognise.
+        """
+        if self._parallel <= 0:
+            return nullcontext()
+        loop = asyncio.get_running_loop()
+        if self._gate_sem is None or self._gate_loop is not loop:
+            self._gate_sem = asyncio.Semaphore(self._parallel)
+            self._gate_loop = loop
+        return self._gate_sem
+
+    def _severed(self, exc: Exception) -> ProviderError:
+        """The error for a connection the server closed part-way through.
+
+        This is the signature of a slot that was not free: the request is
+        accepted and then cut off. It is not a dead endpoint, and reporting
+        it as one sent an operator to check a server that was running
+        perfectly well - so the sentence names the thing to change.
+        """
+        serves = str(self._parallel) if self._parallel else "an unknown number of"
+        return ProviderError(
+            f"{self.model_id}: the answer was cut off part-way through ({exc}). "
+            f"This endpoint serves {serves} request(s) at once and severs the "
+            "extra ones when more arrive together. Check that OK_LOCAL_PARALLEL "
+            "matches the slots the model server was started with."
+        )
 
     def _check_fit(self, prompt_chars: int, max_tokens: int) -> None:
         """Decide locally whether the prompt fits, rather than finding out remotely.
@@ -237,7 +291,9 @@ class OpenAICompatProvider:
         usage = Usage()
         stop_reason: str | None = None
         try:
-            async with httpx.AsyncClient(timeout=self._timeout) as client:
+            # The gate is held for the whole exchange, streaming included:
+            # a slot is busy until the last byte, not until the first.
+            async with self._gate(), httpx.AsyncClient(timeout=self._timeout) as client:
                 for _ in range(3):
                     payload = self._payload(messages, max_tokens, stream=True)
                     response = await client.send(
@@ -293,6 +349,8 @@ class OpenAICompatProvider:
                 f"{self.model_id}: no response within {self._timeout:.0f}s "
                 f"({type(exc).__name__}) while streaming."
             ) from exc
+        except httpx.RemoteProtocolError as exc:
+            raise self._severed(exc) from exc
         except httpx.HTTPError as exc:
             raise ProviderError(f"{self.model_id}: {exc or type(exc).__name__}") from exc
 
@@ -321,7 +379,9 @@ class OpenAICompatProvider:
         messages = self._messages(system, context, question, history)
 
         try:
-            async with httpx.AsyncClient(timeout=self._timeout) as client:
+            # The gate is held for the whole exchange, streaming included:
+            # a slot is busy until the last byte, not until the first.
+            async with self._gate(), httpx.AsyncClient(timeout=self._timeout) as client:
                 for _ in range(3):
                     payload = self._payload(messages, max_tokens, stream=False)
                     resp = await client.post(self._url(), json=payload, headers=self._headers())
@@ -356,6 +416,8 @@ class OpenAICompatProvider:
                 "loads it into memory, which can take minutes on a CPU - raise "
                 "OK_LOCAL_TIMEOUT_SECONDS if that is what happened."
             ) from exc
+        except httpx.RemoteProtocolError as exc:
+            raise self._severed(exc) from exc
         except httpx.HTTPError as exc:
             # Some httpx errors also carry no message. A class name is a worse
             # reason than a sentence and a better one than nothing.

@@ -229,6 +229,7 @@ def _first_run(
 
     STATUS.set_starting(f"loading the chat and embedding models{plan_note}")
     log_dir = state.data_dir / "logs"
+    chat_slots = _chat_slots(state.env_file)
     ports = {CHAT_MODEL.purpose: CHAT_PORT, EMBEDDING_MODEL.purpose: EMBED_PORT}
     try:
         for model in needed:
@@ -240,6 +241,9 @@ def _first_run(
                     ports[model.purpose],
                     log_dir,
                     planned=planned if model.purpose == "chat" else (),
+                    # The slots the provider's queue is sized against. One
+                    # number, so the two can never drift apart.
+                    parallel=chat_slots if model.purpose == "chat" else 1,
                 )
             )
     except LlamaError as error:
@@ -260,6 +264,26 @@ def _first_run(
     print("first run complete - models ready", flush=True)
 
 
+def _chat_slots(env_file: Path) -> int:
+    """How many slots the chat server is started with.
+
+    The same ``OK_LOCAL_PARALLEL`` the provider sizes its queue against, so
+    the two cannot drift: a queue wider than the slots severs streams, and a
+    queue narrower than them wastes a server's memory. The environment wins
+    over the file, and anything unreadable means one - the safe end, since a
+    single slot is slow under load but never wrong.
+    """
+    raw = os.environ.get("OK_LOCAL_PARALLEL")
+    if raw is None:
+        raw = read_env_file(env_file).get("OK_LOCAL_PARALLEL", "")
+    # read_env_file keeps a trailing `# comment` inside the value.
+    cleaned = raw.split("#", 1)[0].strip()
+    try:
+        return max(1, int(cleaned))
+    except ValueError:
+        return 1
+
+
 def _start_with_cpu_fallback(
     exe: Path,
     model_path: Path,
@@ -267,6 +291,7 @@ def _start_with_cpu_fallback(
     port: int,
     log_dir: Path,
     planned: tuple[str, ...] = (),
+    parallel: int = 1,
 ) -> LlamaServer:
     """Start a llama-server; if the GPU cannot hold the model, run it on CPU.
 
@@ -278,7 +303,9 @@ def _start_with_cpu_fallback(
     """
     server: LlamaServer | None = None
     try:
-        server = llama.spawn(exe, model_path, model, port, log_dir, extra_args=planned)
+        server = llama.spawn(
+            exe, model_path, model, port, log_dir, extra_args=planned, parallel=parallel
+        )
         llama.wait_ready(server)
         return server
     except LlamaError as first_error:
@@ -292,7 +319,9 @@ def _start_with_cpu_fallback(
             f"{model.purpose}: GPU start failed ({first_error}); retrying on CPU",
             file=sys.stderr,
         )
-        server = llama.spawn(exe, model_path, model, port, log_dir, extra_args=("-ngl", "0"))
+        server = llama.spawn(
+            exe, model_path, model, port, log_dir, extra_args=("-ngl", "0"), parallel=parallel
+        )
         llama.wait_ready(server)
         return server
 

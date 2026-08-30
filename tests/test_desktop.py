@@ -480,7 +480,7 @@ def test_gpu_out_of_memory_falls_back_to_cpu(tmp_path: Path, monkeypatch) -> Non
         def __init__(self, tag: str) -> None:
             self.tag = tag
 
-    def fake_spawn(exe, model_path, model, port, log_dir, extra_args=()):  # type: ignore[no-untyped-def]
+    def fake_spawn(exe, model_path, model, port, log_dir, extra_args=(), parallel=1):  # type: ignore[no-untyped-def]
         calls.append(("spawn", tuple(extra_args)))
         return FakeServer("cpu" if extra_args else "gpu")
 

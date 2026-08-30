@@ -167,6 +167,7 @@ def _build_local(settings: Settings) -> ChatProvider | None:
         tier="local",
         context_tokens=settings.local_context_tokens,
         timeout=settings.local_timeout_seconds,
+        parallel=settings.local_parallel,
     )
 
 

@@ -76,6 +76,7 @@ def spawn(
     port: int,
     log_dir: Path,
     extra_args: tuple[str, ...] = (),
+    parallel: int = 1,
 ) -> LlamaServer:
     """Start one llama-server for ``model`` and return the handle.
 
@@ -85,13 +86,22 @@ def spawn(
     servers get ``--embedding``; pooling comes from the model's own
     metadata.
 
-    ``--parallel 1`` is a field lesson: llama-server defaults to four slots,
+    One slot by default is a field lesson: llama-server defaults to four,
     each with the full context, and the resulting KV buffer - a single 1 GiB
     Vulkan allocation for the chat model - is exactly what a laptop's
-    integrated GPU refused. This app serializes its requests through the
-    cascade anyway; one slot quarters that allocation. ``extra_args`` is how
-    the launcher retries on CPU (``-ngl 0``) when a GPU cannot hold the
-    model.
+    integrated GPU refused.
+
+    The earlier version of this note said the app "serializes its requests
+    through the cascade anyway". That was an assumption about one person
+    using a laptop, not a property of the code, and on a shared server it
+    was false: measured with four simultaneous questions, three had their
+    streams severed and came back as a model that could not be reached.
+    Requests now queue in the provider, sized by ``OK_LOCAL_PARALLEL`` -
+    the same number passed here, so the queue and the slots can never
+    disagree.
+
+    ``extra_args`` is how the launcher retries on CPU (``-ngl 0``) when a
+    GPU cannot hold the model.
     """
     args = [
         str(exe),
@@ -104,7 +114,7 @@ def spawn(
         "-c",
         str(model.context_tokens),
         "--parallel",
-        "1",
+        str(parallel),
         "--no-webui",
         *extra_args,
     ]
