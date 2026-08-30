@@ -243,6 +243,31 @@ openknowledge serve
 | `http://localhost:8080/docs` | HTTP API |
 | `http://localhost:8080/site` | the public page, when enabled |
 
+### More than one person asking at once
+
+A local model server answers a fixed number of questions at a time, and a
+request arriving with no slot free is not queued by it — the connection is
+accepted and then cut off part-way through the answer. Measured on a single
+slot: four simultaneous questions, one answered, three refused.
+
+`OK_LOCAL_PARALLEL` is the number of slots, and it does two things at once —
+requests queue to it, and the model server is started with exactly that many.
+Keeping it one number is the point: a queue wider than the slots severs
+streams, and a queue narrower wastes a server's memory.
+
+```sh
+OK_LOCAL_PARALLEL=4
+```
+
+One (the default) is right for a laptop: four full-context KV buffers is
+precisely the allocation an integrated GPU refuses. A shared server with
+memory to spare should raise it — each slot holds its own full context, so
+budget for that before increasing it. Questions beyond the slots wait their
+turn rather than failing.
+
+If you point `OK_LOCAL_BASE_URL` at a server you started yourself, set this
+to match the `--parallel` (llama.cpp) or equivalent you launched it with.
+
 ### Manage it from the browser
 
 `/manage` is where the folder-and-CLI work moves into the browser: add and
