@@ -1,0 +1,36 @@
+{
+  "cases": 26,
+  "accuracy": 1.0,
+  "false_answers": 0,
+  "false_answer_rate": 0.0,
+  "determinism": 1.0,
+  "paraphrase_consistency": 1.0,
+  "cost_per_question_usd": 0.0,
+  "total_cost_usd": 0.0,
+  "free_share": 0.0,
+  "support_separation": null,
+  "tiers": {
+    "local": 17,
+    "refused": 8,
+    "contested": 1
+  },
+  "failures": [],
+  "provenance": {
+    "what": "Eleventh live run: both golden sets with model calls queued to the slots the endpoint actually has. llama.py had claimed the app 'serializes its requests through the cascade anyway' - an assumption about one person using a laptop, with no lock, semaphore or queue anywhere in the cascade, the providers or the API. The enterprise direction (many laptops, one company server) rests on it being true. Measured against a real single-slot llama-server, four simultaneous questions: one answered, three refused, three streams severed - and each refusal told the asker no model was reachable and their configuration was at fault, when nothing was misconfigured. The same four asked one at a time: four answers. With the gate: four of four, zero severed streams, 77s wall clock against 51s to fail.",
+    "models": "Chat: Qwen3-4B-Instruct-2507 Q4_K_M via llama-cpp-python, one slot. Embeddings: nomic-embed-text v1.5 Q4_K_M, task prefixes applied.",
+    "corpus": "evals/corpus/aveline in full (11 documents); companion run on the repository documents/",
+    "companion": {
+      "cases": 13,
+      "accuracy": 1.0,
+      "false_answers": 0,
+      "determinism": 1.0,
+      "paraphrase_consistency": 1.0,
+      "tiers": {
+        "local": 8,
+        "refused": 5
+      }
+    },
+    "hardware": "4-core CPU container, no GPU; both model servers local",
+    "caveat": "These sets ask their questions one at a time, so they cannot exercise the gate at all - they are here to show it changed no answer, which is the only thing they can honestly say about it. The concurrency behaviour is measured by the live before/after above and pinned by tests/test_concurrency.py, which asserts in both directions: six simultaneous questions must all be answered with the gate, and must fail without it, since a fake endpoint that quietly queued would make the passing test meaningless."
+  }
+}
