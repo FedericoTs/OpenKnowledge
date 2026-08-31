@@ -1,0 +1,27 @@
+{
+  "what": "The first look at what the answer card actually renders, rather than at the JSON behind it. Every prior measurement in this directory stopped at the response object; two defects lived entirely in the last few pixels and had survived thirteen releases.",
+  "setup": "v0.2.13 as released, run locally against the sample corpus with the real local model (Qwen3-4B-Instruct Q4_K_M) and the real embedder, driven and photographed in Chromium at 1280x900.",
+  "found": [
+    {
+      "defect": "A refusal was printed twice: once struck through under 'Withdrawn - this did not pass the grounding check (local answer rejected: model declined to answer from the sources)', once plain.",
+      "why": "The stream retracts a draft the gate rejects, and keeps it on screen so the reader can see what was withdrawn. When the model declines, the gate reports the decline and the router answers with REFUSAL_TEXT - which is word for word what the model streamed. The receipt and the answer were the same sentence.",
+      "reach": "Every refusal that goes through the local rung, which is the product's most characteristic answer.",
+      "stream_measured": ["status", "provisional", "delta x13", "retract", "final"],
+      "fix": "A retraction is dropped when the answer that replaced it says the same thing."
+    },
+    {
+      "defect": "A 'Withdrawn' banner over an empty draft, when the model died between announcing itself and its first token.",
+      "why": "Same keep-the-receipt rule, applied to a disappearance the reader never saw. The banner also blamed the grounding check for a dead connection.",
+      "fix": "A retraction of nothing is dropped. Why the answer is a refusal stays in the notes underneath, unchanged.",
+      "observed_live": "the local model server died mid-session while photographing the fix, which is how this one was found"
+    },
+    {
+      "defect": "The [doc-id] citation markers the model writes, and the grounding gate reads, were shown to the reader as prose - 'contractors require a sponsor from the engineering leadership team. [vpn-access]'.",
+      "why": "renderAnswer printed data.answer verbatim while the sources fold below already named every document.",
+      "fix": "Markers that resolve to a citation are removed before display. A bracket that resolves to nothing is the document's own text and is left alone."
+    }
+  ],
+  "gate": "No retrieval, prompt or routing change - the diff is web/widget/index.html and its tests - so the golden sets were not run. They gate answers, and no answer moved.",
+  "pinned_by": "tests/test_widget_rendering.py: five tests, four of them driving Chromium against a real server whose only fake part is the model. Each was checked to fail against the unfixed widget (the duplicate asserted 2 == 1). The first draft of the first test passed against the unfixed widget because its question matched no document, so the model was never called and there was no draft to withdraw; the question was changed to one the corpus retrieves for.",
+  "not_proven_here": "CI installs no browser, so those four skip there. The fifth test asserts only that both call sites are still wired, which is all it can honestly claim."
+}

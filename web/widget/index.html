@@ -631,9 +631,60 @@ const TIER_LABEL = {
   contested: 'contested', refused: 'no answer',
 };
 
+// The model cites inline by writing [doc-id] - that is how the grounding gate
+// reads an answer, machinery rather than prose, and the sources fold below
+// already names every document it used. So the markers come out before the
+// answer is shown. Only the ones that resolve to a citation go: a bracket in
+// the text may be the document's own, and eating that would be editing the
+// answer rather than tidying our own notation.
+function withoutCitationMarkers(text, citations) {
+  const ids = new Set((citations || []).map((c) => c.document_id));
+  if (!ids.size) return text;
+  const cleaned = text
+    .replace(/[ \t]*\[([^\]\n]{1,128})\]/g, (whole, id) => (ids.has(id) ? '' : whole))
+    .replace(/[ \t]+([.,;:!?])/g, '$1')
+    .replace(/[ \t]{2,}/g, ' ')
+    .replace(/[ \t]+$/gm, '');
+  // An answer that was nothing but markers is not ours to empty.
+  return cleaned.trim() ? cleaned : text;
+}
+
+// Whether two texts say the same thing, ignoring citation markers and how the
+// sentence happened to be punctuated - an em dash for a hyphen, a capital for
+// a lower case.
+function sayTheSameThing(a, b) {
+  const plain = (s) => (s || '')
+    .toLowerCase()
+    .replace(/\[[^\]\n]{1,128}\]/g, ' ')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+  const left = plain(a);
+  return left.length > 0 && left === plain(b);
+}
+
+// A withdrawn draft stays on screen because the reader watched text appear and
+// then leave, and that has to be accounted for - a stream that silently swaps
+// a bad answer for a refusal is indistinguishable from one that never showed
+// it. The receipt is owed for what actually vanished, though, and twice it is
+// owed for nothing:
+//
+// * the answer that replaced the draft says the same thing, which is what
+//   happens every time the model declines and the honest refusal follows -
+//   this product at its most characteristic, printed twice under a banner
+//   that reads like a crash;
+// * no text ever arrived, because the model died between announcing itself
+//   and its first token. Nothing was withdrawn from the reader; why they got
+//   a refusal instead is in the notes underneath either way.
+function retractionsWorthKeeping(pending, finalText) {
+  return [...pending.querySelectorAll('.retracted')].filter((r) => {
+    const draft = (r.querySelector('p')?.textContent || '').trim();
+    return draft !== '' && !sayTheSameThing(draft, finalText);
+  });
+}
+
 function renderAnswer(data) {
   const box = el('div', 'msg a');
-  box.appendChild(el('p', null, data.answer));
+  box.appendChild(el('p', null, withoutCitationMarkers(data.answer, data.citations)));
 
   if (data.citations && data.citations.length) {
     const cites = el('details', 'cites');
@@ -739,7 +790,7 @@ async function streamAnswer(body, pending) {
       status.stop();
       remember('assistant', event.response.answer);
       const answer = renderAnswer(event.response);
-      const kept = pending.querySelectorAll('.retracted');
+      const kept = retractionsWorthKeeping(pending, event.response.answer);
       if (kept.length) {
         const wrap = el('div', 'msg a');
         for (const r of kept) wrap.appendChild(r);
