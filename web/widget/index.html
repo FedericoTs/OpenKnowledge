@@ -138,6 +138,17 @@
   .badge.model { color:var(--accent-ink); border-color:var(--line); }
   .badge.none  { color:var(--paid); border-color:currentColor; }
   .meta .dim { color:var(--muted); }
+  .again { margin-left:auto; background:none; border:1px solid var(--line);
+           color:var(--muted); font:inherit; font-size:11.5px; padding:2.5px 10px;
+           border-radius:999px; cursor:pointer; }
+  .again:hover:not(:disabled) { color:var(--ink); border-color:var(--muted); }
+  .again:disabled { cursor:default; opacity:.6; }
+  .verdict { margin-top:9px; font-size:12.5px; display:flex; gap:8px;
+             align-items:baseline; flex-wrap:wrap; }
+  .verdict b { font-weight:650; }
+  .verdict.same b { color:var(--free); }
+  .verdict.diff b { color:var(--paid); }
+  .verdict .dim { color:var(--muted); }
   .notes { margin-top:8px; font-size:12px; color:var(--muted); }
   .notes div { margin-top:2px; }
 
@@ -274,6 +285,25 @@ function el(tag, cls, text) {
 
 // A model id can be a filesystem path (the desktop app records the GGUF it
 // runs); a path is the truth for the ledger but noise for a reader.
+// $0.00000 is five decimal places of nothing, and nothing is the number this
+// product exists to show. Zero reads as zero; a real amount keeps the
+// precision it needs to be believed.
+function prettyCost(usd) {
+  if (!usd) return '$0.00';
+  return usd < 0.01 ? '$' + usd.toFixed(5) : '$' + usd.toFixed(2);
+}
+
+// What the receipts line can honestly claim about the model. A free tier
+// called nothing at all. A `none` model means no model produced this answer -
+// which is not the same as none being called, because a draft the grounding
+// gate threw out was still generated, and saying otherwise would be a lie
+// about the one thing this product sells.
+function costLine(data, free) {
+  if (free) return 'no model call · $0.00';
+  if (!data.model || data.model === 'none') return 'no model answered · ' + prettyCost(data.cost_usd);
+  return prettyModel(data.model) + ' · ' + prettyCost(data.cost_usd);
+}
+
 function prettyModel(m) {
   if (!m) return m;
   const last = String(m).split(/[\\/]/).pop().replace(/\.gguf$/i, '');
@@ -682,7 +712,67 @@ function retractionsWorthKeeping(pending, finalText) {
   });
 }
 
-function renderAnswer(data) {
+// "Asked twice, it answers identically" is the claim on the front of this
+// product, and until now the only evidence for it was the sentence itself.
+// This asks the identical question a second time and compares the two answers
+// character for character, in front of the person who asked.
+//
+// The repeat sends the same body the first ask sent, history included: history
+// is what turns "what about contractors?" into a standalone question, so
+// re-asking without it would be a different question and a difference it found
+// would mean nothing.
+//
+// It reports what happened either way. A product whose whole argument is that
+// it does not paper over what it cannot do has no business hiding a difference
+// here, so a changed answer is shown, in full, with the old one beside it.
+async function askAgain(button, first, asked) {
+  // The card is found at click time, not captured when it was built: when a
+  // retraction is kept the final render moves every child into a fresh
+  // wrapper, and a card captured earlier is by then detached from the page.
+  const card = button.closest('.msg') || button.parentElement;
+  button.disabled = true;
+  button.textContent = 'Asking again…';
+  const verdict = el('div', 'verdict');
+  card.appendChild(verdict);
+  try {
+    const res = await fetch('/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      // A distinct channel so the ledger records this for what it is: a
+      // re-ask, not somebody wanting to know.
+      body: JSON.stringify({ ...asked, channel: 'recheck' }),
+    });
+    if (needsSignIn(res)) return;
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const second = await res.json();
+    const identical = second.answer === first.answer;
+    verdict.className = 'verdict ' + (identical ? 'same' : 'diff');
+    verdict.appendChild(el('b', null, identical
+      ? 'Asked again — identical, character for character.'
+      : 'Asked again — the answer changed.'));
+    verdict.appendChild(el('span', 'dim',
+      'the second answer: ' + costLine(second, FREE_TIERS.has(second.tier))));
+    if (!identical) {
+      // No summarising, no diffing down to a phrase: the second answer in
+      // full, because that is the thing that would have to be trusted.
+      const other = card.appendChild(el('div', 'sys msg'));
+      other.appendChild(el('b', null, 'The second answer'));
+      other.appendChild(el('p', null,
+        withoutCitationMarkers(second.answer, second.citations)));
+    }
+    button.textContent = identical ? 'Asked twice' : 'Asked again';
+  } catch (err) {
+    verdict.className = 'verdict diff';
+    verdict.appendChild(el('b', null, 'Could not ask again: ' + err.message));
+    button.disabled = false;
+    button.textContent = 'Ask again';
+  }
+}
+
+// `asked` is the exact request body that produced this answer. Given one, the
+// card can repeat it - see askAgain. Callers that have no request to repeat
+// (a system note, a replayed transcript) simply pass nothing.
+function renderAnswer(data, asked) {
   const box = el('div', 'msg a');
   box.appendChild(el('p', null, withoutCitationMarkers(data.answer, data.citations)));
 
@@ -703,11 +793,16 @@ function renderAnswer(data) {
   const free = FREE_TIERS.has(data.tier);
   const badgeClass = free ? 'free' : (data.tier === 'refused' || data.tier === 'contested' ? 'none' : 'model');
   meta.appendChild(el('span', 'badge ' + badgeClass, TIER_LABEL[data.tier] || data.tier));
-  meta.appendChild(el('span', 'dim',
-    free ? 'no model call · $0.00'
-         : prettyModel(data.model) + ' · $' + data.cost_usd.toFixed(5)));
+  meta.appendChild(el('span', 'dim', costLine(data, free)));
   if (data.support !== null && data.support !== undefined) {
     meta.appendChild(el('span', 'dim', Math.round(data.support * 100) + '% of the wording appears in its sources'));
+  }
+  if (asked) {
+    const again = el('button', 'again', 'Ask again');
+    again.type = 'button';
+    again.title = 'Ask the identical question again and compare the two answers';
+    again.onclick = () => askAgain(again, data, asked);
+    meta.appendChild(again);
   }
   box.appendChild(meta);
   if (data.notes && data.notes.length) {
@@ -789,7 +884,7 @@ async function streamAnswer(body, pending) {
     } else if (event.type === 'final') {
       status.stop();
       remember('assistant', event.response.answer);
-      const answer = renderAnswer(event.response);
+      const answer = renderAnswer(event.response, body);
       const kept = retractionsWorthKeeping(pending, event.response.answer);
       if (kept.length) {
         const wrap = el('div', 'msg a');
@@ -863,7 +958,7 @@ form.addEventListener('submit', async (e) => {
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const data = await res.json();
     remember('assistant', data.answer);
-    pending.replaceWith(renderAnswer(data));
+    pending.replaceWith(renderAnswer(data, body));
   } catch (err) {
     pending.replaceWith(el('div', 'msg a err', 'Could not reach the server: ' + err.message));
   } finally {

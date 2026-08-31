@@ -23,6 +23,7 @@ about proving only that the calls are still wired.
 
 from __future__ import annotations
 
+import json
 import socket
 import threading
 import time
@@ -45,7 +46,9 @@ def _free_port() -> int:
         return probe.getsockname()[1]
 
 
-def _serve(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fake) -> Iterator[str]:
+def _serve(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fake, admin_token: str = ""
+) -> Iterator[str]:
     """A real server on loopback whose only fake part is the model."""
     uvicorn = pytest.importorskip("uvicorn")
     from openknowledge.api import app as app_module
@@ -63,6 +66,7 @@ def _serve(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fake) -> Iterator[st
         documents_dir=str(documents),
         local_enabled=True,
         embedding_enabled=False,
+        admin_token=admin_token,
         _env_file=None,  # type: ignore[call-arg]
     )
     port = _free_port()
@@ -101,6 +105,14 @@ def dying_app(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[str]:
     """A server whose local model dies between announcing itself and its first
     token - the second way a retraction ends up owed for nothing."""
     yield from _serve(tmp_path, monkeypatch, StreamingFakeProvider(fail=True))
+
+
+@pytest.fixture
+def managed_app(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[str]:
+    """The same server with an admin token, so /manage can be unlocked."""
+    yield from _serve(
+        tmp_path, monkeypatch, StreamingFakeProvider(replies=[REFUSAL_TEXT] * 6), "t0ken"
+    )
 
 
 def _page(pw, base: str):
@@ -259,5 +271,187 @@ def test_a_retraction_of_nothing_is_not_shown(dying_app) -> None:
             assert page.query_selector(".msg.a .retracted") is None
             # The reason survives, in the notes rather than as a banner.
             assert "never read" in card
+        finally:
+            browser.close()
+
+
+def test_asking_again_reports_identical(declining_app) -> None:
+    """The claim on the front of the product, demonstrated rather than asserted.
+
+    "Asked twice, it answers identically" was a sentence on the landing page
+    and nothing else. The card now repeats the identical request and compares
+    the two answers character for character, in front of the person who asked.
+    """
+    sync_playwright = pytest.importorskip(
+        "playwright.sync_api", reason="playwright is not installed"
+    ).sync_playwright
+
+    with sync_playwright() as pw:
+        browser, page = _page(pw, declining_app)
+        errors: list[str] = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        try:
+            page.fill("#q", "when does the office close?")
+            page.click("#send")
+            page.wait_for_selector(".msg.a .again", timeout=60000)
+            page.click(".msg.a .again")
+            page.wait_for_selector(".msg.a .verdict", timeout=60000)
+
+            verdict = page.inner_text(".msg.a .verdict")
+            assert "identical, character for character" in verdict, verdict
+            assert page.query_selector(".msg.a .verdict.same") is not None
+            # The second answer cost nothing, and the card says which it was.
+            assert "$0.00" in verdict, verdict
+            assert errors == [], f"page errors: {errors}"
+        finally:
+            browser.close()
+
+
+def test_asking_again_shows_a_changed_answer_in_full(declining_app) -> None:
+    """The half that makes the other half worth anything.
+
+    A product whose argument is that it does not paper over what it cannot do
+    has no business hiding a difference here. The response is intercepted and
+    altered so the comparison genuinely fails, and the card must say so and
+    show the answer it got the second time.
+    """
+    sync_playwright = pytest.importorskip(
+        "playwright.sync_api", reason="playwright is not installed"
+    ).sync_playwright
+
+    with sync_playwright() as pw:
+        browser, page = _page(pw, declining_app)
+        try:
+            page.fill("#q", "when does the office close?")
+            page.click("#send")
+            page.wait_for_selector(".msg.a .again", timeout=60000)
+
+            # Only the recheck is tampered with: the first answer stands.
+            def tamper(route):
+                response = route.fetch()
+                body = response.json()
+                body["answer"] = "The office closes at 17:00 on Fridays."
+                route.fulfill(json=body)
+
+            page.route("**/chat", tamper)
+            page.click(".msg.a .again")
+            page.wait_for_selector(".msg.a .verdict", timeout=60000)
+
+            card = page.inner_text(".msg.a")
+            assert "the answer changed" in card
+            assert page.query_selector(".msg.a .verdict.diff") is not None
+            assert "The office closes at 17:00 on Fridays." in card, (
+                "a changed answer must be shown, not summarised away"
+            )
+        finally:
+            browser.close()
+
+
+def test_a_recheck_is_recorded_as_a_recheck(declining_app) -> None:
+    """The repeat is a real question and the ledger says what it was for."""
+    sync_playwright = pytest.importorskip(
+        "playwright.sync_api", reason="playwright is not installed"
+    ).sync_playwright
+
+    with sync_playwright() as pw:
+        browser, page = _page(pw, declining_app)
+        seen: list[str] = []
+        try:
+            page.on(
+                "request",
+                lambda r: (
+                    seen.append(r.post_data or "")
+                    if r.url.endswith("/chat") and r.method == "POST"
+                    else None
+                ),
+            )
+            page.fill("#q", "when does the office close?")
+            page.click("#send")
+            page.wait_for_selector(".msg.a .again", timeout=60000)
+            page.click(".msg.a .again")
+            page.wait_for_selector(".msg.a .verdict", timeout=60000)
+
+            assert len(seen) == 1, "the recheck should be exactly one extra ask"
+            body = json.loads(seen[0])
+            assert body["channel"] == "recheck"
+            assert body["question"] == "when does the office close?"
+        finally:
+            browser.close()
+
+
+def test_the_receipts_line_says_only_what_is_true(declining_app) -> None:
+    """Zero is zero, and "no model call" is a claim that has to be earned.
+
+    A refusal used to read "none · $0.00000": five decimal places of nothing,
+    and a model name that is not one. It is also not "no model call" - the
+    local rung generated a draft that the grounding gate threw out, and
+    claiming otherwise would misdescribe the one mechanism this product sells.
+    """
+    sync_playwright = pytest.importorskip(
+        "playwright.sync_api", reason="playwright is not installed"
+    ).sync_playwright
+
+    with sync_playwright() as pw:
+        browser, page = _page(pw, declining_app)
+        try:
+            lines = page.evaluate(
+                """() => ({
+                  cached: costLine({ model: 'qwen3-4b', cost_usd: 0 }, true),
+                  refused: costLine({ model: 'none', cost_usd: 0 }, false),
+                  cheap: costLine({ model: 'gpt-4o-mini', cost_usd: 0.00146 }, false),
+                  dear: costLine({ model: 'gpt-4o', cost_usd: 0.0325 }, false),
+                })"""
+            )
+            assert lines["cached"] == "no model call · $0.00"
+            assert lines["refused"] == "no model answered · $0.00"
+            assert lines["cheap"] == "gpt-4o-mini · $0.00146"
+            assert lines["dear"] == "gpt-4o · $0.03"
+            assert "0.00000" not in "".join(lines.values())
+        finally:
+            browser.close()
+
+
+def test_the_cost_panel_shows_the_numbers_not_the_json(managed_app) -> None:
+    """The money, promoted out of a JSON dump.
+
+    /manage already fetched the cost report and printed
+    ``JSON.stringify(report, null, 2)`` into a box at the bottom of the page -
+    the machinery rather than the number. The figures are now the first thing
+    an owner sees after unlocking.
+    """
+    sync_playwright = pytest.importorskip(
+        "playwright.sync_api", reason="playwright is not installed"
+    ).sync_playwright
+
+    with sync_playwright() as pw:
+        browser, page = _page(pw, managed_app)
+        errors: list[str] = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        try:
+            # Two questions, so the ledger has something to report.
+            for _ in range(2):
+                page.fill("#q", "when does the office close?")
+                page.click("#send")
+                page.wait_for_timeout(300)
+            page.wait_for_selector(".msg.a .badge", timeout=60000)
+
+            page.goto(managed_app + "/manage")
+            page.fill("#token-input", "t0ken")
+            page.click("#unlock")
+            page.wait_for_selector("#costs .figure b", timeout=30000)
+
+            panel = page.inner_text("#costs")
+            assert "questions asked" in panel
+            assert "spent, in total" in panel
+            assert "Last 30 days" in panel
+            assert "{" not in panel, f"the report is still being dumped as JSON:\n{panel}"
+            assert '"by_tier"' not in panel
+
+            figures = page.eval_on_selector_all(
+                "#costs .figure b", "els => els.map(e => e.textContent)"
+            )
+            assert figures[0] == "2", f"two questions were asked, panel says {figures}"
+            assert figures[1] == "$0.00"
+            assert errors == [], f"page errors: {errors}"
         finally:
             browser.close()

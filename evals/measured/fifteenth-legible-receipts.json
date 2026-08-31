@@ -1,0 +1,27 @@
+{
+  "what": "Two changes of presentation rather than behaviour, from the v0.2.13 assessment: the money was surfaced, and the determinism claim was made demonstrable. Nothing about how a question is answered moved.",
+  "setup": "Built on v0.2.14, driven and photographed in Chromium against a local install with the sample corpus, the real local model (Qwen3-4B-Instruct Q4_K_M) and the real embedder.",
+  "the_money": {
+    "before": "/manage already fetched the cost report and rendered JSON.stringify(report, null, 2) into a box at the bottom of the page. The number existed; nobody could read it.",
+    "after": "Four figures directly under the token box: questions asked, spent in total, per question on average, and the share answered without calling a model. Then the last 30 days, and which rung answered how many for how much.",
+    "measured_on_the_demo_install": {
+      "questions_asked": 26,
+      "spend_usd": 0.0,
+      "no_model_share": "23%",
+      "by_model": "qwen3-4b 8 ($0.00) · no model 18 ($0.00)"
+    },
+    "honesty_correction": "The first draft labelled the headline 'questions answered'. 18 of those 26 were refusals. The ledger counts questions that arrived, so the label is now 'questions asked' - a product that sells refusing cannot inflate its headline with refusals.",
+    "endpoint": "/admin/costs gained an optional days window; 0, the default, remains every question this install ever answered."
+  },
+  "the_determinism": {
+    "before": "'Asked twice, it answers identically' was a sentence on the landing page and no evidence anywhere.",
+    "after": "Every answer card carries 'Ask again'. It repeats the identical request - history included, because history is what turns a follow-up into a standalone question - and compares the two answers character for character in front of the reader.",
+    "observed": "identical, character for character; the second answer: no model call · $0.00",
+    "when_they_differ": "The card says the answer changed and shows the second one in full. Pinned by a test that intercepts the recheck and alters it, so the comparison genuinely fails.",
+    "ledger": "The repeat is recorded under channel 'recheck': it is a real question and the ledger says what it was for. Channel reaches only the ledger - not the cache key, not routing - so the repeat is a fair one."
+  },
+  "also": "$0.00000 is gone. A refusal used to read 'none · $0.00000'; it now reads 'no model answered · $0.00' - which is not 'no model call', because the local rung did generate a draft the grounding gate threw out, and claiming otherwise would misdescribe the one mechanism this product sells.",
+  "gate": "No retrieval, prompt or routing change, so the golden sets were not run. They gate answers, and no answer moved.",
+  "pinned_by": "tests/test_widget_rendering.py (10) and tests/test_api.py::test_cost_report_windows_to_the_days_asked_for. All five new browser tests were run against the unchanged pages first and all five failed.",
+  "not_proven_here": "CI installs no browser, so the browser tests skip there."
+}

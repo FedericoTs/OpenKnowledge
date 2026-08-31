@@ -894,9 +894,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     # -- admin ---------------------------------------------------------------
     @app.get("/admin/costs", dependencies=[AdminOnly])
-    async def costs(engine: EngineDep) -> dict[str, Any]:
-        """What the bot actually costs, measured rather than estimated."""
-        return engine.store.cost_report()
+    async def costs(engine: EngineDep, days: int = 0) -> dict[str, Any]:
+        """What the bot actually costs, measured rather than estimated.
+
+        ``days`` windows the report; 0, the default, is every question this
+        install has ever answered.
+        """
+        since = time.time() - days * 86400 if days > 0 else None
+        return {"days": days, **engine.store.cost_report(since=since)}
 
     @app.get("/admin/gaps", dependencies=[AdminOnly])
     async def knowledge_gaps(engine: EngineDep, days: int = 30, limit: int = 50) -> dict[str, Any]:

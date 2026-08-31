@@ -62,6 +62,11 @@
   .tag { font-size:11px; font-weight:600; padding:1px 8px; border-radius:999px;
          border:1px solid currentColor; color:var(--muted); white-space:nowrap; }
   .locked-note { color:var(--muted); font-size:13.5px; }
+  .figures { display:flex; flex-wrap:wrap; gap:28px; margin:2px 0 10px; }
+  .figure b { display:block; font-size:30px; font-weight:680; letter-spacing:-0.5px;
+              line-height:1.15; font-variant-numeric:tabular-nums; }
+  .figure span { color:var(--muted); font-size:12px; }
+  .figure.free b { color:var(--accent); }
 </style>
 </head>
 <body>
@@ -86,6 +91,18 @@
       <button id="forget" class="ghost" hidden>Forget token</button>
     </div>
     <div id="status"></div>
+  </section>
+
+  <section data-admin-section>
+    <h2>What it has cost</h2>
+    <p class="hint">
+      Every question this install has been asked, and what was actually spent
+      on them — read from the ledger, not estimated. A question answered from
+      the index or the cache calls no model and costs nothing at all; a refusal
+      is counted here too, and is listed by name under “asked and not
+      answered” below.
+    </p>
+    <div id="costs"><p class="locked-note">Unlock to load.</p></div>
   </section>
 
   <section>
@@ -158,11 +175,6 @@
       <button id="save-settings" data-admin hidden>Save changes</button>
       <span id="settings-status" class="quiet"></span>
     </div>
-  </section>
-
-  <section data-admin-section>
-    <h2>Costs</h2>
-    <div id="costs"><p class="locked-note">Unlock to load.</p></div>
   </section>
 </div>
 
@@ -404,6 +416,70 @@ async function refreshProposals() {
   } catch (e) { box.innerHTML = ''; box.appendChild(el('p', 'empty', e.message)); }
 }
 
+// The tiers that answer without calling a model at all. Kept in step with
+// the widget's own list; both read the same tier names off the ledger.
+const NO_MODEL_TIERS = new Set(['pinned', 'exact', 'semantic', 'corpus']);
+
+function money(usd) {
+  if (usd === 0) return '$0.00';
+  if (usd < 0.01) return '$' + usd.toFixed(4);
+  return '$' + usd.toFixed(2);
+}
+
+function figure(box, value, label, className) {
+  const f = box.appendChild(el('div', 'figure' + (className ? ' ' + className : '')));
+  f.appendChild(el('b', null, value));
+  f.appendChild(el('span', null, label));
+}
+
+async function refreshCosts() {
+  const box = $('costs');
+  try {
+    // Two windows, because the interesting number is different for each: the
+    // total is what this install has cost since it was switched on, and the
+    // month is what it is costing now.
+    const [all, month] = await Promise.all([api('/admin/costs'), api('/admin/costs?days=30')]);
+    box.textContent = '';
+    if (!all.questions) {
+      box.appendChild(el('p', 'empty', 'No questions answered yet.'));
+      return;
+    }
+    const figures = box.appendChild(el('div', 'figures'));
+    // Asked, not answered: the ledger counts every question that arrived,
+    // and a refusal is one of those. A product that sells refusing has no
+    // business inflating its headline number with them.
+    figure(figures, all.questions.toLocaleString(), 'questions asked');
+    figure(figures, money(all.spend_usd), 'spent, in total');
+    figure(figures, money(all.cost_per_question_usd), 'per question, on average');
+
+    const free = Object.entries(all.by_tier)
+      .filter(([tier]) => NO_MODEL_TIERS.has(tier))
+      .reduce((n, [, v]) => n + v.questions, 0);
+    if (free) {
+      const share = Math.round((free / all.questions) * 100);
+      figure(figures, share + '%', 'answered without calling a model', 'free');
+    }
+
+    box.appendChild(el('p', 'quiet',
+      'Last 30 days: ' + month.questions.toLocaleString() + ' question'
+      + (month.questions === 1 ? '' : 's') + ' · ' + money(month.spend_usd) + '.'));
+
+    // Which rung answered, and what it cost - the question a ladder exists to
+    // let you tune. A model that answered nothing is not worth a row.
+    const models = Object.entries(all.by_model).filter(([, v]) => v.questions > 0);
+    if (models.length) {
+      const list = box.appendChild(el('p', 'quiet'));
+      list.textContent = models
+        .map(([name, v]) => (name === 'none' ? 'no model' : name)
+          + ' ' + v.questions + ' (' + money(v.spend_usd) + ')')
+        .join(' · ');
+    }
+  } catch (e) {
+    box.textContent = '';
+    box.appendChild(el('p', 'locked-note', e.message));
+  }
+}
+
 async function refreshGaps() {
   const box = $('gaps');
   try {
@@ -568,16 +644,6 @@ $('save-settings').onclick = async () => {
   }
 };
 
-async function refreshCosts() {
-  const box = $('costs');
-  try {
-    const report = await api('/admin/costs');
-    box.textContent = '';
-    const pre = box.appendChild(el('div', 'answer'));
-    pre.textContent = JSON.stringify(report, null, 2);
-  } catch (e) { box.innerHTML = ''; box.appendChild(el('p', 'empty', e.message)); }
-}
-
 // ---- unlock flow -----------------------------------------------------------
 async function unlock(token) {
   state.token = token;
@@ -592,8 +658,8 @@ async function unlock(token) {
   say('Unlocked.', true);
   $('forget').hidden = false;
   $('token-input').value = '';
-  refreshGaps(); refreshAccess(); refreshProposals();
-  refreshConflicts(); refreshSettings(); refreshCosts();
+  refreshCosts(); refreshGaps(); refreshAccess(); refreshProposals();
+  refreshConflicts(); refreshSettings();
   return true;
 }
 $('unlock').onclick = () => {
@@ -637,8 +703,8 @@ fetch('/auth/me').then(r => r.ok ? r.json() : null).then(async (who) => {
       await api('/admin/settings');
       $('unlock-section').hidden = true;
       say('Admin, via your sign-in group.', true);
-      refreshGaps(); refreshAccess(); refreshProposals();
-  refreshConflicts(); refreshSettings(); refreshCosts();
+      refreshCosts(); refreshGaps(); refreshAccess(); refreshProposals();
+  refreshConflicts(); refreshSettings();
     } catch (e) { /* fall back to the token flow */ }
   }
 }).catch(() => {});

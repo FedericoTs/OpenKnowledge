@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 import pytest
@@ -144,6 +145,33 @@ def test_cost_report_counts_free_answers(client: TestClient) -> None:
     assert report["questions"] == 3
     assert report["cost_per_question_usd"] == 0.0
     assert report["by_tier"]["pinned"]["questions"] == 3
+
+
+def test_cost_report_windows_to_the_days_asked_for(client: TestClient) -> None:
+    """The report the manage page reads twice: all time, and the last 30 days.
+
+    The default stays every question this install ever answered - the number
+    an owner means by "what has this cost me" - and a window narrows it
+    without changing that.
+    """
+    client.post("/admin/pins", headers=AUTH, json={"question": "leave?", "answer": "20 weeks."})
+    for _ in range(2):
+        client.post("/chat", json={"question": "Leave?"})
+
+    everything = client.get("/admin/costs", headers=AUTH).json()
+    assert everything["days"] == 0
+    assert everything["questions"] == 2
+
+    recent = client.get("/admin/costs?days=30", headers=AUTH).json()
+    assert recent["days"] == 30
+    assert recent["questions"] == 2, "questions asked just now are inside 30 days"
+
+    # A window that starts after everything was asked reports nothing, rather
+    # than quietly falling back to the whole ledger. Asked of the store
+    # directly, because the cutoff is the thing under test, not the clock.
+    store = client.app.state.engine.store
+    assert store.cost_report(since=time.time() + 86400)["questions"] == 0
+    assert store.cost_report(since=time.time() + 86400)["cost_per_question_usd"] == 0.0
 
 
 def test_questions_endpoint_surfaces_pin_candidates(client: TestClient) -> None:
