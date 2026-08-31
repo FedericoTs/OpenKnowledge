@@ -347,6 +347,48 @@ class AnswerStore:
         ).fetchone()
         return float(row["spend"] or 0.0), int(row["n"] or 0)
 
+    def knowledge_gaps(
+        self, *, since: float | None = None, limit: int = 50
+    ) -> list[dict[str, object]]:
+        """Questions the documents could not answer, most asked first.
+
+        The refusal is this product's most useful output and until now it was
+        the only one nobody kept. Every other tier leaves something behind - an
+        answer, a cached entry, a line in the cost report - while "I don't know
+        - that isn't covered by the documents I have" was said once and
+        forgotten, so the person who owns the corpus never learned that eleven
+        colleagues had asked about contractor notice periods that month.
+
+        Read from the ledger, which records every final answer with its tier
+        and carries no identity at all: this can say a question was asked
+        forty times and can never say by whom. That is a property worth
+        keeping rather than a limitation to work around - a knowledge base
+        that reports what its people are looking for should not also be a log
+        of who looked.
+
+        Grouped by the canonical query, so "how much parental leave" and "How
+        much parental leave?" are one gap rather than two.
+        """
+        where = "WHERE tier = ?"
+        params: tuple[object, ...] = ("refused",)
+        if since is not None:
+            where += " AND ts >= ?"
+            params = (*params, since)
+        rows = self._conn.execute(
+            f"SELECT canonical_query, COUNT(*) AS asked, MAX(ts) AS last_asked"
+            f" FROM ledger {where} GROUP BY canonical_query"
+            f" ORDER BY asked DESC, last_asked DESC LIMIT ?",
+            (*params, limit),
+        ).fetchall()
+        return [
+            {
+                "question": r["canonical_query"],
+                "asked": int(r["asked"]),
+                "last_asked": float(r["last_asked"]),
+            }
+            for r in rows
+        ]
+
     def cost_report(self, since: float | None = None) -> dict[str, object]:
         """Blended cost per question, broken down by tier."""
         where, params = ("WHERE ts >= ?", (since,)) if since is not None else ("", ())

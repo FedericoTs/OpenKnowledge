@@ -335,6 +335,25 @@ Honest status. "Built" means implemented and covered by tests in this repository
    bullet and sentence is cited. Gated the house way: golden set and
    safety set re-run against the same local model before and after.
 
+### The refusal, kept
+
+A refusal is the most useful thing this product says, and it was the only
+thing it said that nobody kept. Every other tier leaves a trace - an answer, a
+cache entry, a line in the cost report - while "I don't know - that isn't
+covered by the documents I have" was said once and forgotten, so the person
+who owns the corpus never learned that eleven colleagues had asked the same
+unanswerable question that month.
+
+`openknowledge gaps` and `GET /admin/gaps` now rank those questions by how
+many people asked. Each line is a document worth writing, or a question worth
+pinning, in the order worth doing it. A system that guesses cannot produce
+this report at all: it has no refusals to count.
+
+The report is aggregate by construction. The ledger it reads has no identity
+column, so it can say a question was asked forty times and never who asked it
+- a knowledge base that reports what its people are looking for should not
+also be a log of who looked. A test asserts that column stays absent.
+
 ### Known gaps in document parsing
 
 - **No OCR.** A scanned PDF is reported and indexed as nothing.

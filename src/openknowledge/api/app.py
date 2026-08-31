@@ -893,6 +893,24 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         """What the bot actually costs, measured rather than estimated."""
         return engine.store.cost_report()
 
+    @app.get("/admin/gaps", dependencies=[AdminOnly])
+    async def knowledge_gaps(engine: EngineDep, days: int = 30, limit: int = 50) -> dict[str, Any]:
+        """What people asked that the documents could not answer.
+
+        The work list for whoever owns the corpus, and the one report only
+        this product can produce: a system that guesses has no refusals to
+        count. Ordered by how many people asked, because that is the order
+        worth writing documents in.
+
+        Aggregate by construction - the ledger it reads has no identity
+        column, so this can say a question was asked forty times and never
+        who asked it. Admin-only all the same: what colleagues are looking
+        for is not everybody's business.
+        """
+        since = time.time() - days * 86400 if days > 0 else None
+        gaps = engine.store.knowledge_gaps(since=since, limit=limit)
+        return {"days": days, "gaps": gaps, "total": len(gaps)}
+
     @app.get("/admin/questions", dependencies=[AdminOnly])
     async def questions(engine: EngineDep, limit: int = 20) -> dict[str, Any]:
         """Most-asked questions: the shortlist worth pinning."""

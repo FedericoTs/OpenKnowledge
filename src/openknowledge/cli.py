@@ -122,6 +122,35 @@ def _cmd_ask(args: argparse.Namespace) -> int:
     return 0 if answer.tier is not Tier.REFUSED else 1
 
 
+def _cmd_gaps(args: argparse.Namespace) -> int:
+    """What people asked that the documents could not answer."""
+    import time
+
+    engine = _engine()
+    since = time.time() - args.days * 86400 if args.days > 0 else None
+    gaps = engine.store.knowledge_gaps(since=since, limit=args.limit)
+
+    if args.json:
+        print(json.dumps(gaps, indent=2))
+        return 0
+
+    if not gaps:
+        window = f"the last {args.days} days" if args.days > 0 else "any question yet"
+        print(f"Nothing was refused in {window} - the documents covered what was asked.")
+        return 0
+
+    print(f"Questions the documents could not answer (last {args.days} days):")
+    print()
+    for gap in gaps:
+        asked = gap["asked"]
+        times = "once" if asked == 1 else f"{asked} times"
+        print(f"  {times:>10}  {gap['question']}")
+    print()
+    print("Each line is a document worth writing, or a question worth pinning.")
+    print("Nobody's name is recorded against any of them.")
+    return 0
+
+
 def _cmd_costs(args: argparse.Namespace) -> int:
     engine = _engine()
     report = engine.store.cost_report()
@@ -794,6 +823,12 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("costs", help="what the bot has actually cost")
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=_cmd_costs)
+
+    p = sub.add_parser("gaps", help="what people asked that the documents could not answer")
+    p.add_argument("--days", type=int, default=30, help="0 for all time")
+    p.add_argument("--limit", type=int, default=50)
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=_cmd_gaps)
 
     p = sub.add_parser("top", help="most-asked questions, i.e. what to pin")
     p.add_argument("--limit", type=int, default=20)
