@@ -110,6 +110,56 @@ def test_abstention_is_flagged_but_not_treated_as_a_lie(retriever: BM25Retriever
     assert report.abstained
 
 
+def test_a_partial_gap_does_not_withdraw_the_half_that_was_answered(
+    retriever: BM25Retriever,
+) -> None:
+    """The field case. Asked whether taxis and meals are covered, the model
+    answered meals from the sources and said plainly that taxis were not
+    there - and the whole answer was withdrawn for containing "no
+    information", so the reader lost the half the documents did cover.
+
+    A question with two parts usually has two answers, and one of them being
+    "not here" is this product working, not failing.
+    """
+    report = check_grounding(
+        "Employees with 12 months of continuous service get 20 weeks of fully paid "
+        "parental leave. [hr-handbook]\n\nHowever, there is no information in the "
+        "provided documents about adoption leave.",
+        _chunks(retriever),
+    )
+    assert not report.abstained, "a gap in one part is not a refusal of the whole"
+    assert report.passed, report.reasons
+    assert report.cited_ids == ("hr-handbook",)
+
+
+def test_a_refusal_that_happens_to_cite_is_still_a_refusal(
+    retriever: BM25Retriever,
+) -> None:
+    """The citation has to be doing work outside the decline.
+
+    "There is no information about X [hr-handbook]" is a statement about the
+    sources, not a claim drawn from them - so the citation inside it earns
+    nothing, and the answer is still a refusal.
+    """
+    report = check_grounding(
+        "There is no information about sabbatical leave in the documents. [hr-handbook]",
+        _chunks(retriever),
+    )
+    assert report.abstained
+
+
+def test_several_ways_of_saying_only_no_are_still_only_no(
+    retriever: BM25Retriever,
+) -> None:
+    """Nothing outside the declining sentences cites anything, so there is
+    nothing for the answer to stand on - however many sentences it takes."""
+    report = check_grounding(
+        "I don't know. The documents do not discuss this. You may want to ask HR.",
+        _chunks(retriever),
+    )
+    assert report.abstained
+
+
 def test_fluent_invention_fails_the_overlap_check(retriever: BM25Retriever) -> None:
     report = check_grounding(
         "Our organisation deeply values work-life harmony and encourages colleagues to "

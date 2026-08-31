@@ -158,17 +158,7 @@ def _claim_coverage(answer_text: str, resolving_ids: frozenset[str]) -> tuple[in
         line = raw_line.strip()
         if not line:
             continue
-        is_bullet = bool(_BULLET.match(line))
-        pieces = [line] if is_bullet else _SENTENCES.split(line)
-        # A citation after the sentence's final period splits into its own
-        # fragment; it belongs to the sentence it follows.
-        merged: list[str] = []
-        for piece in pieces:
-            if merged and not tokenize(_CITATION_RE.sub("", piece)):
-                merged[-1] += " " + piece
-            else:
-                merged.append(piece)
-        for piece in merged:
+        for piece in _sentences_of(line):
             words = tokenize(_CITATION_RE.sub("", piece))
             if len(words) < _CLAIM_MIN_WORDS:
                 continue
@@ -187,6 +177,73 @@ def _normalise_number(raw: str) -> str:
     except ValueError:
         return cleaned
     return str(int(value)) if value.is_integer() else str(value)
+
+
+def _sentences_of(line: str) -> list[str]:
+    """One line as the sentences a reader would count.
+
+    A bullet is one piece however it is punctuated, and a citation left after
+    a sentence's final period - "[hr-handbook]" alone - is not a sentence of
+    its own: it belongs to the sentence it follows. That mattered here as
+    well as in the claim count: a refusal that ends with a citation would
+    otherwise be read as a refusal plus a sourced claim, and let itself
+    through.
+    """
+    line = line.strip()
+    if not line:
+        return []
+    if _BULLET.match(line):
+        return [line]
+    merged: list[str] = []
+    for piece in _SENTENCES.split(line):
+        if merged and not tokenize(_CITATION_RE.sub("", piece)):
+            merged[-1] += " " + piece
+        else:
+            merged.append(piece)
+    return merged
+
+
+def _declining(text: str) -> bool:
+    lowered = text.lower()
+    return any(phrase in lowered for phrase in _PHRASES_MEANING_NO_ANSWER)
+
+
+def _declines_entirely(answer_text: str, retrieved: list[Chunk]) -> bool:
+    """Whether the answer *is* a refusal, rather than merely containing one.
+
+    The check used to scan the whole answer for a declining phrase, which
+    made a partial "I don't know" fatal to everything around it. Measured in
+    the field, asked whether taxis and meals are covered:
+
+        Meals are reimbursed up to EUR 45 per day [expenses-policy]. Alcohol
+        is not reimbursable [expenses-policy]. However, there is no
+        information in the provided documents about taxi expenses.
+
+    Two cited, correct claims and one honest gap - and the whole thing was
+    withdrawn and replaced with a bare refusal, so the reader lost the half
+    the documents *did* answer. A question with two parts usually has two
+    answers, and one of them being "not here" is the product working.
+
+    What makes a refusal a refusal is that it has nothing else to stand on.
+    So the declining sentences are set aside, and if anything left cites a
+    passage retrieval actually returned, this is an answer with a gap in it
+    rather than a decline. A true refusal cites nothing, because there was
+    nothing to cite.
+    """
+    if not _declining(answer_text):
+        return False
+    known = {c.document_id for c in retrieved} | {c.chunk_id for c in retrieved}
+    for line in answer_text.splitlines():
+        for sentence in _sentences_of(line):
+            if _declining(sentence) or not tokenize(_CITATION_RE.sub("", sentence)):
+                continue
+            if any(cid in known for cid in _CITATION_RE.findall(sentence)):
+                return False
+            # The context's own labels count as citations here exactly as
+            # they do below: "(chunk 2)" names a passage the model was shown.
+            if _resolve_chunk_references(sentence, retrieved)[0]:
+                return False
+    return True
 
 
 def check_grounding(
@@ -217,7 +274,7 @@ def check_grounding(
 
     # An explicit "I don't know" is correct behaviour, not a grounding failure -
     # but it is not an answer either, so it must not be cached as one.
-    if any(phrase in lowered for phrase in _PHRASES_MEANING_NO_ANSWER):
+    if _declines_entirely(answer_text, retrieved):
         return GroundingReport(
             passed=False, abstained=True, reasons=("model declined to answer from the sources",)
         )

@@ -163,13 +163,17 @@ class Cascade:
                 # from, so flipping it must re-key. Its thresholds live in
                 # retrieval/tags.py; changing those means bumping rp.
                 f":tr{int(self.settings.tag_routing)}"
-                # Grounding-policy revision. g3 = an answer's own list
-                # numbering is structure, not figures. g2 made the context's
-                # own labels evidence: header numbers verify, chunk
-                # references resolve as citations. Answers judged under an
-                # earlier policy could have been refused for shapes now
-                # allowed; do not serve their absence.
-                ":g3"
+                # Grounding-policy revision. g4 = a decline is judged on
+                # the whole answer, not on any sentence in it: an answer
+                # that sources one half of a question and says the documents
+                # do not cover the other is an answer with a gap, not a
+                # refusal. g3 = an answer's own list numbering is structure,
+                # not figures. g2 made the context's own labels evidence:
+                # header numbers verify, chunk references resolve as
+                # citations. Answers judged under an earlier policy could
+                # have been refused for shapes now allowed; do not serve
+                # their absence.
+                ":g4"
             ),
             model_id=self.route_id,
         )

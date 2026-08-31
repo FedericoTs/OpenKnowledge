@@ -1,0 +1,22 @@
+{
+  "what": "The abstention check treated a partial 'I don't know' as a full refusal, so an answer that sourced one half of a question and named the gap in the other was withdrawn whole.",
+  "field_case": {
+    "question": "are taxis and meals covered by the expenses policy?",
+    "answer_the_model_gave": "Meals are reimbursed up to EUR 45 per day when travelling on company business [expenses-policy]. Alcohol is not reimbursable under any circumstances, including client entertainment [expenses-policy]. However, there is no information in the provided documents about taxi expenses.",
+    "what_happened": "Withdrawn - 'no information' and 'not in the provided' both matched a substring scan over the whole answer - and replaced with the bare refusal. The reader lost the half the documents did answer, and the card showed the withdrawal banner over a correct, fully cited answer.",
+    "reach": "Any question with more than one part, which is most of how people actually ask."
+  },
+  "the_rule_now": "A refusal is an answer with nothing else to stand on. The declining sentences are set aside; if anything left cites a passage retrieval actually returned - by [id] or by the context's own 'chunk 2' label - it is an answer with a gap in it. A true refusal cites nothing, because there was nothing to cite.",
+  "measured_on_the_field_answer": {
+    "abstained_before": true,
+    "abstained_after": false,
+    "passes_the_rest_of_the_gate": true,
+    "support_ratio": 0.567,
+    "floor": 0.45,
+    "note": "The declining sentence's words were left in the support computation deliberately. It was the obvious next thing to exclude, and the measurement said it was not needed - 0.567 against a 0.45 floor. Nothing was widened on speculation."
+  },
+  "a_hole_the_tests_found": "A refusal ending with a citation after the final stop - 'There is no information about X. [hr-handbook]' - split into a declining sentence plus a fragment that cited a known id, and let itself through. The file already had the merge that fixes this, inside the claim counter; it is now one shared splitter used by both, rather than a second copy.",
+  "gate": "Both golden sets at full bars: golden 13/13, aveline 26/26, accuracy 1.0, zero false answers, determinism 1.0, paraphrase consistency 1.0. The measurement that mattered is the tier split, unchanged at 8/5 and 17/8/1: widening what counts as an answer must not quietly convert a question these sets expect refused into an answered one. Five and eight, before and after.",
+  "cache": "Grounding policy g3 -> g4, so answers judged under the narrower rule are not served now.",
+  "known_consequence": "A partly-answered question no longer reaches the knowledge-gaps report, because it is no longer a refusal. The taxi gap in the case above is now invisible to 'asked and not answered'. That is the right trade - withdrawing a correct answer to log a gap is a bad bargain - but the gap is genuinely lost, and detecting partial gaps is its own piece of work, not a side effect to be smuggled in here."
+}
