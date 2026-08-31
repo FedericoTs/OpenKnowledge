@@ -685,6 +685,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 rows.append(
                     {
                         "name": relative,
+                        # The id the rest of the system knows this file by.
+                        # A citation is made against this, not the filename,
+                        # and the two differ often enough that guessing at
+                        # the mapping in the browser would be a bug waiting.
+                        "id": _connector_document_id(relative),
                         "size": path.stat().st_size,
                         "skipped": reason,
                         "tags": sorted(tags.get(_connector_document_id(relative), ())),

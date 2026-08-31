@@ -126,7 +126,77 @@ def test_the_manage_page_shows_the_gaps(tmp_path) -> None:
         page = c.get("/manage").text
         assert "Asked and not answered" in page
         assert "async function refreshGaps()" in page
-        assert page.count("refreshGaps();") == 2, "both unlock paths must load it"
+        # Both unlock paths specifically, rather than a count of every call:
+        # pinning refreshes the list too, and a total would break the moment
+        # somebody adds a legitimate third caller.
+        assert page.count("refreshGaps(); refreshAccess();") == 2, (
+            "the token path and the signed-in admin path must both load it"
+        )
         # The promise the panel makes about privacy has to be on the page,
         # not only in a docstring the reader will never open.
         assert "no column for who asked" in page
+
+
+def test_pinning_an_answer_closes_the_gap(tmp_path) -> None:
+    """The loop, end to end: asked, refused, answered, gone.
+
+    A list that never shrinks is worse than no list - the person working
+    through it does the work and watches nothing happen. Pinning is the click
+    this report exists to prompt, so it has to take effect immediately rather
+    than at the next time somebody happens to ask.
+    """
+    with TestClient(create_app(_settings(tmp_path))) as c:
+        store = c.app.state.engine.store
+        for _ in range(11):
+            store.record("what is the contractor notice period", _answer(Tier.REFUSED))
+
+        before = c.get("/admin/gaps", headers=_AUTH).json()["gaps"]
+        assert [g["question"] for g in before] == ["what is the contractor notice period"]
+
+        created = c.post(
+            "/admin/pins",
+            headers=_AUTH,
+            json={
+                "question": "what is the contractor notice period",
+                "answer": "Contractors give 30 days, per their engagement letter.",
+                "cite": [],
+                "author": "manage-page",
+            },
+        )
+        assert created.status_code == 201, created.text
+
+        after = c.get("/admin/gaps", headers=_AUTH).json()["gaps"]
+        assert after == [], "a pinned question is not still a gap"
+
+
+def test_a_gap_the_documents_now_answer_drops_off(store) -> None:
+    """The other way a gap closes: somebody wrote the document. Nothing is
+    re-asked of a model to find that out - the most recent time the question
+    was asked, it was answered, and that is the whole signal."""
+    for _ in range(4):
+        store.record("how do i claim mileage", _answer(Tier.REFUSED))
+    assert [g["question"] for g in store.knowledge_gaps()] == ["how do i claim mileage"]
+
+    store.record("how do i claim mileage", _answer(Tier.LOCAL))
+    assert store.knowledge_gaps() == [], "the corpus caught up; the gap is closed"
+
+
+def test_a_question_that_regressed_is_a_gap_again(store) -> None:
+    """And if it stops being answered - the document was deleted, or walled
+    off from the people asking - it comes back. The list tracks the present,
+    not a decision made once."""
+    store.record("how do i claim mileage", _answer(Tier.REFUSED))
+    store.record("how do i claim mileage", _answer(Tier.LOCAL))
+    assert store.knowledge_gaps() == []
+
+    store.record("how do i claim mileage", _answer(Tier.REFUSED))
+    assert [g["question"] for g in store.knowledge_gaps()] == ["how do i claim mileage"]
+
+
+def test_the_manage_page_can_answer_a_gap_in_place(tmp_path) -> None:
+    """The box is on the gap, not somewhere else in the product."""
+    with TestClient(create_app(_settings(tmp_path))) as c:
+        page = c.get("/manage").text
+        assert "Pin this answer" in page
+        assert "/admin/pins" in page
+        assert "cite no document" in page, "a citation is offered, never required"

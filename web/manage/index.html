@@ -169,7 +169,8 @@
 <script>
 'use strict';
 const $ = (id) => document.getElementById(id);
-const state = { token: localStorage.getItem('ok-admin-token') || '', settings: null };
+const state = { token: localStorage.getItem('ok-admin-token') || '', settings: null,
+                documents: [] };
 
 function el(tag, cls, text) {
   const n = document.createElement(tag);
@@ -213,6 +214,8 @@ async function refreshDocuments() {
   try {
     const body = await api('/documents');
     updateDestinations(body.folders || []);
+    // Kept so a gap can be answered with a citation without another fetch.
+    state.documents = (body.files || []).filter(f => !f.skipped);
     box.textContent = '';
     if (!body.files.length) {
       box.appendChild(el('p', 'empty', 'The documents folder is empty. Add some.'));
@@ -412,12 +415,51 @@ async function refreshGaps() {
       return;
     }
     for (const g of body.gaps) {
-      const item = box.appendChild(el('div', 'item'));
-      const head = item.appendChild(el('div', 'row'));
+      const item = box.appendChild(el('details', 'item'));
+      const head = item.appendChild(el('summary'));
       head.appendChild(el('span', 'tag', g.asked === 1 ? 'once' : g.asked + ' times'));
       head.appendChild(el('b', null, g.question));
+
+      // Answering is the point of the list, so the box to do it in is one
+      // click away rather than somewhere else in the product. Writing the
+      // answer is still work - nothing here can invent one, and a pinned
+      // answer is a person putting their name to it.
+      const body_ = item.appendChild(el('div', 'body'));
       const when = new Date(g.last_asked * 1000);
-      item.appendChild(el('p', 'quiet', 'last asked ' + when.toLocaleDateString()));
+      body_.appendChild(el('p', 'quiet', 'last asked ' + when.toLocaleDateString()
+        + ' · answering it here pins the answer, and this question leaves the list'));
+      const text = body_.appendChild(el('textarea'));
+      text.rows = 3;
+      text.placeholder = 'The answer, in your own words.';
+      text.style.width = '100%';
+      const row = body_.appendChild(el('div', 'row'));
+      const cite = row.appendChild(el('select'));
+      cite.appendChild(new Option('cite no document', ''));
+      for (const d of state.documents) cite.appendChild(new Option(d.name, d.id));
+      const save = row.appendChild(el('button', 'small', 'Pin this answer'));
+      const note = row.appendChild(el('span', 'quiet'));
+      save.onclick = async () => {
+        const answer = text.value.trim();
+        if (!answer) { note.textContent = 'Write the answer first.'; return; }
+        save.disabled = true;
+        note.textContent = 'Pinning…';
+        try {
+          await api('/admin/pins', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              question: g.question,
+              answer,
+              cite: cite.value ? [cite.value] : [],
+              author: 'manage-page',
+            }),
+          });
+          refreshGaps();
+        } catch (e) {
+          save.disabled = false;
+          note.textContent = e.message;
+        }
+      };
     }
   } catch (e) {
     box.textContent = '';

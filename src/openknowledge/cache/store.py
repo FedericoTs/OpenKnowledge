@@ -369,15 +369,36 @@ class AnswerStore:
         Grouped by the canonical query, so "how much parental leave" and "How
         much parental leave?" are one gap rather than two.
         """
-        where = "WHERE tier = ?"
+        where = "WHERE l.tier = ?"
         params: tuple[object, ...] = ("refused",)
         if since is not None:
-            where += " AND ts >= ?"
+            where += " AND l.ts >= ?"
             params = (*params, since)
+
+        # A gap that has been dealt with has to leave the list, or the person
+        # working through it does the work and watches nothing happen. Two
+        # ways it can be dealt with, and both are read from what already
+        # happened rather than asked of a model:
+        #
+        # * somebody pinned an answer - immediate, because that is the click
+        #   this report exists to prompt;
+        # * somebody wrote the document, and the question has since been
+        #   answered - so the most recent time it was asked was not a refusal.
+        #
+        # The count stays the count of refusals: the question is how much
+        # this gap cost, not how often it has been asked since.
         rows = self._conn.execute(
-            f"SELECT canonical_query, COUNT(*) AS asked, MAX(ts) AS last_asked"
-            f" FROM ledger {where} GROUP BY canonical_query"
-            f" ORDER BY asked DESC, last_asked DESC LIMIT ?",
+            f"SELECT l.canonical_query, COUNT(*) AS asked, MAX(l.ts) AS last_asked"
+            f" FROM ledger l {where}"
+            "   AND NOT EXISTS ("
+            "     SELECT 1 FROM pinned_answers p"
+            "     WHERE p.canonical_query = l.canonical_query AND p.enabled = 1)"
+            "   AND ("
+            "     SELECT tier FROM ledger later"
+            "     WHERE later.canonical_query = l.canonical_query"
+            "     ORDER BY later.ts DESC, later.id DESC LIMIT 1) = 'refused'"
+            " GROUP BY l.canonical_query"
+            " ORDER BY asked DESC, last_asked DESC LIMIT ?",
             (*params, limit),
         ).fetchall()
         return [
