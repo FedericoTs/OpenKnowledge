@@ -222,8 +222,10 @@ jobs:
           # No auth header here: the download redirects to a CDN that can
           # reject one, and a public release asset needs none.
           Invoke-WebRequest -Uri $asset.browser_download_url -OutFile old-setup.exe
-          Start-Process -FilePath (Resolve-Path old-setup.exe) `
-            -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART" -Wait
+          $p = Start-Process -FilePath (Resolve-Path old-setup.exe) `
+            -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/LOG=install-old.log" `
+            -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "installing $oldVersion exited $($p.ExitCode)" }
 
           $app = "$env:LOCALAPPDATA\Programs\OpenKnowledge"
           $installed = (& "$app\openknowledge.exe" --version) -join ''
@@ -239,12 +241,25 @@ jobs:
           Set-Content -Path "$state\.env" -Value "OK_ADMIN_TOKEN=upgrade-marker"
 
           # The upgrade itself, with the flags the app hands the installer.
-          Start-Process -FilePath $new.FullName `
-            -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART" -Wait
+          $p = Start-Process -FilePath $new.FullName `
+            -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/LOG=install-new.log" `
+            -Wait -PassThru
+          Write-Host "upgrade installer exited $($p.ExitCode)"
 
           $after = (& "$app\openknowledge.exe" --version) -join ''
           if ($after -notmatch [regex]::Escape($newVersion)) {
-            throw "upgrade left $oldVersion in place: --version says '$after'"
+            # Say why, rather than only that. Inno's own log is the primary
+            # artifact here; the directory listing catches a second install
+            # that landed somewhere else entirely.
+            Write-Host "--- installed exes ---"
+            Get-ChildItem $app -Filter *.exe | Format-Table Name, Length, LastWriteTime | Out-String | Write-Host
+            Write-Host "--- other OpenKnowledge install directories ---"
+            Get-ChildItem "$env:LOCALAPPDATA\Programs","$env:ProgramFiles","${env:ProgramFiles(x86)}" `
+              -Filter "OpenKnowledge*" -ErrorAction SilentlyContinue |
+              Select-Object FullName | Out-String | Write-Host
+            Write-Host "--- Inno log, upgrade ---"
+            if (Test-Path install-new.log) { Get-Content install-new.log -Tail 120 | Write-Host }
+            throw "upgrade left $oldVersion in place: --version says '$after' (installer exit $($p.ExitCode))"
           }
           if (-not (Test-Path "$state\documents\keep-me.md")) {
             throw "the upgrade destroyed the user's documents"
