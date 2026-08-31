@@ -159,3 +159,80 @@ def test_a_severed_stream_names_contention_not_a_dead_endpoint() -> None:
     errors = [r for r in results if isinstance(r, ProviderError)]
     assert errors
     assert any("OK_LOCAL_PARALLEL" in str(e) for e in errors), errors[0]
+
+
+# -- the index is replaced, never edited in place -----------------------------
+
+
+def test_searching_while_the_corpus_is_rebuilt_never_sees_a_seam() -> None:
+    """A rebuild used to clear the retriever's parallel arrays and refill
+    them, so a search arriving mid-rebuild could read a short chunk list - a
+    wrong "not covered" - or, worse, a chunk whose statistics belonged to a
+    different chunk, which is a citation naming a document the text never
+    came from.
+
+    The state is one frozen snapshot now, swapped by a single assignment, so
+    a reader sees wholly the old corpus or wholly the new one. This hammers
+    the two against each other; against the old code it fails.
+    """
+    import threading
+
+    from openknowledge.retrieval import BM25Retriever
+    from openknowledge.retrieval.base import Document
+
+    def corpus(marker: str, size: int) -> list[Document]:
+        return [
+            Document(
+                f"policy-{i}",
+                f"Policy {i}",
+                f"Expenses are reimbursed up to EUR {marker} per day. "
+                f"Clause {i} applies to travel and subsistence.",
+            )
+            for i in range(size)
+        ]
+
+    retriever = BM25Retriever()
+    retriever.index(corpus("40", 40))
+    stop = threading.Event()
+    seams: list[str] = []
+
+    def rebuild() -> None:
+        marker = 40
+        while not stop.is_set():
+            marker = 75 if marker == 40 else 40
+            retriever.index(corpus(str(marker), 40))
+
+    def read() -> None:
+        while not stop.is_set():
+            # A reader that dies takes its evidence with it. Against the old
+            # in-place rebuild these threads raised IndexError and vanished,
+            # leaving the assertion below with an empty list and the test
+            # passing for the worst possible reason.
+            try:
+                hits = retriever.search("expenses reimbursed per day", k=5)
+            except Exception as exc:  # noqa: BLE001 - the failure under test
+                seams.append(f"{type(exc).__name__} during search: {exc}")
+                continue
+            for hit in hits:
+                # Every chunk must be a whole one from some corpus, and its
+                # own text - a mismatch here is the citation bug.
+                if "Expenses are reimbursed" not in hit.chunk.text:
+                    seams.append(f"torn chunk: {hit.chunk.text[:40]!r}")
+                if (
+                    hit.chunk.document_id.removeprefix("policy-")
+                    not in hit.chunk.text.split("Clause ")[-1]
+                ):
+                    seams.append(f"chunk scored under another's id: {hit.chunk.document_id}")
+
+    writer = threading.Thread(target=rebuild, daemon=True)
+    readers = [threading.Thread(target=read, daemon=True) for _ in range(3)]
+    writer.start()
+    for r in readers:
+        r.start()
+    threading.Event().wait(2.0)
+    stop.set()
+    writer.join(timeout=10)
+    for r in readers:
+        r.join(timeout=10)
+
+    assert not seams, f"{len(seams)} inconsistent reads during rebuild: {seams[:3]}"

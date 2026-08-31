@@ -198,7 +198,7 @@ def main(argv: list[str] | None = None) -> int:
 
     retriever = BM25Retriever()
     retriever.index(documents)
-    every_chunk = list(retriever._chunks)  # noqa: SLF001 - measurement tool
+    every_chunk = list(retriever.chunks)
     price = get_price(args.model)
 
     rows = []

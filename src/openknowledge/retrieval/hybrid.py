@@ -158,7 +158,7 @@ class HybridRetriever:
 
     @property
     def chunks(self) -> list[Chunk]:
-        return self.lexical._chunks  # noqa: SLF001 - one object, split for clarity
+        return list(self.lexical.chunks)
 
     # -- indexing ----------------------------------------------------------
 
