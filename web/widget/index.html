@@ -580,8 +580,13 @@ async function uploadFiles(fileList) {
     for (const s of report.stored) {
       const p = el('p');
       p.appendChild(el('b', null, s.name));
+      // A file can be stored and still hold nothing a question can reach -
+      // a scan is a picture of a document. Saying only "added" is what sent
+      // someone into the chat to ask a question that could never be
+      // answered, and to conclude the assistant was broken.
       p.appendChild(document.createTextNode(
-        s.replaced ? ' — replaced the previous version.' : ' — added.'));
+        s.unreadable ? ' — added, but ' + s.unreadable
+        : s.replaced ? ' — replaced the previous version.' : ' — added.'));
       note.appendChild(p);
     }
     for (const s of report.skipped) {

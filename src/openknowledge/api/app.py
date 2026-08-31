@@ -629,6 +629,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # so an operator can see what a document will be found by. A file the
         # index does not know (skipped, or not yet indexed) has none.
         tags: dict[str, tuple[str, ...]] = getattr(engine.retriever, "document_tags", dict)()
+        # Why each file contributed nothing, in the parser's own words. That
+        # message distinguishes a scan from a password from a corrupt file,
+        # and it carries the case no presence check could - "3 of 10 pages
+        # had no text layer", a document that indexes and quietly drops a
+        # third of itself. The scan has recorded these all along; nothing
+        # ever showed them to the person whose file it was.
+        unreadable = {s.path: s.reason for s in getattr(engine.connector, "skipped", ())}
         if root.is_dir():
             for path in sorted(root.rglob("*")):
                 relative = path.relative_to(root).as_posix()
@@ -643,11 +650,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     continue
                 if not _folder_readable(path.relative_to(root).parent.as_posix(), rules, viewer):
                     continue
+                reason = unreadable.get(relative) or skip_reason(path)
                 rows.append(
                     {
                         "name": relative,
                         "size": path.stat().st_size,
-                        "skipped": skip_reason(path),
+                        "skipped": reason,
                         "tags": sorted(tags.get(_connector_document_id(relative), ())),
                     }
                 )
@@ -730,6 +738,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         corpus: dict[str, Any] = {}
         if stored:
             documents, chunks, version, _ = engine.reindex()
+            # The reindex just read these files and knows which of them gave
+            # it nothing. Saying nothing here is what sent someone back to
+            # the chat to ask a question that could never be answered, and to
+            # conclude the assistant was broken.
+            reasons = {s.path: s.reason for s in getattr(engine.connector, "skipped", ())}
+            for entry in stored:
+                reason = reasons.get(str(entry["name"]))
+                if reason:
+                    entry["unreadable"] = reason
             corpus = {
                 "documents": documents,
                 "chunks": chunks,
