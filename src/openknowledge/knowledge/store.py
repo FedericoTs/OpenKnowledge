@@ -164,6 +164,7 @@ def _dump_citations(citations: tuple[Citation, ...]) -> str:
                 "snippet": c.snippet,
                 "locator": c.locator,
                 "url": c.url,
+                "section": c.section,
             }
             for c in citations
         ],

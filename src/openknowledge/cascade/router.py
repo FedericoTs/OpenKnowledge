@@ -834,19 +834,57 @@ def _suffix_hash(suffix: str) -> str:
     return hashlib.sha256(suffix.strip().encode("utf-8")).hexdigest()[:8]
 
 
+def _passage_body(chunk: Chunk) -> str:
+    """The quoted passage, without the heading trail repeated through it.
+
+    A chunk carries its trail on every line - once as the heading itself and
+    again in front of each block - so that a passage retrieved alone still
+    says what it is about. Retrieval and the model want that. A reader looking
+    at a citation does not: the section is already named beside the document
+    title, and repeating it turned a quotation into "Remote Access and VPN
+    Remote Access and VPN: To connect from outside the office...".
+
+    Display only. The chunk's own text is what the index holds and what the
+    model reads, and neither is touched here.
+    """
+    if not chunk.section:
+        return chunk.text
+    prefix = chunk.section + ":"
+    lines = []
+    for line in chunk.text.split("\n"):
+        if line == chunk.section or line == chunk.section.rsplit(" > ", 1)[-1]:
+            continue  # the bare heading line
+        lines.append(line[len(prefix) :].lstrip() if line.startswith(prefix) else line)
+    return "\n".join(lines).strip() or chunk.text
+
+
+def _snippet(text: str) -> str:
+    """A readable amount of the passage, cut between words.
+
+    Cutting at a fixed character count lands mid-word about as often as not,
+    and a quotation that ends "approved by IT Oper..." reads like a bug in
+    the product rather than the length limit it is.
+    """
+    if len(text) <= _SNIPPET_CHARS:
+        return text
+    cut = text[:_SNIPPET_CHARS]
+    space = cut.rfind(" ")
+    if space > _SNIPPET_CHARS // 2:
+        cut = cut[:space]
+    return cut.rstrip(" ,;:.") + "…"
+
+
 def _citations(chunks: list[Chunk]) -> tuple[Citation, ...]:
     """One citation per document, keeping the first chunk that matched."""
     seen: dict[str, Citation] = {}
     for chunk in chunks:
         if chunk.document_id in seen:
             continue
-        snippet = chunk.text[:_SNIPPET_CHARS]
-        if len(chunk.text) > _SNIPPET_CHARS:
-            snippet += "..."
         seen[chunk.document_id] = Citation(
             document_id=chunk.document_id,
             document_title=chunk.document_title,
-            snippet=snippet,
+            snippet=_snippet(_passage_body(chunk)),
+            section=chunk.section,
             locator=chunk.locator,
             url=chunk.url,
         )

@@ -88,6 +88,10 @@ class Chunk:
     document_title: str
     text: str
     locator: str | None = None
+    #: The heading trail this passage sits under, "Leave > Parental leave".
+    #: What a person needs to find it again; the locator is what the grounding
+    #: gate resolves "chunk 4" against, and the two are not the same job.
+    section: str | None = None
     url: str | None = None
     allowed_principals: frozenset[str] = field(default_factory=frozenset)
     #: Inherited from the document, so ranking can see it without a lookup.
@@ -197,8 +201,9 @@ def chunk_blocks(doc: Document, *, target_words: int = 350, overlap_words: int =
             return
         text = "\n".join(b.contextual_text for b in current).strip()
         if text:
+            section = _section_of(current)
             locator = next((b.locator for b in current if b.locator), None)
-            chunks.append(_make_chunk(doc, len(chunks), text, locator))
+            chunks.append(_make_chunk(doc, len(chunks), text, locator, section))
         current.clear()
         current_words = 0
         pending_heading = None
@@ -215,10 +220,10 @@ def chunk_blocks(doc: Document, *, target_words: int = 350, overlap_words: int =
         # everything else stays whole.
         if words > target_words and not block.kind.is_atomic:
             flush()
+            section = " > ".join(block.heading_path)
             for piece in _windows(block.text, target_words, overlap_words):
-                prefix = " > ".join(block.heading_path)
-                text = f"{prefix}: {piece}" if prefix else piece
-                chunks.append(_make_chunk(doc, len(chunks), text, block.locator))
+                text = f"{section}: {piece}" if section else piece
+                chunks.append(_make_chunk(doc, len(chunks), text, block.locator, section or None))
             continue
 
         if current and current_words + words > target_words:
@@ -238,13 +243,32 @@ def chunk_blocks(doc: Document, *, target_words: int = 350, overlap_words: int =
     return chunks
 
 
-def _make_chunk(doc: Document, index: int, text: str, locator: str | None) -> Chunk:
+def _section_of(blocks: list[Block]) -> str | None:
+    """The heading trail a chunk sits under, or None if it has none.
+
+    Metadata only: the chunk's text is not touched. That is deliberate. The
+    trail is also repeated inside the text - once as the heading and again in
+    front of every block, because each is rendered through
+    ``Block.contextual_text`` - and removing that repetition measurably
+    changes what BM25 ranks and what the model reads. It is worth doing and
+    it is not this change: see ROADMAP, "the heading said three times".
+    """
+    for block in blocks:
+        if block.kind is not BlockKind.HEADING and block.heading_path:
+            return " > ".join(block.heading_path)
+    return None
+
+
+def _make_chunk(
+    doc: Document, index: int, text: str, locator: str | None, section: str | None = None
+) -> Chunk:
     return Chunk(
         chunk_id=f"{doc.document_id}#{index}",
         document_id=doc.document_id,
         document_title=doc.title,
         text=text,
         locator=locator or f"chunk {index + 1}",
+        section=section,
         url=doc.url,
         allowed_principals=doc.allowed_principals,
         superseded=doc.superseded,

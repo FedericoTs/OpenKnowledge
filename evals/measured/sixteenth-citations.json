@@ -1,0 +1,29 @@
+{
+  "what": "The citation dropdown, which quoted our own scaffolding back at the reader. Three defects, and one attempted fix that the gate stopped.",
+  "found": [
+    {
+      "defect": "Every citation opened with the heading twice: 'Remote Access and VPN · chunk 1 — Remote Access and VPN Remote Access and VPN: To connect from outside the office...'",
+      "cause": "A chunk repeats its heading trail on every line - once as the heading itself, again in front of each block via Block.contextual_text - so that a passage retrieved alone still says what it is about. Retrieval and the model want that. Quoted verbatim into a citation that already names the section, it is noise.",
+      "fix": "The quotation is cleaned for display. The chunk's own text is untouched."
+    },
+    {
+      "defect": "'chunk 1' shown as the place to look.",
+      "cause": "The locator is a position in our index. It exists because the grounding gate resolves a model's '(chunk 4)' against it - the g2 fix - and was never meant for a reader, who cannot open chunk 1 of anything.",
+      "fix": "It stays on the wire and stops being displayed. The heading trail is shown instead, as a new Citation.section; a real locator (page, sheet, slide) is still shown. A document with neither gets its title and the quoted passage, which is the only locator it has."
+    },
+    {
+      "defect": "Snippets cut mid-word - 'approved by IT Oper...' - and titles said twice: 'Expenses Policy · Expenses Policy > Meals and subsistence'.",
+      "fix": "Cut on a word boundary, one closing mark not two, and the trail's leading copy of the document title dropped."
+    }
+  ],
+  "the_change_that_did_not_ship": {
+    "what": "Removing the heading repetition from the chunk text itself, not just the quotation.",
+    "why_it_looked_right": "Measured on the aveline corpus: 2851 words indexed before, 2436 after - 14.6% of the index was one heading, said again. It inflates the BM25 term frequency of heading words and spends context on nothing.",
+    "gate": "Golden held: 13/13, accuracy 1.0, tier split unchanged. Aveline failed: accuracy 0.8824, two failures - strategic-supplier-terms and new-joiner-security-training, both table questions.",
+    "what_actually_happened": "Neither answer was wrong. With the shorter context the model volunteered the allowed range beside the standard term - '30 days ... the shortest allowed term is 14 days, and the longest 60 days' - every figure present in the sources and correctly attributed. must_not_say forbids those figures by substring, and a substring cannot distinguish 'confused the range for the term' from 'stated both correctly'.",
+    "decision": "Parked, and written up in ROADMAP under 'the heading said three times'. Shipping it would have meant relaxing the eval to fit the change, which is the one move this project's gate exists to prevent."
+  },
+  "gate": "Both golden sets, on the shipped code: golden 13/13 and aveline 26/26, accuracy 1.0, zero false answers, determinism 1.0, paraphrase consistency 1.0, tier splits unchanged (8/5 and 17/8/1).",
+  "why_that_was_a_formality": "The chunk text is byte-identical before and after - verified by hashing every chunk of both corpora, 74 in total - so the index, the BM25 statistics and the model's context cannot have moved, and the evaluator never reads a citation snippet. The sets were run anyway: an argument that an answer cannot change is not a measurement that it did not.",
+  "pinned_by": "tests/test_retrieval.py, tests/test_cascade.py and tests/test_widget_rendering.py, the last driving the real renderAnswer in Chromium over four citation shapes: a nested section, a section that only repeats the title, a real page locator, and a document with no structure at all."
+}

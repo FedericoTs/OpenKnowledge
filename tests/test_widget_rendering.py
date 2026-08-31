@@ -455,3 +455,52 @@ def test_the_cost_panel_shows_the_numbers_not_the_json(managed_app) -> None:
             assert errors == [], f"page errors: {errors}"
         finally:
             browser.close()
+
+
+def test_a_citation_names_where_a_reader_can_look(declining_app) -> None:
+    """ "chunk 1" is a position in our index, not in anybody's document.
+
+    It stays on the wire, because the grounding gate resolves a model's
+    "(chunk 4)" against it. It stops being shown, because the reader cannot
+    open chunk 1 of anything.
+    """
+    sync_playwright = pytest.importorskip(
+        "playwright.sync_api", reason="playwright is not installed"
+    ).sync_playwright
+
+    with sync_playwright() as pw:
+        browser, page = _page(pw, declining_app)
+        try:
+            rendered = page.evaluate(
+                """() => {
+                  const box = renderAnswer({
+                    answer: 'Meals are reimbursed up to EUR 45 per day.',
+                    tier: 'local', model: 'qwen3-4b', cost_usd: 0, grounded: true,
+                    cached: false, support: 0.9, notes: [],
+                    citations: [
+                      { document_id: 'expenses', document_title: 'Expenses Policy',
+                        snippet: 'Meals are reimbursed up to EUR 45 per day.',
+                        section: 'Expenses Policy > Meals and subsistence',
+                        locator: 'chunk 2' },
+                      { document_id: 'vpn', document_title: 'Remote Access and VPN',
+                        snippet: 'Install the client.',
+                        section: 'Remote Access and VPN', locator: 'chunk 1' },
+                      { document_id: 'handbook', document_title: 'Handbook',
+                        snippet: 'Anything.', section: 'Leave', locator: 'page 3' },
+                      { document_id: 'plain', document_title: 'Notes',
+                        snippet: 'Anything.', section: null, locator: 'chunk 7' },
+                    ],
+                  });
+                  return [...box.querySelectorAll('.cite b')].map(e => e.textContent);
+                }"""
+            )
+            assert rendered[0] == "Expenses Policy · Meals and subsistence"
+            # A section that only repeats the title adds nothing.
+            assert rendered[1] == "Remote Access and VPN"
+            # A locator a reader can act on is kept, alongside the section.
+            assert rendered[2] == "Handbook · Leave · page 3"
+            # No structure at all: the quoted passage is the only locator there is.
+            assert rendered[3] == "Notes"
+            assert not any("chunk" in r for r in rendered), rendered
+        finally:
+            browser.close()

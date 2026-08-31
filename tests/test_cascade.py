@@ -628,3 +628,63 @@ async def test_the_document_listing_is_answered_per_asker_not_from_cache(store, 
     assert "Board Compensation" in board.text
     assert "Board Compensation" not in staff.text, "the listing leaked across askers"
     assert "Employee Handbook" in staff.text, "and the public document is still named"
+
+
+def test_a_citation_quotes_the_passage_not_the_heading_again() -> None:
+    """The reader gets the evidence, not our scaffolding.
+
+    A chunk repeats its heading trail on every line so that a passage
+    retrieved alone still says what it is about. Quoted verbatim into a
+    citation that already names the section beside the title, it read
+    "Remote Access and VPN Remote Access and VPN: To connect...". The chunk
+    keeps every word; only the quotation is cleaned.
+    """
+    from openknowledge.cascade.router import _citations
+    from openknowledge.retrieval.base import Chunk
+
+    chunk = Chunk(
+        chunk_id="vpn#0",
+        document_id="vpn",
+        document_title="Remote Access and VPN",
+        text=(
+            "Remote Access and VPN\n"
+            "Remote Access and VPN: To connect, install the GlobalProtect client.\n"
+            "Remote Access and VPN: Requests are approved by IT Operations."
+        ),
+        locator="chunk 1",
+        section="Remote Access and VPN",
+    )
+    (cite,) = _citations([chunk])
+
+    assert cite.snippet == (
+        "To connect, install the GlobalProtect client.\nRequests are approved by IT Operations."
+    )
+    assert cite.section == "Remote Access and VPN"
+    assert cite.locator == "chunk 1", "the gate resolves 'chunk 4' against this"
+    assert "Remote Access and VPN" in chunk.text, "the chunk itself is untouched"
+
+
+def test_a_long_snippet_is_cut_between_words() -> None:
+    """ "approved by IT Oper..." reads like a bug rather than a length limit."""
+    from openknowledge.cascade.router import _SNIPPET_CHARS, _citations
+    from openknowledge.retrieval.base import Chunk
+
+    words = ("policy " * 400).strip()
+    (cite,) = _citations([Chunk(chunk_id="d#0", document_id="d", document_title="D", text=words)])
+
+    assert len(cite.snippet) <= _SNIPPET_CHARS + 1  # the ellipsis
+    assert cite.snippet.endswith("policy…"), cite.snippet[-20:]
+    assert "  " not in cite.snippet
+
+
+def test_a_snippet_does_not_end_in_two_marks() -> None:
+    """A sentence that happens to end where the cut falls still gets an
+    ellipsis, and "through the HR portal.…" is two marks doing one job."""
+    from openknowledge.cascade.router import _SNIPPET_CHARS, _citations
+    from openknowledge.retrieval.base import Chunk
+
+    text = "word " * 60 + "submitted through the HR portal. " + "tail " * 60
+    (cite,) = _citations([Chunk(chunk_id="d#0", document_id="d", document_title="D", text=text)])
+    assert len(text) > _SNIPPET_CHARS
+    assert ".…" not in cite.snippet
+    assert cite.snippet.endswith("…")

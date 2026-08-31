@@ -70,6 +70,13 @@ class Citation:
     snippet: str
     locator: str | None = None  # page number, heading anchor, sheet name...
     url: str | None = None
+    #: The heading trail the passage sits under, when the document had one.
+    #: Appended rather than slotted in beside `locator`, which it belongs
+    #: next to: this class is constructed positionally in a dozen places, and
+    #: inserting a field there moves every argument after it one along - which
+    #: is how the first version of this change quietly filed a page number as
+    #: a section name.
+    section: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

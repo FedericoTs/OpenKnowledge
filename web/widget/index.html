@@ -772,6 +772,28 @@ async function askAgain(button, first, asked) {
 // `asked` is the exact request body that produced this answer. Given one, the
 // card can repeat it - see askAgain. Callers that have no request to repeat
 // (a system note, a replayed transcript) simply pass nothing.
+// Where a cited passage sits, in words a reader can act on. "chunk 1" is a
+// position in our index, not in their document: it is what the grounding gate
+// resolves a model's "(chunk 4)" against, and it was never meant to be shown
+// to anybody. A heading trail, a page or a sheet name is the thing they can
+// actually go and look at; when a document has none of those, the quoted
+// passage itself is the locator.
+const _INDEX_POSITION = /^chunk \d+$/;
+function citeWhere(c) {
+  const parts = [];
+  let section = c.section || '';
+  // The trail usually opens with the document's own title, and the title is
+  // already the words to the left of this: "Expenses Policy · Expenses Policy
+  // > Meals and subsistence" says it twice to say one thing.
+  if (section === c.document_title) section = '';
+  else if (section.startsWith(c.document_title + ' > ')) {
+    section = section.slice(c.document_title.length + 3);
+  }
+  if (section) parts.push(section);
+  if (c.locator && !_INDEX_POSITION.test(c.locator)) parts.push(c.locator);
+  return parts.join(' · ');
+}
+
 function renderAnswer(data, asked) {
   const box = el('div', 'msg a');
   box.appendChild(el('p', null, withoutCitationMarkers(data.answer, data.citations)));
@@ -782,7 +804,8 @@ function renderAnswer(data, asked) {
       data.citations.length + ' source' + (data.citations.length === 1 ? '' : 's')));
     for (const c of data.citations) {
       const d = el('div', 'cite');
-      d.appendChild(el('b', null, c.document_title + (c.locator ? ' · ' + c.locator : '')));
+      const where = citeWhere(c);
+      d.appendChild(el('b', null, c.document_title + (where ? ' · ' + where : '')));
       d.appendChild(document.createTextNode(' — ' + c.snippet));
       cites.appendChild(d);
     }

@@ -40,6 +40,7 @@ class CitationOut(BaseModel):
     document_title: str
     snippet: str
     locator: str | None = None
+    section: str | None = None
     url: str | None = None
 
 

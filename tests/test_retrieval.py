@@ -498,3 +498,44 @@ def test_a_year_opening_a_line_is_not_treated_as_numbering() -> None:
     )
     assert not report.passed
     assert "2019" in " ".join(report.reasons)
+
+
+def test_a_chunk_knows_the_section_it_came_from() -> None:
+    """The heading trail as metadata, so a citation can name where to look.
+
+    The trail is also repeated through the chunk's text - once as the heading
+    and again in front of every block - and that repetition is left exactly
+    where it is. Removing it is a real improvement to the index and a
+    measurable change to what the model reads: see ROADMAP.
+    """
+    doc = parsed_document(
+        "# Remote Access and VPN\n\n"
+        "To connect from outside the office, install the client.\n\n"
+        "Access requests are approved by IT Operations.\n",
+        "vpn",
+    )
+    (chunk,) = chunk_document(doc)
+
+    assert chunk.section == "Remote Access and VPN"
+    assert chunk.locator == "chunk 1", "the gate resolves 'chunk 4' against this"
+    # Unchanged: the text is what the index holds and what the model reads.
+    assert chunk.text.count("Remote Access and VPN") == 3
+
+
+def test_a_nested_section_keeps_the_whole_trail() -> None:
+    """A subsection must not lose the section it belongs to."""
+    doc = parsed_document(
+        "# Expenses Policy\n\n## Meals and subsistence\n\n"
+        "Meals are reimbursed up to EUR 45 per day.\n",
+        "expenses",
+    )
+    chunk = next(c for c in chunk_document(doc) if "EUR 45" in c.text)
+    assert chunk.section == "Expenses Policy > Meals and subsistence"
+
+
+def test_a_document_with_no_headings_has_no_section() -> None:
+    """Nothing is invented: no trail means no section to name."""
+    doc = Document("d", "D", " ".join(f"w{i}" for i in range(50)))
+    (chunk,) = chunk_document(doc)
+    assert chunk.section is None
+    assert chunk.locator == "chunk 1"
