@@ -169,6 +169,91 @@ jobs:
           path: dist/installer/OpenKnowledge-Setup-*.exe
           if-no-files-found: error
 
+  # Can an install that already exists receive this build? Every release so
+  # far proved only that the installer works on a clean machine, which is the
+  # one case an existing user is never in. The whole update feature - check,
+  # download, verify, hand off to the installer - ends in this silent upgrade,
+  # and it had never once been run.
+  #
+  # The previous release is the one GitHub calls latest while this job runs:
+  # package.yml builds before release.yml publishes. If there is no earlier
+  # release, or it is this same version, there is nothing to upgrade from and
+  # the job says so rather than inventing a pass.
+  #
+  # The command the app actually builds is pinned by unit tests (quoting,
+  # ordering, an apostrophe in the account name). What only a Windows machine
+  # can answer is whether the installer replaces a running install silently
+  # and leaves the user's state where it was, so that is what runs here.
+  windows-upgrade:
+    needs: windows-installer
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
+    runs-on: windows-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: OpenKnowledge-Setup
+
+      - name: Upgrade a real previous install, and keep its state
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $new = Get-ChildItem OpenKnowledge-Setup-*.exe | Select-Object -First 1
+          $newVersion = ($new.Name -replace '^OpenKnowledge-Setup-', '') -replace '\.exe$', ''
+          Write-Host "built: $newVersion"
+
+          $headers = @{ Authorization = "Bearer $env:GH_TOKEN"; Accept = "application/vnd.github+json" }
+          $api = "https://api.github.com/repos/$env:GITHUB_REPOSITORY/releases/latest"
+          try {
+            $release = Invoke-RestMethod -Uri $api -Headers $headers
+          } catch {
+            Write-Host "::notice::no published release to upgrade from yet"
+            exit 0
+          }
+          $asset = $release.assets | Where-Object { $_.name -like 'OpenKnowledge-Setup-*.exe' } | Select-Object -First 1
+          if (-not $asset) { Write-Host "::notice::previous release carries no installer"; exit 0 }
+          $oldVersion = ($asset.name -replace '^OpenKnowledge-Setup-', '') -replace '\.exe$', ''
+          if ($oldVersion -eq $newVersion) {
+            Write-Host "::notice::latest release is already $newVersion - nothing to upgrade from"
+            exit 0
+          }
+          Write-Host "upgrading from: $oldVersion"
+
+          # No auth header here: the download redirects to a CDN that can
+          # reject one, and a public release asset needs none.
+          Invoke-WebRequest -Uri $asset.browser_download_url -OutFile old-setup.exe
+          Start-Process -FilePath (Resolve-Path old-setup.exe) `
+            -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART" -Wait
+
+          $app = "$env:LOCALAPPDATA\Programs\OpenKnowledge"
+          $installed = (& "$app\openknowledge.exe" --version) -join ''
+          if ($installed -notmatch [regex]::Escape($oldVersion)) {
+            throw "expected the previous build $oldVersion, got '$installed'"
+          }
+
+          # Stand in for everything a person would lose: their documents, the
+          # answer store, the admin token. App mode puts all of it here.
+          $state = "$env:LOCALAPPDATA\OpenKnowledge"
+          New-Item -ItemType Directory -Force -Path "$state\documents" | Out-Null
+          Set-Content -Path "$state\documents\keep-me.md" -Value "# Keep me`nThe office closes at 18:00."
+          Set-Content -Path "$state\.env" -Value "OK_ADMIN_TOKEN=upgrade-marker"
+
+          # The upgrade itself, with the flags the app hands the installer.
+          Start-Process -FilePath $new.FullName `
+            -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART" -Wait
+
+          $after = (& "$app\openknowledge.exe" --version) -join ''
+          if ($after -notmatch [regex]::Escape($newVersion)) {
+            throw "upgrade left $oldVersion in place: --version says '$after'"
+          }
+          if (-not (Test-Path "$state\documents\keep-me.md")) {
+            throw "the upgrade destroyed the user's documents"
+          }
+          if ((Get-Content "$state\.env" -Raw) -notmatch 'upgrade-marker') {
+            throw "the upgrade destroyed the user's configuration"
+          }
+          Write-Host "upgraded $oldVersion -> $after, state intact"
+
   # The whole product, from the installer a person would download: silent
   # install, first launch of the installed app (real 2.6 GB model download
   # against the pinned hashes, real llama-server on the runner's CPU), a real

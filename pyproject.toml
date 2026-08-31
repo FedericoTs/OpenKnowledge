@@ -1,6 +1,6 @@
 [project]
 name = "openknowledge"
-version = "0.2.18"
+version = "0.2.19"
 description = "Cheap, private, deterministic enterprise document Q&A. Self-hosted."
 readme = "README.md"
 requires-python = ">=3.11"

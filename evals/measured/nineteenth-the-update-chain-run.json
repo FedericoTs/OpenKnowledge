@@ -1,0 +1,28 @@
+{
+  "what": "The first time the update chain was ever run. Eighteen releases had been published and no install had received one.",
+  "run_against_the_live_release": {
+    "how": "check_latest against the real GitHub API from a simulated 0.2.3 install, then download_and_verify against the real 75 MB asset.",
+    "check_seconds": 1.85,
+    "offered": "0.2.18, OpenKnowledge-Setup-0.2.18.exe",
+    "download_seconds": 1.6,
+    "size_mb": 75.0,
+    "sha256": "matched the digest GitHub records on the asset",
+    "verdict": "check -> offer -> download -> verify works end to end. That path had a `pragma: no cover - exercised in the field, not in tests` on it and had never been exercised in the field either."
+  },
+  "found_by_running_it": [
+    {
+      "defect": "The handoff interpolated both paths into PowerShell single-quoted strings, so an apostrophe in the Windows account name ended the string early: 'C:\\Users\\O'Brien\\...' parses as the literal C:\\Users\\O followed by bare tokens.",
+      "reach": "Every user named O'Brien, D'Angelo, O'Connor. Both paths carry the account name - the installer sits under %LOCALAPPDATA% and the relaunch target is sys.executable under %LOCALAPPDATA%\\Programs - so the update did nothing, with nothing in the app to say why.",
+      "fix": "PowerShell's one escape: a literal quote is written twice.",
+      "not_an_injection": "Windows account names disallow ; and \", so this was a breakage rather than a way in. It was fixed as a quoting bug, not a vulnerability."
+    },
+    {
+      "defect": "The release asset name was accepted on its ends alone - starts with OpenKnowledge-Setup-, ends with .exe - and then used as a filename to write into the state directory and execute.",
+      "why_it_matters": "That name is the only remote data this product turns into a running program. A name containing a separator would have written outside the directory the state dir owns.",
+      "fix": "Matched whole against OpenKnowledge-Setup-[0-9A-Za-z._-]+.exe. A release whose asset does not match simply offers no update, which is the existing behaviour for a release with no verifiable installer."
+    }
+  ],
+  "what_ci_now_proves": "A new windows-upgrade job installs the previous published release, writes a document and an .env into the per-user state directory, runs the new installer over it with the flags the app hands it, and asserts the installed --version moved and both files survived. Every release so far proved only that the installer works on a clean machine, which is the one case an existing user is never in.",
+  "still_unproven": "The final hop - the app quitting, the detached PowerShell running while its parent dies, and the relaunch - needs a real desktop session. CI installs over an idle install, which is the same situation the app arranges by quitting first, but it is not the same as watching it happen from inside the app.",
+  "pinned_by": "tests/test_update.py: the apostrophe case and the asset-name case, both checked to fail against the previous code."
+}

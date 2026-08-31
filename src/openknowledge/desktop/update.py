@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import subprocess
 import sys
 import threading
@@ -179,6 +180,13 @@ def check_latest(
     return result
 
 
+#: The asset name is the one piece of remote data this product turns into a
+#: file it then executes, so it is matched whole rather than by its ends. A
+#: name is a bare filename or it is not our installer: no separators, no
+#: quotes, no traversal into a directory the state dir does not own.
+_INSTALLER_NAME = re.compile(r"OpenKnowledge-Setup-[0-9A-Za-z._-]+\.exe")
+
+
 def _read_release(current: str, data: object) -> CheckResult:
     if not isinstance(data, dict):
         return CheckResult(current=current, error="update check failed: unexpected response")
@@ -197,7 +205,7 @@ def _read_release(current: str, data: object) -> CheckResult:
     sha256 = ""
     for asset in data.get("assets") or []:
         name = str(asset.get("name", ""))
-        if name.startswith("OpenKnowledge-Setup-") and name.endswith(".exe"):
+        if _INSTALLER_NAME.fullmatch(name):
             installer_name = name
             installer_url = str(asset.get("browser_download_url", ""))
             digest = str(asset.get("digest", ""))
@@ -308,12 +316,27 @@ class _Handoff:
 HANDOFF = _Handoff()
 
 
+def _ps_quote(value: object) -> str:
+    """A PowerShell single-quoted literal, with the one escape it has.
+
+    Inside single quotes PowerShell treats everything literally except a
+    single quote itself, which is written twice. Interpolating a path
+    straight into quotes broke for every user whose Windows account name
+    contains an apostrophe - O'Brien, D'Angelo, O'Connor - because
+    ``'C:\\Users\\O'Brien\\...'`` ends the string at the O and leaves the
+    rest as bare tokens. Both paths here are built from %LOCALAPPDATA% and
+    sys.executable, so both carry the account name, and the update simply
+    failed for those people with nothing in the app to say why.
+    """
+    return "'" + str(value).replace("'", "''") + "'"
+
+
 def spawn_command(installer: Path, relaunch: Path) -> list[str]:
     """The detached helper: silent install, then start the new build."""
     script = (
-        f"Start-Process -FilePath '{installer}' "
+        f"Start-Process -FilePath {_ps_quote(installer)} "
         "-ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -Wait; "
-        f"Start-Process -FilePath '{relaunch}'"
+        f"Start-Process -FilePath {_ps_quote(relaunch)}"
     )
     return ["powershell", "-NoProfile", "-WindowStyle", "Hidden", "-Command", script]
 

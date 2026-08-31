@@ -310,3 +310,66 @@ def test_the_widget_shows_the_version_independently_of_the_update_check(client) 
     assert 'id="build-version"' in page
     marker = page.index('id="build-version"')
     assert "healthz" in page[marker:], "the version line must not depend on the update endpoint"
+
+
+def test_the_helper_survives_an_apostrophe_in_the_account_name() -> None:
+    """O'Brien could never update, and nothing in the app said why.
+
+    Both paths in the handoff are built from the Windows account name -
+    the installer sits under %LOCALAPPDATA% and the relaunch target is
+    sys.executable under %LOCALAPPDATA%\\Programs - so an apostrophe in the
+    account name landed inside a PowerShell single-quoted string and ended
+    it early. The rest of the path parsed as bare tokens and the update
+    silently did nothing.
+    """
+    installer = Path(r"C:\Users\O'Brien\AppData\Local\OpenKnowledge\Setup.exe")
+    relaunch = Path(r"C:\Users\O'Brien\AppData\Local\Programs\OpenKnowledge\OpenKnowledge.exe")
+    script = spawn_command(installer, relaunch)[-1]
+
+    # PowerShell escapes a literal quote by doubling it, so every quote pairs.
+    assert script.count("'") % 2 == 0, script
+    assert "O''Brien" in script, "the apostrophe must be doubled, not dropped"
+    assert r"C:\Users\O'Brien\AppData\Local\OpenKnowledge\Setup.exe" not in script, (
+        "the raw path would end the string at the O"
+    )
+
+
+def test_only_a_plain_installer_filename_is_ever_offered() -> None:
+    """The one place this product turns remote data into a running program.
+
+    The asset name becomes a file we write into the state directory and then
+    execute. It used to be accepted on its ends alone - starts with the
+    prefix, ends with .exe - which says nothing about the middle, so a
+    release naming its asset with a separator could have written outside the
+    directory the state dir owns.
+    """
+    from openknowledge.desktop.update import _read_release
+
+    def release(asset_name: str) -> CheckResult:
+        return _read_release(
+            "0.1.0",
+            {
+                "tag_name": "v9.9.9",
+                "html_url": "https://example.invalid/r",
+                "assets": [
+                    {
+                        "name": asset_name,
+                        "browser_download_url": "https://example.invalid/a.exe",
+                        "digest": "sha256:" + "a" * 64,
+                    }
+                ],
+            },
+        )
+
+    assert release("OpenKnowledge-Setup-0.2.18.exe").update_available
+
+    for hostile in (
+        "OpenKnowledge-Setup-../../evil.exe",
+        r"OpenKnowledge-Setup-..\..\evil.exe",
+        "OpenKnowledge-Setup-x'; Start-Process calc; '.exe",
+        "OpenKnowledge-Setup-/etc/passwd.exe",
+    ):
+        result = release(hostile)
+        assert not result.update_available, hostile
+        assert not result.installer_name, hostile
+        assert "no digest-verified installer" in result.error, hostile
