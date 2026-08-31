@@ -354,6 +354,19 @@ column, so it can say a question was asked forty times and never who asked it
 - a knowledge base that reports what its people are looking for should not
 also be a log of who looked. A test asserts that column stays absent.
 
+### Known gaps in the golden sets
+
+- **`must_not_say` is a flat substring list**, so it cannot express "not *as the answer
+  to this question*". Two aveline cases forbade figures that a correct, fully attributed
+  answer legitimately states - the allowed payment range beside the standard term, the
+  annual training deadline beside the new joiner one - and failed answers that gave both
+  with their labels. They now forbid only figures that cannot belong in a correct answer
+  at all: another row's value, another rule's duration, a section heading read as a
+  deadline. That is the right narrowing and it is still a proxy. A case that wants to
+  say "30 days must not be given *as the new joiner deadline*" has no way to say it, so
+  the check has to be aimed at what a wrong answer would contain instead of at what it
+  would mean.
+
 ### Known gaps in document parsing
 
 - **No OCR.** A scanned PDF is reported and indexed as nothing.
@@ -366,41 +379,6 @@ also be a log of who looked. A test asserts that column stays absent.
   OpenDataLoader's `--hybrid` backend would close this, but it needs a running Docling or
   Hancom server, which breaks the no-external-calls promise.
 - **Spreadsheet formulas are read as last-saved values**, which can be stale.
-
-### The heading said three times
-
-Every chunk repeats its heading trail on every line: once as the heading itself,
-and again in front of each block, because each is rendered through
-`Block.contextual_text`. On the four-line sample VPN policy, "Remote Access and
-VPN" appears three times in a three-line chunk. Measured on the aveline corpus:
-**2,851 words indexed before, 2,436 after removing the repetition - 14.6% of the
-index was one heading, said again.** It inflates the BM25 term frequency of
-heading words, spends context on nothing, and used to open every citation with
-the heading twice.
-
-Removing it was built and gated, and the gate stopped it. Golden held at 13/13,
-full bars, tier split unchanged. Aveline dropped to **0.8824 accuracy, two
-failures** - `strategic-supplier-terms` and `new-joiner-security-training`, both
-table questions. Neither answer was wrong: with the shorter, cleaner context the
-model volunteered the *allowed range* beside the standard term ("30 days...the
-shortest allowed term is 14 days, and the longest 60 days"), every figure in the
-sources and correctly attributed. The eval forbids those figures by substring,
-because a substring check cannot tell "confused the range for the term" from
-"stated both correctly".
-
-So the change is parked, not abandoned, and the two questions it raises are the
-work:
-
-1. Is a fuller answer better here, or is scope creep in a policy bot a real
-   hazard - a reader taking "14 days" as the answer? That is a product decision,
-   not a measurement.
-2. `must_not_say` as a flat substring list cannot express "not as the answer to
-   this question". Until it can, it will keep failing correct answers and
-   passing wrong ones that use different words.
-
-The citation half shipped separately and touches nothing the index or the model
-sees: the chunk text is byte-identical (verified across all 74 chunks of both
-corpora), and only the quoted snippet is cleaned for display.
 
 ### Withdrawn after measurement
 

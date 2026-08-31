@@ -151,14 +151,20 @@ class Cascade:
                 f":c{int(self.settings.require_citations)}"
                 f":r{self.settings.rerank_candidates}"
                 f":d{self.settings.rerank_max_per_document}"
-                # Retrieval-policy revision. rp2 = a tag route is capped at a
-                # handful of documents, and its rescue may take only a
-                # minority of k. Under rp1 a wide route spent every slot and
-                # evicted the score-earned head, so a passage ranked first
-                # for its question could be absent from its own answer.
-                # rp1 = self-declared superseded documents demoted at search.
-                # Answers produced under either must not be served now.
-                ":rp2"
+                # Retrieval-policy revision. rp3 = a chunk states its heading
+                # trail once instead of on every line, so both what BM25 ranks
+                # and what the model reads have changed. corpus_version cannot
+                # see this: it hashes the documents, not the chunks they are
+                # cut into, so an install that upgrades would otherwise serve
+                # answers generated from the old shape against an unchanged
+                # key. rp2 = a tag route is capped at a handful of documents,
+                # and its rescue may take only a minority of k. Under rp1 a
+                # wide route spent every slot and evicted the score-earned
+                # head, so a passage ranked first for its question could be
+                # absent from its own answer. rp1 = self-declared superseded
+                # documents demoted at search. Answers produced under any of
+                # them must not be served now.
+                ":rp3"
                 # Tag routing changes which chunks a question is answered
                 # from, so flipping it must re-key. Its thresholds live in
                 # retrieval/tags.py; changing those means bumping rp.

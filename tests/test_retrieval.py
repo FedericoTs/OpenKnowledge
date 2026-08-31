@@ -550,7 +550,7 @@ def test_a_year_opening_a_line_is_not_treated_as_numbering() -> None:
     assert "2019" in " ".join(report.reasons)
 
 
-def test_a_chunk_knows_the_section_it_came_from() -> None:
+def test_a_chunk_states_its_heading_trail_once() -> None:
     """The heading trail as metadata, so a citation can name where to look.
 
     The trail is also repeated through the chunk's text - once as the heading
@@ -568,8 +568,12 @@ def test_a_chunk_knows_the_section_it_came_from() -> None:
 
     assert chunk.section == "Remote Access and VPN"
     assert chunk.locator == "chunk 1", "the gate resolves 'chunk 4' against this"
-    # Unchanged: the text is what the index holds and what the model reads.
-    assert chunk.text.count("Remote Access and VPN") == 3
+    # Once, not three times: as the trail at the top and nowhere else.
+    assert chunk.text.count("Remote Access and VPN") == 1
+    assert chunk.text.startswith("Remote Access and VPN:")
+    # What the trail is for survives: the passage still says what it is about.
+    assert "install the client" in chunk.text
+    assert "approved by IT Operations" in chunk.text
 
 
 def test_a_nested_section_keeps_the_whole_trail() -> None:
@@ -581,6 +585,8 @@ def test_a_nested_section_keeps_the_whole_trail() -> None:
     )
     chunk = next(c for c in chunk_document(doc) if "EUR 45" in c.text)
     assert chunk.section == "Expenses Policy > Meals and subsistence"
+    assert chunk.text.count("Meals and subsistence") == 1
+    assert chunk.text.startswith("Expenses Policy > Meals and subsistence:")
 
 
 def test_a_document_with_no_headings_has_no_section() -> None:

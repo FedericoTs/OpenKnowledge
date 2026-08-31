@@ -138,19 +138,44 @@
   question: What are the standard payment terms for a strategic supplier?
   must_cite: [finance-approval-limits]
   must_say: [["30 days", "thirty days", "30"]]
-  must_not_say: ["14 days", "21 days", "60 days"]
+  must_not_say: ["21 days"]
   tags: [finance, table, format]
-  notes: Excel. The value is a cell, and only means anything with its row label.
+  notes: >
+    Excel. The value is a cell, and only means anything with its row label -
+    so what this forbids is a figure from a DIFFERENT row. 21 is the Preferred
+    tier's shortest allowed term and has nothing to do with a strategic
+    supplier; seeing it means the row label was lost. 14 and 60 are the
+    strategic row's own shortest and longest, and were forbidden here until an
+    answer stated all three correctly and was failed for it: "30 days from
+    receipt of a valid invoice; the shortest allowed term is 14 days, and the
+    longest 60". Every figure sourced, every one labelled. A substring cannot
+    tell that from confusing the range for the term, so it should only forbid
+    figures that cannot belong in a correct answer at all.
 
 - id: new-joiner-security-training
   question: How long does a new joiner have to complete security awareness training?
   must_say: [["two weeks", "2 weeks"]]
-  must_not_say: ["30 days"]
+  must_not_say: ["one week", "1 week", "12 hours"]
   tags: [security, format, conditions]
   notes: >
     Word document, and a deliberate near-miss: the security policy says 30 days
     for the general case, the onboarding checklist says two weeks for new
-    joiners. Answering "30 days" is retrieving the wrong one of two true things.
+    joiners. Answering "30 days" is retrieving the wrong one of two true
+    things - and must_say already fails an answer that gives it INSTEAD of two
+    weeks, which is the failure. "30 days" was also forbidden outright, which
+    failed an answer that gave both with their conditions attached: "within
+    their first two weeks; the Information Security Policy mandates annual
+    training within 30 days of assignment". Both true, both sourced, and the
+    one asked for stated first. The check that matters is here in must_say;
+    the ban was catching correct context as well as the confusion.
+
+    What is ruled out instead is the wrong answer this corpus is actually
+    shaped to produce: the checklist files this item under a "Week one"
+    heading while the deadline is two weeks, so "one week" is reading the
+    section title as the rule. That near-miss got likelier, not less, when
+    chunks began stating their heading trail once at the top instead of in
+    front of every line. "12 hours" is the VPN session expiry from the same
+    policy - a different rule entirely, and a sign the wrong one was read.
 
 # --- needs more than one document ------------------------------------------
 

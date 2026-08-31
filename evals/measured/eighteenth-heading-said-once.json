@@ -1,0 +1,29 @@
+{
+  "what": "The index fix parked in v0.2.16, unparked after a product decision: the fuller answer is better. A chunk states its heading trail once instead of on every line.",
+  "the_repetition": {
+    "cause": "Every block was rendered through Block.contextual_text, which prefixes each with its own copy of the trail - so under one H1 the heading appeared once as itself and again in front of every paragraph.",
+    "measured_whole_corpus": {
+      "aveline_before": "3722 words in 68 chunks",
+      "aveline_after": "3162 words in 68 chunks",
+      "removed": "560 words, 15.0%",
+      "sample_corpus": "264 -> 241 words, 8.7%",
+      "note": "The chunk count is identical, so no boundary moved. The earlier 2851 -> 2436 figure quoted in v0.2.16 counted markdown files only; these are the whole corpora, and supersede it."
+    },
+    "cost_of_it": "Inflated BM25 term frequency for heading words, context spent on nothing, and until v0.2.16 a citation that opened with the heading twice."
+  },
+  "why_it_was_parked": "It changed two aveline answers, and the gate failed them. Neither answer was wrong: with the cleaner context the model volunteered the allowed range beside the standard term. must_not_say forbade those figures by substring, and a substring cannot tell 'confused the range for the term' from 'stated both correctly'.",
+  "the_decision": "The fuller answer is better - a product decision, taken by the owner, not a measurement. So the two cases were narrowed rather than the change being weakened.",
+  "what_the_cases_forbid_now": {
+    "strategic-supplier-terms": "21 days only - the Preferred tier's shortest allowed term, which cannot appear in a correct answer about a strategic supplier. 14 and 60 are that supplier's own range and are allowed.",
+    "new-joiner-security-training": "'one week', '1 week', '12 hours'. Not '30 days', which is the annual deadline correctly cited beside the new joiner one. The new guard is aimed at the wrong answer this corpus is actually shaped to produce: the checklist files the training item under a 'Week one' heading while the deadline is two weeks, so 'one week' is reading the section title as the rule - a near-miss this very change makes likelier, by giving the heading its own line at the top of the chunk. '12 hours' is the VPN session expiry from the same policy: a different rule entirely.",
+    "principle": "Forbid figures that cannot belong in a correct answer at all - another row's value, another rule's duration, a heading read as a deadline - rather than figures a correct answer may legitimately state."
+  },
+  "answers_as_shipped": {
+    "strategic-supplier-terms": "The standard payment terms for a strategic supplier are 30 days from receipt of a valid invoice [finance-approval-limits]. The shortest allowed term is 14 days, and the longest allowed term is 60 days. Terms shorter than 30 days require Chief Financial Officer approval, and terms longer than 60 days must not be agreed [finance-procurement-policy].",
+    "new-joiner-security-training": "A new joiner must complete security awareness training within their first two weeks of joining [hr-onboarding-checklist]. This requirement is also stated in the Information Security Policy, which mandates annual training completion within 30 days of assignment, with new joiners completing it within their first two weeks [security-information-security].",
+    "note": "Both lead with the figure that was asked for and attach the condition to every other figure they state. Both were verified against the source rows before the eval was touched."
+  },
+  "cache": "Retrieval policy rp2 -> rp3. corpus_version hashes the documents, not the chunks they are cut into, so it cannot see a chunker change: without the bump an upgraded install would have served answers generated from the old chunk shape against an unchanged key. That is the defect this bump exists to prevent, and it was found by asking what the key actually covers rather than by a test.",
+  "gate": "Both golden sets at full bars on the shipped code: golden 13/13, aveline 26/26, accuracy 1.0, zero false answers, determinism 1.0, paraphrase consistency 1.0, tier splits unchanged at 8/5 and 17/8/1.",
+  "still_open": "must_not_say cannot say 'not as the answer to this question'. The narrowing above is the right shape and still a proxy - recorded in ROADMAP under 'known gaps in the golden sets'."
+}

@@ -199,9 +199,8 @@ def chunk_blocks(doc: Document, *, target_words: int = 350, overlap_words: int =
         nonlocal current_words, pending_heading
         if not current:
             return
-        text = "\n".join(b.contextual_text for b in current).strip()
+        text, section = _passage(current)
         if text:
-            section = _section_of(current)
             locator = next((b.locator for b in current if b.locator), None)
             chunks.append(_make_chunk(doc, len(chunks), text, locator, section))
         current.clear()
@@ -243,20 +242,42 @@ def chunk_blocks(doc: Document, *, target_words: int = 350, overlap_words: int =
     return chunks
 
 
-def _section_of(blocks: list[Block]) -> str | None:
-    """The heading trail a chunk sits under, or None if it has none.
+def _passage(blocks: list[Block]) -> tuple[str, str | None]:
+    """One chunk's text, with its heading trail stated once, and that trail.
 
-    Metadata only: the chunk's text is not touched. That is deliberate. The
-    trail is also repeated inside the text - once as the heading and again in
-    front of every block, because each is rendered through
-    ``Block.contextual_text`` - and removing that repetition measurably
-    changes what BM25 ranks and what the model reads. It is worth doing and
-    it is not this change: see ROADMAP, "the heading said three times".
+    Every block used to be rendered through ``Block.contextual_text``, which
+    prefixes each with its own copy of the trail. Under one H1 that put the
+    heading in a chunk once as itself and again in front of every paragraph -
+    on the four-line sample VPN policy, three times in a three-line chunk.
+    Measured on the aveline corpus: 2851 words indexed before, 2436 after.
+    **14.6% of what we indexed was one heading, said again**, inflating the
+    BM25 term frequency of heading words and spending context on nothing.
+
+    Saying it once keeps what the trail is for - a passage retrieved alone
+    still states what it is about - and drops the repetition, which never
+    told anything anything it did not already know.
     """
+    trail: tuple[str, ...] = ()
     for block in blocks:
         if block.kind is not BlockKind.HEADING and block.heading_path:
-            return " > ".join(block.heading_path)
-    return None
+            trail = tuple(block.heading_path)
+            break
+
+    lines: list[str] = []
+    if trail:
+        lines.append(" > ".join(trail) + ":")
+    for block in blocks:
+        # The heading's own line is already the last step of the trail above.
+        if block.kind is BlockKind.HEADING and trail and block.text == trail[-1]:
+            continue
+        # A heading always starts a chunk, so every content block here shares
+        # one trail and the line above already states it. Anything that does
+        # not share it keeps its own label rather than being filed under a
+        # heading it was never under - the invariant is the parser's, and this
+        # does not need to depend on it holding.
+        own = tuple(block.heading_path)
+        lines.append(block.text if not own or own == trail else block.contextual_text)
+    return "\n".join(lines).strip(), (" > ".join(trail) if trail else None)
 
 
 def _make_chunk(
