@@ -268,6 +268,20 @@ turn rather than failing.
 If you point `OK_LOCAL_BASE_URL` at a server you started yourself, set this
 to match the `--parallel` (llama.cpp) or equivalent you launched it with.
 
+**Run one worker process.** The queue, the caches and the index all live in
+the process that serves the request — `uvicorn ... --workers 4` gives you
+four of each. Four queues of one slot each against a one-slot model server
+is four simultaneous requests, which is the exact failure the queue exists
+to prevent; the corpus is also held four times over, at roughly 220 MB per
+copy for a thousand documents. `openknowledge serve` runs a single worker
+and takes no `--workers` flag. To serve more people, raise
+`OK_LOCAL_PARALLEL` and the model server's slots together — that is the
+dimension with the memory behind it.
+
+This matters when load-testing too: a benchmark run against several workers
+measures a configuration the queue was never designed for, and its severed
+streams are the harness's doing rather than the product's.
+
 ### Manage it from the browser
 
 `/manage` is where the folder-and-CLI work moves into the browser: add and

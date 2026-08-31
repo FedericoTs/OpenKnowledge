@@ -80,6 +80,19 @@ class Embedder:
     Ollama's own ``/api/embed`` is preferred where it exists because it batches;
     the OpenAI-compatible ``/v1/embeddings`` is the fallback, which vLLM,
     LM Studio and llama.cpp all serve.
+
+    Deliberately synchronous, and that is load-bearing. The embedding server
+    runs with one slot like the chat server, and a request arriving with none
+    free has its connection cut - the failure that made four simultaneous
+    questions answer one and refuse three before the chat provider grew a
+    queue. Nothing queues *here*; being synchronous is what stops two
+    embedding calls from ever being in flight at once in a single-worker
+    process. Measured: a question costs the event loop about 235ms of stall,
+    which is the price of that safety and is not worth an outage to reclaim.
+
+    So making this async is not a free performance win. Whoever does it owes
+    the endpoint the same gate ``OpenAICompatProvider`` has, sized by
+    ``OK_LOCAL_PARALLEL``, or the severed streams come straight back.
     """
 
     model: str = DEFAULT_MODEL
