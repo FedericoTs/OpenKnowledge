@@ -564,3 +564,67 @@ def test_a_refusal_note_names_the_model_not_its_path() -> None:
     assert _rung_display(windows) == "Qwen3-4B"
     assert _rung_display("/opt/models/nomic-embed.gguf") == "nomic-embed"
     assert _rung_display("qwen3:8b") == "qwen3:8b"
+
+
+async def test_a_refusal_is_never_cached_against_someone_who_may_be_answered(
+    store, settings
+) -> None:
+    """The cache holds answers, not absences.
+
+    Nothing keys the cache on who is asking - that would give every employee a
+    private cache and destroy the hit rate the cost model rests on - so an
+    entry made for one person is offered to the next. For a real answer that
+    is safe because visibility is re-checked on read. For a refusal there is
+    nothing to re-check: were one stored, the first person who could not see a
+    document would deny it to everyone who could.
+
+    Today refusals are never written, because the cache write only happens on
+    a rung that produced an answer. That is control flow rather than a stated
+    rule, which is exactly the kind of thing a later "cache the refusals too,
+    they are free" change would undo without a test failing.
+    """
+    secret = Document(
+        "board-comp",
+        "Board Compensation",
+        "Executive salary bands run from EUR 180000 to EUR 240000.",
+        allowed_principals=frozenset({"board"}),
+    )
+    retriever = BM25Retriever()
+    retriever.index([secret])
+    local = FakeProvider(replies=["Bands run from EUR 180000 to EUR 240000 [board-comp]."] * 3)
+    cascade = build(store, retriever, settings, local=local)
+    question = "What are the executive salary bands?"
+
+    outsider = await cascade.answer(question, principals=frozenset({"staff"}))
+    assert outsider.tier is Tier.REFUSED
+
+    privileged = await cascade.answer(question, principals=frozenset({"board"}))
+    assert "180000" in privileged.text, "a refusal for one asker was inherited by another"
+
+
+async def test_the_document_listing_is_answered_per_asker_not_from_cache(store, settings) -> None:
+    """ "What documents do you have?" has a different true answer for each
+    person, so it must never be served from a shared cache. It is computed
+    from the asker's own visible set every time - and, like the refusal above,
+    that holds because the corpus tier returns before the cache is written."""
+    retriever = BM25Retriever()
+    retriever.index(
+        [
+            Document("public-handbook", "Employee Handbook", "Parental leave is 20 weeks."),
+            Document(
+                "board-comp",
+                "Board Compensation",
+                "Bands run from EUR 180000 to EUR 240000.",
+                allowed_principals=frozenset({"board"}),
+            ),
+        ]
+    )
+    cascade = build(store, retriever, settings, local=FakeProvider(replies=[GROUNDED] * 3))
+    question = "what documents do you have?"
+
+    board = await cascade.answer(question, principals=frozenset({"board"}))
+    staff = await cascade.answer(question, principals=frozenset({"staff"}))
+
+    assert "Board Compensation" in board.text
+    assert "Board Compensation" not in staff.text, "the listing leaked across askers"
+    assert "Employee Handbook" in staff.text, "and the public document is still named"
