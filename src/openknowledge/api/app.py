@@ -391,7 +391,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             while True:
                 await asyncio.sleep(seconds)
                 try:
-                    changed = await run_in_threadpool(app.state.engine.reindex_if_documents_changed)
+                    changed = app.state.engine.reindex_if_documents_changed()
                 except Exception:  # noqa: BLE001 - a rescan must never end the server
                     log.exception("re-reading the documents folder failed; will try again")
                     continue
