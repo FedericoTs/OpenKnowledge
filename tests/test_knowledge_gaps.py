@@ -114,3 +114,19 @@ def test_the_endpoint_reports_the_gaps(tmp_path) -> None:
         body = c.get("/admin/gaps", headers=_AUTH).json()
         assert body["gaps"][0]["question"] == "what is the contractor notice period"
         assert body["gaps"][0]["asked"] == 2
+
+
+def test_the_manage_page_shows_the_gaps(tmp_path) -> None:
+    """A report nobody sees is a report nobody acts on. The corpus owner
+    works in /manage, so the panel lives there - and it has to be refreshed
+    on both routes into the page, the pasted admin token and the signed-in
+    admin session, or it silently stays empty for half the people who have
+    it."""
+    with TestClient(create_app(_settings(tmp_path))) as c:
+        page = c.get("/manage").text
+        assert "Asked and not answered" in page
+        assert "async function refreshGaps()" in page
+        assert page.count("refreshGaps();") == 2, "both unlock paths must load it"
+        # The promise the panel makes about privacy has to be on the page,
+        # not only in a docstring the reader will never open.
+        assert "no column for who asked" in page

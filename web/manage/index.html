@@ -106,6 +106,17 @@
   </section>
 
   <section data-admin-section>
+    <h2>Asked and not answered</h2>
+    <p class="hint">
+      Questions your people asked that these documents could not answer, most
+      asked first — each one a document worth writing, or an answer worth
+      pinning. Nobody's name is recorded against any of them: the log this
+      reads has no column for who asked.
+    </p>
+    <div id="gaps"><p class="locked-note">Unlock to load.</p></div>
+  </section>
+
+  <section data-admin-section>
     <h2>Access</h2>
     <p class="hint">
       Who may read each folder. A rule names its readers as
@@ -390,6 +401,30 @@ async function refreshProposals() {
   } catch (e) { box.innerHTML = ''; box.appendChild(el('p', 'empty', e.message)); }
 }
 
+async function refreshGaps() {
+  const box = $('gaps');
+  try {
+    const body = await api('/admin/gaps');
+    box.textContent = '';
+    if (!body.gaps.length) {
+      box.appendChild(el('p', 'empty',
+        'Nothing was refused in the last 30 days — the documents covered what was asked.'));
+      return;
+    }
+    for (const g of body.gaps) {
+      const item = box.appendChild(el('div', 'item'));
+      const head = item.appendChild(el('div', 'row'));
+      head.appendChild(el('span', 'tag', g.asked === 1 ? 'once' : g.asked + ' times'));
+      head.appendChild(el('b', null, g.question));
+      const when = new Date(g.last_asked * 1000);
+      item.appendChild(el('p', 'quiet', 'last asked ' + when.toLocaleDateString()));
+    }
+  } catch (e) {
+    box.textContent = '';
+    box.appendChild(el('p', 'locked-note', e.message));
+  }
+}
+
 async function refreshConflicts() {
   const box = $('conflicts');
   try {
@@ -515,7 +550,8 @@ async function unlock(token) {
   say('Unlocked.', true);
   $('forget').hidden = false;
   $('token-input').value = '';
-  refreshAccess(); refreshProposals(); refreshConflicts(); refreshSettings(); refreshCosts();
+  refreshGaps(); refreshAccess(); refreshProposals();
+  refreshConflicts(); refreshSettings(); refreshCosts();
   return true;
 }
 $('unlock').onclick = () => {
@@ -559,7 +595,8 @@ fetch('/auth/me').then(r => r.ok ? r.json() : null).then(async (who) => {
       await api('/admin/settings');
       $('unlock-section').hidden = true;
       say('Admin, via your sign-in group.', true);
-      refreshAccess(); refreshProposals(); refreshConflicts(); refreshSettings(); refreshCosts();
+      refreshGaps(); refreshAccess(); refreshProposals();
+  refreshConflicts(); refreshSettings(); refreshCosts();
     } catch (e) { /* fall back to the token flow */ }
   }
 }).catch(() => {});
