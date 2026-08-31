@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -43,6 +44,52 @@ class Engine:
     documents: list[Document] = field(default_factory=list)
     #: What the last reindex reported as new or changed.
     last_scan: IngestReport | None = None
+    #: The folder stamp as of the last read; see reindex_if_documents_changed.
+    _documents_stamp: str = ""
+
+    def documents_fingerprint(self) -> str:
+        """A cheap stamp of the corpus folder: names, sizes, modification times.
+
+        Deliberately not the content hash the corpus version uses. That one
+        answers "is this the same corpus?" and has to read every byte to say
+        so; this one answers "is it worth looking?" and only stats. On a
+        thousand documents it is a few milliseconds, which is what lets it run
+        on a timer without anyone noticing.
+        """
+        from ..documents import is_supported
+
+        root = Path(self.settings.documents_dir)
+        if not root.is_dir():
+            return "no-folder"
+        digest = hashlib.sha256()
+        for path in sorted(root.rglob("*")):
+            if not path.is_file() or not is_supported(path):
+                continue
+            try:
+                stat = path.stat()
+            except OSError:  # a file being written as we walk past it
+                continue
+            digest.update(str(path.relative_to(root)).encode("utf-8"))
+            digest.update(f"{stat.st_mtime_ns}:{stat.st_size}".encode())
+        return digest.hexdigest()[:16]
+
+    def reindex_if_documents_changed(self) -> bool:
+        """Re-read the corpus when the folder has moved under us.
+
+        Uploads and deletes re-index themselves, so this exists for the other
+        way documents arrive on a shared server: dropped into the folder,
+        synced from SharePoint, corrected in place by whoever owns them.
+        Measured before this existed - a policy edited on disk left the index
+        holding the old text, and the answer cited last year's figure with
+        every appearance of being current. The cache is careful never to serve
+        a stale answer, but nothing could save it while the index itself had
+        never re-read the file.
+        """
+        stamp = self.documents_fingerprint()
+        if stamp == self._documents_stamp:
+            return False
+        self.reindex()
+        return True
 
     def reindex(self) -> tuple[int, int, str, int]:
         """Re-read the corpus. Free: this never calls a model.
@@ -52,6 +99,7 @@ class Engine:
         separate precisely so that re-indexing cannot spend money by surprise.
         """
         self.documents = self.connector.fetch()
+        self._documents_stamp = self.documents_fingerprint()
         self.retriever.index(self.documents)
         evicted = self.store.evict_other_corpus_versions(self.retriever.corpus_version)
         if self.cascade.semantic is not None:

@@ -307,6 +307,36 @@ measurement: the container this was run in serves the model through
 llama-cpp-python, which has no slots to raise. Treat the multi-slot advice
 as untested until someone runs it on llama.cpp's own server.
 
+### Documents that change in the folder
+
+Uploads and deletes through the app re-index themselves. On a shared server
+documents also arrive the other way - dropped into the folder, synced from
+SharePoint, corrected in place by whoever owns them - and nothing tells the
+app at all.
+
+Measured before this was handled: a policy edited on disk left the index
+holding the old text, and the answer cited last year's figure while looking
+entirely current. That is the one kind of wrong answer this product exists to
+prevent, and the answer cache could not help - the cache is careful never to
+serve an answer from a superseded corpus, but it is only consulted after the
+index has already decided what the corpus says.
+
+So the folder is checked on a timer:
+
+```sh
+OK_DOCUMENTS_RESCAN_SECONDS=60   # 0 turns it off
+```
+
+The check stats each file and compares names, sizes and modification times -
+a few milliseconds on a thousand documents - and re-reads only when something
+actually moved. It runs on a timer rather than on the request path on
+purpose: re-reading a large corpus can spend minutes embedding new text, and
+the person whose question happened to arrive first should not be the one who
+waits for it. Staleness is bounded by the interval instead.
+
+Set it to `0` if the corpus only ever changes through the app, or if you
+would rather trigger re-reads yourself with `POST /reindex`.
+
 ### Manage it from the browser
 
 `/manage` is where the folder-and-CLI work moves into the browser: add and

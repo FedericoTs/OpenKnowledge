@@ -15,6 +15,7 @@ into a required query parameter.
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import json
 import logging
@@ -372,6 +373,33 @@ def _warn_if_the_model_is_unreachable(settings: Settings) -> None:
 def create_app(settings: Settings | None = None) -> FastAPI:
     resolved = settings or load_settings()
 
+    def _watch_the_documents_folder(app: FastAPI) -> asyncio.Task[None] | None:
+        """Notice documents that change in the folder rather than in the app.
+
+        Deliberately a timer and not the request path. Re-reading is cheap
+        only when nothing moved; when something has, a large corpus can spend
+        minutes embedding, and a person whose question happened to arrive
+        first should not be the one who waits for it. Staleness is bounded by
+        the interval instead - a worse answer than "instant", and a far better
+        one than "until somebody restarts the server".
+        """
+        seconds = app.state.settings.documents_rescan_seconds
+        if seconds <= 0:
+            return None
+
+        async def loop() -> None:
+            while True:
+                await asyncio.sleep(seconds)
+                try:
+                    changed = await run_in_threadpool(app.state.engine.reindex_if_documents_changed)
+                except Exception:  # noqa: BLE001 - a rescan must never end the server
+                    log.exception("re-reading the documents folder failed; will try again")
+                    continue
+                if changed:
+                    log.info("documents changed on disk; re-indexed")
+
+        return asyncio.create_task(loop())
+
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         _provision_admin_token(app.state.settings)
@@ -379,9 +407,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.engine = build_engine(app.state.settings)
         _warn_if_the_model_is_unreachable(app.state.settings)
         _warm_the_model_in_the_background(app.state.settings)
+        watcher = _watch_the_documents_folder(app)
         try:
             yield
         finally:
+            if watcher is not None:
+                watcher.cancel()
             app.state.engine.store.close()
             app.state.engine.knowledge.close()
             close_auth = getattr(app.state, "auth_close", None)

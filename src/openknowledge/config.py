@@ -114,6 +114,20 @@ class Settings(BaseSettings):
     #: should raise this - both halves move together, so raising it here is
     #: the whole change.
     local_parallel: int = Field(default=1, ge=1)
+    #: How often to notice documents that changed in the folder, in seconds.
+    #:
+    #: Uploads and deletes re-index themselves. This is for the other way
+    #: documents arrive on a shared server - dropped into the folder, synced
+    #: from SharePoint, corrected in place - where nothing tells the app at
+    #: all. Measured before this existed: a policy edited on disk left the
+    #: index holding the old text, and the answer cited last year's figure
+    #: while looking entirely current, which is the one kind of wrong answer
+    #: this product exists to prevent.
+    #:
+    #: The check is a stat of each file, a few milliseconds on a thousand
+    #: documents, and re-reads only when something actually moved. Zero turns
+    #: it off for a corpus that only ever changes through the app.
+    documents_rescan_seconds: int = Field(default=60, ge=0)
     #: Load the model at server start, in the background, instead of letting
     #: the first question absorb the load time. Costs nothing when the model
     #: is already resident.
