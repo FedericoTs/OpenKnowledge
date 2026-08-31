@@ -282,6 +282,31 @@ This matters when load-testing too: a benchmark run against several workers
 measures a configuration the queue was never designed for, and its severed
 streams are the harness's doing rather than the product's.
 
+**How many people one slot serves.** Measured on a 4-core CPU with the
+bundled 4B model, one worker and one slot (the full run is in
+`evals/measured/thirteenth-load-test-shared-server.json`):
+
+| Load | Result |
+| --- | --- |
+| 1 person, new questions | 9s an answer |
+| 8 at once, all new questions | all 8 answered, the last waits 90s |
+| 8 at once, repeating questions | 60 answers a minute, 1.2s median |
+
+The number that decides capacity is how many *novel* questions arrive, not
+how many people are asking. One slot generates roughly six new answers a
+minute and serves repeats from the answer cache for nothing, so a team
+asking mostly the same things shares one slot comfortably, while a room of
+people each asking something different queues behind it. Nothing failed at
+any level tested and no stream was severed: contention now costs waiting
+rather than a refusal.
+
+Raising `OK_LOCAL_PARALLEL` on a machine with memory to spare should raise
+that ceiling - the model server used only about a third of the available CPU
+while generating, so the headroom is real - but that is reasoning, not a
+measurement: the container this was run in serves the model through
+llama-cpp-python, which has no slots to raise. Treat the multi-slot advice
+as untested until someone runs it on llama.cpp's own server.
+
 ### Manage it from the browser
 
 `/manage` is where the folder-and-CLI work moves into the browser: add and

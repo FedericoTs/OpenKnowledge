@@ -1,0 +1,47 @@
+{
+  "what": "First load test of the shared-server deployment, on the concurrency gate shipped in v0.2.9. The gate had been proven to stop severed streams at four simultaneous questions; it had never been asked what the queue does to the person at the back of it, which is the number an operator needs.",
+  "setup": "One uvicorn worker, OK_LOCAL_PARALLEL=1, escalation off so every answer is generated locally. Two-document corpus, so retrieval is trivial and the numbers are the model's; a thousand-document corpus adds about 160ms per question, negligible against a nine-second generation.",
+  "hardware": "4-core CPU container, no GPU; Qwen3-4B-Instruct Q4_K_M via llama-cpp-python",
+  "runs": [
+    {
+      "users": 1,
+      "questions": 3,
+      "mix": "unique",
+      "answered": "3/3",
+      "failed": 0,
+      "wall_s": 55.3,
+      "answers_per_min": 3.3,
+      "latency_p50_s": 9.1,
+      "note": "the 38s maximum is the first call loading the model"
+    },
+    {
+      "users": 8,
+      "questions": 8,
+      "mix": "unique, cold cache",
+      "answered": "8/8",
+      "failed": 0,
+      "wall_s": 90.3,
+      "answers_per_min": 5.3,
+      "latency_p50_s": 71.0,
+      "latency_max_s": 90.3,
+      "severed_streams": 0,
+      "note": "the queue is strictly serial at one slot: the Nth person waits about N x 10s"
+    },
+    {
+      "users": 8,
+      "questions": 16,
+      "mix": "repeated, as an office asks",
+      "answered": "16/16",
+      "failed": 0,
+      "wall_s": 16.0,
+      "answers_per_min": 59.9,
+      "latency_p50_s": 1.2,
+      "served_from_cache": "12/16",
+      "severed_streams": 0,
+      "note": "eleven times the throughput of the cold run, from the answer cache alone"
+    }
+  ],
+  "what_it_means": "Capacity is set by the rate of NOVEL questions, not by the number of people. One slot answers roughly six new questions a minute and serves repeats for nothing, so a team asking mostly the same things shares one slot comfortably while a room of people each asking something new queues behind it. Nothing failed at any level tested and no stream was severed, which is the gate doing its job: the cost of contention is now waiting rather than a refusal blaming the operator's configuration.",
+  "headroom": "The model server used about 145% CPU of the 400% available during a generation - memory-bandwidth bound rather than core bound - so the machine has capacity that more slots could plausibly use.",
+  "caveat": "That last sentence is inference, not measurement. The advice in LOCAL-SETUP to raise OK_LOCAL_PARALLEL on a larger server remains UNVERIFIED: llama-cpp-python, which serves this container, has no --parallel, so multi-slot throughput was never actually run. Proving it needs a llama.cpp llama-server started with --parallel 2 on a machine with memory for two full-context KV buffers. Until someone runs that, treat the multi-slot guidance as reasoned rather than measured."
+}
