@@ -445,6 +445,40 @@ over source with strings and comments blanked, and asserts an occurrence
 runs at depth zero. Confirmed by putting the bug back and watching it go
 red.
 
+### The relaunch, finally tested
+
+The v0.5.0 release went green with a PyInstaller traceback inside its
+upgrade job. The traceback was the harness — a `--version` probe that
+launched the frozen app while the installer was overwriting its
+`base_library.zip`, absorbed by the retry loop as "not yet" — but two
+defects were underneath it.
+
+The check could pass mid-install. Inno's log says an install takes 6.57
+seconds and the version-named `.dist-info` that `--version` reads lands
+2.96 seconds in, with 400 files still to write. That run declared the
+upgrade landed 1.9 seconds before the installer finished, then ended; the
+runner found no app alive at cleanup, where the previous release's run had
+left one. The check now waits for the app to answer `/healthz` reporting
+the new version — the running process, which no half-written directory can
+satisfy.
+
+And the hop it exists to prove had never run. The job started
+`openknowledge.exe serve` and told the handoff to relaunch
+`openknowledge.exe` — the CLI, which with no subcommand prints a usage
+error and exits. It has been relaunching nothing since it was written, and
+passing, because it only read a version string off disk. It now drives
+`OpenKnowledgeApp.exe`, the windowed entry the shortcut runs. Measured
+after the fix: 15.2 seconds from handoff to the reopened app serving as
+the new version, and no traceback anywhere in the log.
+
+The product had a smaller version of the same mistake. `spawn_installer`
+relaunched `sys.executable`, which is the windowed build when the shortcut
+started it and the CLI when `openknowledge desktop` did — reachable from
+any terminal, and what the installer's PATH option is for. That update
+closed the app and never brought it back. `relaunch_target` now hands off
+to the windowed build when the CLI is running, with the name pinned to the
+one the bundle builds.
+
 ### Known gaps in the Windows upgrade
 
 - **Inno removes nothing the new build dropped.** An upgrade replaces every file

@@ -1,0 +1,38 @@
+{
+  "what": "Investigating a traceback inside a green release run. It was the harness, and underneath it were two defects: a check that could pass mid-install, and a last hop that had never been tested at all.",
+  "the_symptom": "The v0.5.0 release published with all four jobs green, and windows-upgrade's log carried a PyInstaller ZipImportError on base_library.zip between the handoff and the success line. The v0.4.0 run, same job, had no such traceback.",
+  "what_the_primary_artifacts_said": {
+    "innos_own_log": "An install takes 6.57s. base_library.zip is replaced at +0.82s with 400 more files after it. The version-named .dist-info that `--version` reads lands at +2.96s. So there is a 3.6-second window in which the app truthfully reports the NEW version out of a half-installed directory.",
+    "the_job_log": "The step declared 'the app handed off its own upgrade while running, and it landed: 0.5.0' at 14:06:25.74. The handoff installer started at about 14:06:21, so it finished at about 14:06:27.6 - the success was declared 1.9 seconds before the install was done.",
+    "the_runner_cleanup": "v0.4.0's run terminated an orphan `openknowledge` process at job end. v0.5.0's terminated none. The relaunched app did not exist."
+  },
+  "the_traceback_itself": "The harness, not the product. The old check polled `openknowledge.exe --version` every two seconds; one probe launched the frozen app while the installer was overwriting base_library.zip underneath it, PyInstaller failed to load, and the retry loop absorbed the crash as 'not yet'. The app's own handoff runs the installer to completion before relaunching, so a person's upgrade was never affected by this.",
+  "defect_one_the_check_could_pass_mid_install": {
+    "was": "Poll `--version` on disk for the new version string, up to 90 times.",
+    "why_that_is_weak": "It reads the name of a .dist-info directory Inno writes three seconds into a seven-second install. It proves the version metadata was written, not that the install completed - and nothing else in the job noticed the difference.",
+    "now": "Wait for the app to answer GET /healthz reporting the new version. That comes from the process that is actually running, so it cannot be satisfied by a directory still being written, and it cannot be satisfied by the old build either - which reports the version it was built as, and is asserted to do so before the handoff."
+  },
+  "defect_two_the_last_hop_was_never_tested": {
+    "was": "The job started `openknowledge.exe serve` as the running build and told the handoff to relaunch `openknowledge.exe`.",
+    "why_that_is_nothing": "That is the CLI. With no subcommand it prints a usage error and exits. So the hop this test exists to prove - the app coming back - relaunched a process that died immediately, for as long as the test has existed. It passed because it only ever read a version string off disk.",
+    "now": "It starts and relaunches OpenKnowledgeApp.exe, the windowed entry the Start-menu shortcut runs and therefore what sys.executable is when a real app hands off its own upgrade."
+  },
+  "defect_three_in_the_product": {
+    "what": "`spawn_installer` relaunched `sys.executable`. Correct when the windowed entry is running. Wrong when the app was started as `openknowledge desktop`, which makes sys.executable the CLI - and that update closes the app and never brings it back.",
+    "reachable": "The installer offers an 'add to PATH' task, and any terminal can run `openknowledge desktop`. Not the documented way to start the app, which is the shortcut, so this is secondary - but it is the exact failure this whole area exists to prevent.",
+    "fix": "`relaunch_target` hands off to the windowed build when the CLI is the one running, and falls back to what it was given for any layout it does not recognise. The executable name is pinned to the one packaging/pyinstaller/openknowledge.spec builds, so a rename there fails a test rather than shipping."
+  },
+  "measured_after": {
+    "run": "Package dispatched at 0.5.1 against published 0.5.0, all three jobs green.",
+    "the_log": "built: 0.5.1 / upgrading from: 0.5.0 (14:56:29) / upgrade installer exited 0 / upgraded 0.5.0 -> openknowledge 0.5.1, state intact (14:56:46) / starting the old build (14:56:53) / old build serving as pid 3596, reporting 0.5.0 / handoff: Wait-Process -Id 3596 ... Setup-0.5.1.exe ... / waiting for the app to come back (14:57:02) / the app handed off its own upgrade while running, reopened, and served as 0.5.1",
+    "the_number_that_matters": "15.2 seconds from handoff to the reopened app serving as 0.5.1 - a ~7s install, a relaunch, and uvicorn starting.",
+    "no_tracebacks": "Zero in the whole job log; the only match for Traceback/ZipImportError/PYI-ERROR is this fix's own comment text in the echoed script.",
+    "corroboration": "The orphans at cleanup are four msedge processes. The reopened app called webbrowser.open, which only the desktop launcher does - so the process that came back was the app, not a CLI stub."
+  },
+  "what_i_got_wrong_on_the_way": {
+    "a_check_that_hung": "The first corrected version hit the job's own 15-minute timeout instead of failing with a message, so the run was cancelled and its log discarded - and a test that hangs tells you nothing. The waits are now bounded to fail in about two and a half minutes with the process list, the visible .dist-info and the on-disk version.",
+    "a_flake_i_thought_i_had_fixed": "The curator browser test flaked once more under full-suite load after I added a data-ready signal. The signal was the problem: it fired after STARTING the panel loads rather than after they finished, so the flag could beat the content. ready() now awaits them, which also makes it honest for a reader - the page no longer calls itself ready while Settings still says 'Unlock to load'."
+  },
+  "gate": "No retrieval, prompt, chunking or grounding change. One product function, one workflow job, one page's readiness signal. The golden sets gate answers, and no answer moved.",
+  "pinned_by": "tests/test_update.py: the CLI hands off to the app, the app relaunches itself, an unrecognised layout is left alone, and the windowed name matches the one the bundle builds. 1,084 tests pass."
+}
