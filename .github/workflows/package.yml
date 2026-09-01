@@ -219,18 +219,29 @@ jobs:
 
           $headers = @{ Authorization = "Bearer $env:GH_TOKEN"; Accept = "application/vnd.github+json" }
           $api = "https://api.github.com/repos/$env:GITHUB_REPOSITORY/releases/latest"
+          # A job that quietly declines to run looks exactly like a job that
+          # passed. Every exit here says so on the run's summary page, and on
+          # a release it is fatal: publishing a build nothing upgraded to is
+          # the whole thing this job exists to prevent.
+          $isRelease = "${{ github.ref_type }}" -eq "tag" -or "${{ inputs.tag }}" -ne ""
+          function Skip([string]$why) {
+            $line = "windows-upgrade DID NOT RUN: $why"
+            Write-Host "::warning::$line"
+            if ($env:GITHUB_STEP_SUMMARY) { "**$line**" | Out-File $env:GITHUB_STEP_SUMMARY -Append }
+            if ($isRelease) { throw "$line - a release must not publish unproven" }
+            exit 0
+          }
+
           try {
             $release = Invoke-RestMethod -Uri $api -Headers $headers
           } catch {
-            Write-Host "::notice::no published release to upgrade from yet"
-            exit 0
+            Skip "no published release to upgrade from yet"
           }
           $asset = $release.assets | Where-Object { $_.name -like 'OpenKnowledge-Setup-*.exe' } | Select-Object -First 1
-          if (-not $asset) { Write-Host "::notice::previous release carries no installer"; exit 0 }
+          if (-not $asset) { Skip "the previous release carries no installer" }
           $oldVersion = ($asset.name -replace '^OpenKnowledge-Setup-', '') -replace '\.exe$', ''
           if ($oldVersion -eq $newVersion) {
-            Write-Host "::notice::latest release is already $newVersion - nothing to upgrade from"
-            exit 0
+            Skip "the latest release is already $newVersion, so there is no earlier build to upgrade from"
           }
           Write-Host "upgrading from: $oldVersion"
 
