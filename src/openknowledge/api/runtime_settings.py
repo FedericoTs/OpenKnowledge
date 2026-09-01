@@ -67,6 +67,9 @@ EDITABLE: dict[str, str] = {
     "azure_openai_deployment": "rebuild",
     "budget_daily_usd": "rebuild",
     "budget_expected_questions_per_day": "rebuild",
+    # Live on purpose: this is the lever an operator reaches for while a
+    # caller is looping, and a rebuild would make them wait for it.
+    "asker_questions_per_minute": "live",
 }
 
 

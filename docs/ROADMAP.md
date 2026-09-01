@@ -393,6 +393,41 @@ an identity that does not exist is theatre.
 The asymmetry with the gaps report above is deliberate and now holds from
 both ends. Who governs is recorded by name. Who is curious is not.
 
+### One asker, everybody's ceiling
+
+The budget governor turns a declared budget into a ceiling on what one
+question may cost, recomputed from the ledger every time. It is a good
+design and it has a blind spot: it cannot see *whose* questions moved the
+ceiling. A looping bot integration and forty colleagues asking one question
+each look identical to it, so the first is paid for by the second.
+
+`OK_ASKER_QUESTIONS_PER_MINUTE` closes that: over the limit, one caller
+gets a 429 and a sentence explaining it, and everyone else is served
+normally in the same breath. It is off by default, because a desktop
+install should not meet a limit it never asked for, and it is a live
+setting, because it is the lever an operator reaches for while the looping
+is happening.
+
+The counters keep no record of who asked what. They live in this process's
+memory, are keyed by a salted per-process hash of the asker rather than by
+the asker, and are gone at restart — the same promise the gaps report and
+the reported-answers table make, made the same way: not by policy but by
+there being nowhere for the data to go.
+
+`/metrics` is the other half. `/healthz` says the server is up; it does not
+say spend tripled at eleven, that a third of today's questions were refused,
+or that one caller has been rate-limited four hundred times. Prometheus text
+exposition of the ledger, the index and the limiter, admin-only, with no
+question text and no identity in it — a metric with the question in it is a
+log of what people asked, published to whatever scrapes it.
+
+Writing that renderer produced a bug worth keeping in mind: emitting samples
+in the order they were composed looks right and is not. The format requires
+a metric family's lines to be contiguous, and the moment a second window was
+added the two families interleaved — which a strict scraper rejects as a
+duplicate. It groups by family now, and a test asserts the blocks rather
+than the bytes.
+
 ### The wrong answer nobody heard about
 
 A refusal was already the best-instrumented thing this product does: it is

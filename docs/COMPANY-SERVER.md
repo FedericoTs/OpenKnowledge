@@ -86,6 +86,58 @@ not answer, contradictions refused until an admin resolves them in
 single list — add a policy once, everyone can ask about it seconds
 later.
 
+## Keeping one caller from spending everybody's day
+
+The budget governor already stops a flood becoming an invoice: the ceiling
+it computes is *remaining budget ÷ questions still expected*, so a thousand
+questions lower what any one question may cost rather than running the bill
+up. What it cannot do is decide **whose** questions those were — so a
+looping bot integration, or a colleague who found they can paste a
+spreadsheet into the chat, drags that shared ceiling down for everyone.
+
+```sh
+OK_ASKER_QUESTIONS_PER_MINUTE=30   # 0 (the default) is off
+```
+
+Over the limit, that caller gets a `429` and a sentence saying so; everyone
+else is unaffected. It is a live setting — change it on `/manage` while a
+caller is looping and it applies to their next question, no restart.
+
+The counters live in memory, are keyed by a salted hash of the asker rather
+than by the asker, and are gone when the process restarts. Enforcing a limit
+needs to know that *this* caller has asked twelve times in the last minute;
+it never needs to know who they are.
+
+Two things to know before setting it. With sign-in **on**, the bucket is the
+person. With sign-in **off** it is the address the request came from — which
+on a desktop install is the one person using it, and behind a reverse proxy
+is *everybody*, so a proxied deployment should turn sign-in on rather than
+rely on this to tell its people apart. And the default is off, because a
+desktop install should not meet a limit it never asked for.
+
+The counting is per process. Two servers behind a load balancer each
+enforce their own, so the effective limit is doubled — set it accordingly,
+or keep the deployment to one server, which is the shape this guide
+describes.
+
+## Watching it
+
+```sh
+curl -H "Authorization: Bearer $(openknowledge token)" http://server:8080/metrics
+```
+
+Prometheus text exposition: build version, documents and passages indexed,
+questions and spend per tier for both today and all time, questions refused
+by the rate limiter, open contradictions, open wrong-answer reports. Nothing
+in it is new data — it is the ledger, the index and the limiter, formatted so
+a graph can be drawn without anybody writing a parser.
+
+It is admin-only, unlike `/healthz`: spend and volume are not everybody's
+business, and a scraper carries the admin token as easily as any other
+header. It carries no question text and no identity — a metric with the
+question in it is a log of what people asked, published to whatever scrapes
+it.
+
 ## When it gets one wrong
 
 A refusal is easy to learn from: it is counted, ranked and reported

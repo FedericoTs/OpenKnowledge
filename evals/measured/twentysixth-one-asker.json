@@ -1,0 +1,28 @@
+{
+  "what": "A per-asker limit, and a metrics page to see it working. The budget governor could already stop a flood becoming an invoice; it could not see whose questions moved the ceiling.",
+  "the_gap": "The governor's ceiling is remaining budget over questions still expected, recomputed from the ledger every time. A thousand questions in an hour therefore lower what any ONE question may cost rather than running the bill up - which is the right shape, and it means a looping bot integration and forty colleagues asking once each look identical to it. The first is paid for by the second, everyone's answers get worse, and nothing anywhere says why.",
+  "the_limit": {
+    "shape": "A sliding window of timestamps, not a fixed bucket: a fixed bucket lets a caller spend the whole limit at 10:59:59 and the whole limit again at 11:00:00, which is the burst the limit exists to stop.",
+    "default": "Off. A desktop install should not meet a limit it never asked for, and the only asker there is the person whose laptop it is.",
+    "live": "Editable at runtime rather than needing a rebuild, because it is the lever an operator reaches for while the looping is happening. Pinned by a test that changes it through /admin/settings mid-session and watches the next questions get refused.",
+    "who_the_bucket_is": "A signed-in person, then the principals a trusted backend relayed, then the address the request came from. The last is one bucket per machine - the person on a desktop, everybody behind a reverse proxy - so the docs say plainly that a proxied deployment should turn sign-in on rather than rely on it."
+  },
+  "the_promise_it_keeps": {
+    "what": "It counts askers without naming them. Counters live in this process's memory, keyed by a salted per-process digest of the asker rather than by the asker, and are gone at restart.",
+    "why": "Enforcing a limit needs to know this caller has asked twelve times in the last minute. It never needs to know who they are, and it must not quietly become the log that says so - the same promise the gaps report and the reported-answers table make.",
+    "how_it_is_checked": "The plaintext asker appears nowhere in the limiter's own state (asserted against repr of its __dict__ and against its key set), two limiters produce different keys for the same person so nothing correlates across a restart, and /metrics is asserted to contain neither the question text nor the subject id of somebody who was actually rate-limited."
+  },
+  "measured": {
+    "the_pair_that_matters": "Through real HTTP against the fake IdP: the looping caller's six questions come back 200,200,200,429,429,429, and in the same breath a colleague who has asked nothing is served normally. A limit that stopped everybody would be an outage wearing a cost control's clothes. Confirmed to FAIL when the bucket is made shared instead of per-person.",
+    "what_a_person_sees": "In Chromium, with the limit at two: two answers, then a card reading 'you have asked 2 questions in the last minute, which is this server's limit per person - it keeps one caller from spending everybody else's budget. Try again in 57s.' No page errors.",
+    "what_it_used_to_say": "'Could not reach the server: HTTP 429' - wrong twice over, since the server was reached and had explained itself. The widget now distinguishes a server that refused from a server that could not be answered at all, and prints the sentence rather than the status."
+  },
+  "the_metrics_bug_worth_remembering": {
+    "what": "The first renderer emitted samples in the order they were composed, which looked correct in the output and was not. The exposition format requires a metric family's lines to be contiguous; the moment a second window was added, questions_total{window=day} landed after the spend_usd_total family had begun, which a strict scraper rejects as a duplicated family.",
+    "found_by": "Reading the actual output of the actual endpoint against real traffic, not by reading the code.",
+    "fix": "render() groups by family, keeping first-appearance order of names so the page still reads the way it was composed. The test asserts the blocks rather than the bytes."
+  },
+  "gate": "No retrieval, prompt, chunking or grounding change: a new limiter, a new renderer, one guard on each of the two question paths, one admin endpoint and a widget error path. The cache key policy string is untouched. The golden sets gate answers, and no answer moved.",
+  "pinned_by": "tests/test_limits.py, 19 tests. 1,103 tests pass.",
+  "still_open": "The limit is per process, so two servers behind a load balancer each enforce their own and the effective limit is doubled. Documented rather than solved: sharing the counters would need a store they both reach, and the deployment this guide describes is one server."
+}

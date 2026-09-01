@@ -42,6 +42,9 @@ from ..config import Settings, load_settings
 from ..contacts import ContactError, ContactStore, clean
 from ..desktop import setup as first_run
 from ..knowledge.store import Actor
+from ..limits import AskerLimiter
+from ..metrics import CONTENT_TYPE, Sample, from_cost_report
+from ..metrics import render as render_metrics
 from ..paths import state_paths
 from ..providers.base import Message
 from .engine import Engine, build_engine
@@ -203,6 +206,45 @@ def _actor(request: Request) -> Actor:
     if session is not None:
         return Actor(id=session.subject, name=session.name, kind="person")
     return Actor.token()
+
+
+def _asker_key(request: Request, principals: frozenset[str] | None) -> str:
+    """The asker, for counting their questions and for nothing else.
+
+    Preferred in the order the server can trust: a signed-in person, then the
+    principals a trusted backend relayed on someone's behalf, then the address
+    the request came from. The last is one bucket per machine, which on a
+    desktop install is the person whose laptop it is and behind a proxy is
+    everybody - so a deployment behind a proxy should turn sign-in on rather
+    than rely on this to tell its people apart.
+
+    The string never leaves this function un-hashed: the limiter salts and
+    digests it, and nothing writes it down.
+    """
+    session = getattr(request.state, "session", None)
+    if session is not None:
+        return f"user:{session.subject}"
+    if principals:
+        return "principals:" + "\x1f".join(sorted(principals))
+    client = request.client.host if request.client else "unknown"
+    return f"host:{client}"
+
+
+def _within_limit(request: Request, principals: frozenset[str] | None) -> None:
+    """Refuse a question this asker has no room for, and say when to retry."""
+    limiter: AskerLimiter = request.app.state.limiter
+    # Read the setting each time: it is the lever an operator reaches for
+    # while a caller is looping, so it takes effect on the next question.
+    limiter.per_minute = request.app.state.settings.asker_questions_per_minute
+    decision = limiter.check(_asker_key(request, principals))
+    if not decision.allowed:
+        raise HTTPException(
+            429,
+            f"you have asked {decision.asked} questions in the last minute, which is "
+            f"this server's limit per person - it keeps one caller from spending "
+            f"everybody else's budget. Try again in {decision.retry_after:.0f}s.",
+            headers={"Retry-After": str(max(1, int(decision.retry_after + 0.5)))},
+        )
 
 
 def _asker_principals(request: Request, supplied: list[str] | None) -> frozenset[str] | None:
@@ -508,6 +550,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         lifespan=lifespan,
     )
     app.state.settings = resolved
+    # One per process, and deliberately not part of the engine: a rebuild
+    # replaces the engine, and forgetting who has been asking every time a
+    # setting changes is how a limit becomes advisory.
+    app.state.limiter = AskerLimiter(resolved.asker_questions_per_minute)
 
     # A browser will happily point an attacker's domain at 127.0.0.1 (DNS
     # rebinding) and then fetch this server from a webpage. The Host header
@@ -567,6 +613,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         about caching or determinism depends on which endpoint was used.
         """
         principals = _asker_principals(request, req.principals)
+        _within_limit(request, principals)
 
         async def events() -> AsyncIterator[str]:
             history = tuple(Message(role=t.role, content=t.content) for t in req.history or ())
@@ -991,10 +1038,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.post("/chat", response_model=ChatResponse)
     async def chat(req: ChatRequest, engine: EngineDep, request: Request) -> ChatResponse:
+        principals = _asker_principals(request, req.principals)
+        _within_limit(request, principals)
         history = tuple(Message(role=t.role, content=t.content) for t in req.history or ())
         answer = await engine.cascade.answer(
             req.question,
-            principals=_asker_principals(request, req.principals),
+            principals=principals,
             channel=req.channel,
             history=history,
         )
@@ -1400,6 +1449,67 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "superseded text so retrieval stops seeing it."
             ),
         }
+
+    @app.get("/metrics", dependencies=[AdminOnly], include_in_schema=False)
+    async def metrics(engine: EngineDep, request: Request) -> Response:
+        """This install, in the format a monitoring system already scrapes.
+
+        Admin-only, unlike ``/healthz``: spend and volume are not everybody's
+        business, and a scraper can carry the admin token as easily as any
+        other header. Nothing here is new data - it is the ledger, the index
+        and the limiter, formatted so a graph can be drawn without anybody
+        writing a parser.
+        """
+        limiter: AskerLimiter = request.app.state.limiter
+        day = time.time() - 86400
+        samples = [
+            Sample(
+                "openknowledge_build_info",
+                "Which build is answering. Always 1; read the label.",
+                "gauge",
+                1.0,
+                (("version", __version__),),
+            ),
+            Sample(
+                "openknowledge_documents_indexed",
+                "Documents the index can answer from.",
+                "gauge",
+                float(engine.retriever.document_count),
+            ),
+            Sample(
+                "openknowledge_chunks_indexed",
+                "Passages those documents were split into.",
+                "gauge",
+                float(len(engine.retriever)),
+            ),
+            *from_cost_report(engine.store.cost_report(), window="all"),
+            *from_cost_report(engine.store.cost_report(since=day), window="day"),
+            Sample(
+                "openknowledge_rate_limited_total",
+                "Questions refused because one asker was over their per-minute limit.",
+                "counter",
+                float(limiter.refused),
+            ),
+            Sample(
+                "openknowledge_asker_limit_per_minute",
+                "The per-asker limit in force. 0 means no limit.",
+                "gauge",
+                float(limiter.per_minute),
+            ),
+            Sample(
+                "openknowledge_conflicts_open",
+                "Documents that disagree. Questions touching these are refused.",
+                "gauge",
+                float(len(engine.knowledge.open_conflicts())),
+            ),
+            Sample(
+                "openknowledge_reports_open",
+                "Answers readers said were wrong and nobody has closed.",
+                "gauge",
+                float(len(engine.knowledge.answer_reports(limit=500))),
+            ),
+        ]
+        return Response(render_metrics(samples), media_type=CONTENT_TYPE)
 
     @app.get("/admin/log", dependencies=[AdminOnly])
     async def admin_log(engine: EngineDep, limit: int = 100, days: int = 0) -> dict[str, Any]:

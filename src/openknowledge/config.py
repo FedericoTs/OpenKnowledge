@@ -237,6 +237,14 @@ class Settings(BaseSettings):
     #: Only sets the pace for spreading the cap across the day. It does not have
     #: to be accurate - the ceiling self-corrects as real traffic arrives.
     budget_expected_questions_per_day: int = Field(default=2_000, ge=1)
+    #: How many questions one asker may ask per minute. The budget governor
+    #: already stops a flood becoming an invoice - what it cannot do is decide
+    #: whose questions those were, so one looping caller drags the shared
+    #: ceiling down for everybody. 0 disables it, which is right for a desktop
+    #: install where the only asker is the person whose laptop it is. Counted
+    #: in memory and keyed by a salted hash: enforcing a limit needs to know
+    #: this caller asked twelve times, never who they are.
+    asker_questions_per_minute: int = Field(default=0, ge=0)
 
     # -- generation ------------------------------------------------------
     max_answer_tokens: int = Field(default=1500, ge=64)

@@ -949,6 +949,17 @@ function workingLine(pending) {
 }
 
 // Server-sent events over fetch, because EventSource cannot POST a body.
+// The server answered and refused, which is not the same as not answering.
+// Carries its own sentence - "you have asked 5 questions in the last minute",
+// "sign in required" - and a flag so the card can tell the two apart.
+async function refusal(res) {
+  let detail = 'HTTP ' + res.status;
+  try { detail = (await res.json()).detail || detail; } catch (e) { /* keep the status */ }
+  const err = new Error(detail);
+  err.fromServer = true;
+  return err;
+}
+
 async function streamAnswer(body, pending) {
   const res = await fetch('/chat/stream', {
     method: 'POST',
@@ -956,7 +967,7 @@ async function streamAnswer(body, pending) {
     body: JSON.stringify(body),
   });
   if (needsSignIn(res)) return;
-  if (!res.ok || !res.body) throw new Error('HTTP ' + res.status);
+  if (!res.ok || !res.body) throw await refusal(res);
 
   const status = workingLine(pending);
   let prov = null, provText = null;
@@ -1060,12 +1071,17 @@ form.addEventListener('submit', async (e) => {
       body: JSON.stringify(body),
     });
     if (needsSignIn(res)) return;
-    if (!res.ok) throw new Error('HTTP ' + res.status);
+    if (!res.ok) throw await refusal(res);
     const data = await res.json();
     remember('assistant', data.answer);
     pending.replaceWith(renderAnswer(data, body));
   } catch (err) {
-    pending.replaceWith(el('div', 'msg a err', 'Could not reach the server: ' + err.message));
+    // "Could not reach the server" is for a server that could not be reached.
+    // When it answered and said why - over your limit, sign in again, uploads
+    // are off - that sentence is the whole message, and prefixing it with an
+    // unreachability that did not happen sends somebody to check the network.
+    pending.replaceWith(el('div', 'msg a err',
+      err.fromServer ? err.message : 'Could not reach the server: ' + err.message));
   } finally {
     send.disabled = false;
     input.focus();
