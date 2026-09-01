@@ -257,6 +257,12 @@ jobs:
             Get-ChildItem "$env:LOCALAPPDATA\Programs","$env:ProgramFiles","${env:ProgramFiles(x86)}" `
               -Filter "OpenKnowledge*" -ErrorAction SilentlyContinue |
               Select-Object FullName | Out-String | Write-Host
+            # The app reads its own version out of bundled .dist-info, whose
+            # directory name carries that version. Inno replaces files; it
+            # does not remove ones the new build no longer has.
+            Write-Host "--- metadata the frozen app can see ---"
+            Get-ChildItem "$app\_internal" -Filter "openknowledge-*.dist-info" -ErrorAction SilentlyContinue |
+              Select-Object Name | Out-String | Write-Host
             Write-Host "--- Inno log, upgrade ---"
             if (Test-Path install-new.log) { Get-Content install-new.log -Tail 120 | Write-Host }
             throw "upgrade left $oldVersion in place: --version says '$after' (installer exit $($p.ExitCode))"
