@@ -392,3 +392,31 @@ def test_the_installer_clears_the_version_it_is_replacing() -> None:
     text = iss.read_text(encoding="utf-8")
     assert "[InstallDelete]" in text
     assert r"{app}\_internal\openknowledge-*.dist-info" in text
+
+
+def test_the_helper_waits_for_the_app_to_let_go_of_its_own_files() -> None:
+    """The race the update path had been winning by luck.
+
+    spawn_installer is called from the launcher's `finally`, so the process
+    calling it is still running - still holding its own executable and every
+    DLL under _internal, none of which Windows lets an installer replace. It
+    worked because PowerShell takes a moment to start and Inno takes longer
+    to unpack itself than the process takes to exit. Losing that race leaves
+    half a version on disk.
+    """
+    script = spawn_command(Path("C:/x/Setup.exe"), Path("C:/a/App.exe"), wait_for_pid=4242)[-1]
+
+    assert "Wait-Process -Id 4242" in script
+    assert script.index("Wait-Process") < script.index("Setup.exe"), (
+        "the wait must come before the installer touches anything"
+    )
+    # Neither a process that has already gone nor a timeout is a reason to
+    # abandon the update.
+    assert "-ErrorAction SilentlyContinue" in script
+    assert "-Timeout" in script
+
+
+def test_the_pid_is_a_number_and_nothing_else() -> None:
+    """It reaches a shell, so it is an int before it is a string."""
+    script = spawn_command(Path("C:/x/S.exe"), Path("C:/a/A.exe"), wait_for_pid=True)[-1]
+    assert "Wait-Process -Id 1 " in script

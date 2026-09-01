@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import subprocess
 import sys
@@ -331,22 +332,43 @@ def _ps_quote(value: object) -> str:
     return "'" + str(value).replace("'", "''") + "'"
 
 
-def spawn_command(installer: Path, relaunch: Path) -> list[str]:
-    """The detached helper: silent install, then start the new build."""
-    script = (
+def spawn_command(installer: Path, relaunch: Path, *, wait_for_pid: int | None = None) -> list[str]:
+    """The detached helper: wait for us to die, install silently, start the new build.
+
+    The waiting is the part that is easy to leave out and expensive to
+    discover missing. This helper is spawned from the launcher's `finally`,
+    which means the process spawning it is still running - still holding its
+    own executable image and every DLL under `_internal`, none of which
+    Windows will let an installer replace. Today it works because PowerShell
+    takes a moment to start and Inno takes longer to unpack itself than this
+    process takes to exit. That is a race we happen to win, not a guarantee,
+    and losing it leaves half a version on disk.
+
+    `Wait-Process` is silent about both a process that has already gone and a
+    timeout that expires: neither is a reason to abandon the update, and the
+    installer's own in-use handling is a better last resort than not
+    installing at all.
+    """
+    steps = []
+    if wait_for_pid is not None:
+        steps.append(
+            f"Wait-Process -Id {int(wait_for_pid)} -Timeout 30 -ErrorAction SilentlyContinue"
+        )
+    steps.append(
         f"Start-Process -FilePath {_ps_quote(installer)} "
-        "-ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -Wait; "
-        f"Start-Process -FilePath {_ps_quote(relaunch)}"
+        "-ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -Wait"
     )
-    return ["powershell", "-NoProfile", "-WindowStyle", "Hidden", "-Command", script]
+    steps.append(f"Start-Process -FilePath {_ps_quote(relaunch)}")
+    return ["powershell", "-NoProfile", "-WindowStyle", "Hidden", "-Command", "; ".join(steps)]
 
 
 def spawn_installer(installer: Path, *, relaunch: Path) -> None:  # pragma: no cover - windows
     if sys.platform != "win32":
         raise UpdateError("silent self-update is a Windows desktop feature")
+    # Our own pid: the helper must outlive us before it touches our files.
     flags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP  # type: ignore[attr-defined]
     subprocess.Popen(  # noqa: S603 - fixed command, paths from our own state
-        spawn_command(installer, relaunch),
+        spawn_command(installer, relaunch, wait_for_pid=os.getpid()),
         creationflags=flags,
         close_fds=True,
         stdin=subprocess.DEVNULL,
