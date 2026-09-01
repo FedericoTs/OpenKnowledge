@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Protocol, runtime_checkable
 
@@ -143,6 +144,8 @@ class Retriever(Protocol):
     def search(
         self, query: str, *, k: int = 6, principals: frozenset[str] | None = None
     ) -> list[ScoredChunk]: ...
+
+    def restamp(self, principals: Mapping[str, frozenset[str]]) -> int: ...
 
     def documents_visible_to(self, principals: frozenset[str] | None) -> tuple[list[str], int]: ...
 

@@ -1251,10 +1251,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     # -- folder access -------------------------------------------------------
     # Who may read which folder. Rules are admin decisions stored with the
-    # other human decisions; every change re-indexes immediately (free by
-    # construction) so the documents carry their new audience before the
-    # response returns - there is no window where a rule exists but the
-    # index does not know it.
+    # other human decisions; every change reaches the index before the response
+    # returns, so there is no window where a rule exists and the index is still
+    # serving the old audience.
+    #
+    # Applied by re-stamping rather than re-indexing. A rule decides a
+    # document's audience and nothing else about it - not its text, not its
+    # chunks, not corpus_version, which hashes content - so rebuilding read
+    # every file off disk to arrive at an index identical but for one field
+    # per passage. On 1,200 documents that was nine seconds inside this
+    # request. It is still synchronous, which is the part that matters.
 
     @app.get("/admin/access", dependencies=[AdminOnly])
     async def folder_access(engine: EngineDep) -> dict[str, Any]:
@@ -1292,15 +1298,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             safe,
             {"principals": sorted(principals), "was": sorted(was) if was else None},
         )
-        documents, chunks, version, evicted = engine.reindex()
+        restamped = engine.reapply_access()
         return {
             "folder": safe,
             "principals": sorted(principals),
             "corpus": {
-                "documents": documents,
-                "chunks": chunks,
-                "corpus_version": version,
-                "answers_evicted": evicted,
+                "documents": engine.retriever.document_count,
+                "chunks": len(engine.retriever),
+                "corpus_version": engine.retriever.corpus_version,
+                # Nothing to evict: the cache keys on corpus_version, which
+                # hashes content, and a cached answer's sources are re-checked
+                # against whoever is asking at read time anyway.
+                "answers_evicted": 0,
+                "passages_restamped": restamped,
             },
         }
 
@@ -1317,11 +1327,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         engine.knowledge.record_action(
             _actor(request), "access.clear", safe, {"was": sorted(was) if was else None}
         )
-        documents, chunks, version, evicted = engine.reindex()
+        restamped = engine.reapply_access()
         return {
             "folder": safe,
             "open": True,
-            "corpus": {"documents": documents, "chunks": chunks, "corpus_version": version},
+            "corpus": {
+                "documents": engine.retriever.document_count,
+                "chunks": len(engine.retriever),
+                "corpus_version": engine.retriever.corpus_version,
+                "passages_restamped": restamped,
+            },
         }
 
     # -- knowledge lifecycle -------------------------------------------------

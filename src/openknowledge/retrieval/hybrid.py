@@ -21,6 +21,7 @@ have no embedding endpoint on first run, and BM25 alone is what they get.
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 
 from .base import Chunk, Document, ScoredChunk, demote_superseded
@@ -161,6 +162,12 @@ class HybridRetriever:
         return list(self.lexical.chunks)
 
     # -- indexing ----------------------------------------------------------
+
+    def restamp(self, principals: Mapping[str, frozenset[str]]) -> int:
+        """Who may read what, changed in place. The dense half needs nothing:
+        it stores vectors by position and reads the chunk back out of the
+        lexical snapshot, so it sees the new audience the moment this does."""
+        return self.lexical.restamp(principals)
 
     def index(self, documents: list[Document]) -> None:
         self.lexical.index(documents)

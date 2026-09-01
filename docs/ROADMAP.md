@@ -393,6 +393,36 @@ an identity that does not exist is theatre.
 The asymmetry with the gaps report above is deliberate and now holds from
 both ends. Who governs is recorded by name. Who is curious is not.
 
+### An access change is not a corpus change
+
+Both access endpoints re-indexed the whole corpus, synchronously, inside the
+request. Measured through `PUT /admin/access/hr` on 1,200 documents:
+**9.6 seconds** to change who may read a folder — and it grows, so past a
+proxy's timeout the admin sees the request fail while the change actually
+applied, which invites a retry on something that looked like a checkbox.
+
+What an access change actually changes was measured before anything was
+written: `corpus_version` unchanged, zero answers evicted, and the only
+difference anywhere is `allowed_principals` on the passages. That follows
+from the design — `corpus_version` hashes content, and a rule is not
+content; the answer cache re-checks a cached answer's sources against
+whoever is asking at read time, so an access change invalidates nothing and
+*must not*, or the hit rate the cost model depends on goes for nothing.
+
+So a rule change now re-stamps instead of rebuilding: **93 ms**. The index
+is swapped as one frozen object in a single assignment, the same atomicity
+a rebuild has, so nobody is served through half of an access change. A
+document the rules say nothing about keeps what it had — silence is not
+permission, and reading an absent entry as "open to everyone" would be a
+way to widen access by omission.
+
+The obvious move was to make the rebuild asynchronous. That would have
+broken a property the endpoint's own comment states: no window may exist in
+which a rule is stored and the index is still serving the old audience. The
+fix was to make the work small, not to defer it — and a test signs somebody
+in, confirms they can see the folder, changes the rule and asserts their
+very next request cannot.
+
 ### The rebuild, measured before it was optimised
 
 The plan was incremental indexing. Measuring first changed what got built.

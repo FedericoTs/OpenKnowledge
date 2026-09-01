@@ -72,6 +72,29 @@ class LocalFilesConnector:
         self.folder_rules = folder_rules
         self.skipped = []
 
+    def access_map(self) -> dict[str, frozenset[str]]:
+        """Who may read each document, without reading any of them.
+
+        The same walk ``fetch`` does and none of the parsing: an access rule
+        is decided by where a file sits, so recomputing it needs the tree and
+        not the contents. Kept beside ``fetch`` on purpose - the rule that
+        decides an audience must be written once, or the two will drift and
+        the one that drifts is a document served to the wrong people.
+        """
+        rules = dict(self.folder_rules()) if self.folder_rules is not None else {}
+        mapping: dict[str, frozenset[str]] = {}
+        if not self.root.is_dir():
+            return mapping
+        for path in sorted(self.root.rglob("*")):
+            if not path.is_file() or path.name.startswith("~$"):
+                continue
+            if path.suffix.lower() not in self.suffixes:
+                continue
+            relative = path.relative_to(self.root)
+            ruled = effective_principals(relative.parent.as_posix(), rules)
+            mapping[document_id_for(relative)] = ruled or self.allowed_principals
+        return mapping
+
     def fetch(self) -> list[Document]:
         self.skipped = []
         if not self.root.is_dir():

@@ -15,7 +15,8 @@ from __future__ import annotations
 import hashlib
 import math
 from collections import Counter
-from dataclasses import dataclass, field
+from collections.abc import Mapping
+from dataclasses import dataclass, field, replace
 
 from .base import Chunk, Document, ScoredChunk, chunk_document, demote_superseded, tokenize
 from .tags import corpus_document_frequency, derive_tags, fold_tags, guarantee_routed, route_by_tags
@@ -105,6 +106,46 @@ class BM25Retriever:
         tells an operator with four files that it has six of them.
         """
         return len({chunk.document_id for chunk in self._index.chunks})
+
+    def restamp(self, principals: Mapping[str, frozenset[str]]) -> int:
+        """Change who may read what, without rebuilding anything else.
+
+        An access rule decides a document's audience and nothing else about
+        it: not its text, not how it chunks, not the statistics BM25 scores
+        with, and not ``corpus_version``, which hashes content. Rebuilding for
+        one meant reading every file off disk, re-parsing it, re-tokenising
+        every passage and re-running contradiction detection over the whole
+        corpus, to arrive at an index identical but for one field per chunk.
+        On a 1,200-document corpus that was nine seconds inside the request an
+        admin was waiting on, and it grew with the corpus.
+
+        Swapped as a whole new ``_Index`` in a single assignment, for exactly
+        the reason a rebuild is: a reader takes one snapshot and finishes
+        against it, so nobody is served through half of an access change.
+
+        Documents the caller says nothing about keep what they had. This is
+        told what the rules now say, not what they no longer say, and reading
+        silence as "open to everyone" would be a way to widen access by
+        omission.
+        """
+        old = self._index
+        changed = 0
+        chunks: list[Chunk] = []
+        for chunk in old.chunks:
+            now = principals.get(chunk.document_id)
+            if now is None or now == chunk.allowed_principals:
+                chunks.append(chunk)
+                continue
+            chunks.append(replace(chunk, allowed_principals=now))
+            changed += 1
+        self._index = replace(
+            old,
+            chunks=tuple(chunks),
+            doc_principals={
+                doc_id: principals.get(doc_id, was) for doc_id, was in old.doc_principals.items()
+            },
+        )
+        return changed
 
     def index(self, documents: list[Document]) -> None:
         """Rebuild the index from scratch.

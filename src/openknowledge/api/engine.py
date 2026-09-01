@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from ..cache import AnswerStore
@@ -135,6 +135,26 @@ class Engine:
             self.last_scan.conflicts_open,
         )
         return len(self.documents), len(self.retriever), self.retriever.corpus_version, evicted
+
+    def reapply_access(self) -> int:
+        """Re-stamp the corpus with the folder rules as they now stand.
+
+        An access change alters who may read a document and nothing else about
+        it, so this is the whole job: no file re-read, no passage re-tokenised,
+        no contradiction re-detected, and ``corpus_version`` untouched because
+        it hashes content. A full rebuild for this was nine seconds on 1,200
+        documents and produced a byte-identical index but for one field.
+
+        It stays synchronous, and that is the point rather than an oversight:
+        doing it inside the request is what leaves no window in which a rule
+        is stored and the index is still serving the old audience.
+        """
+        mapping = self.connector.access_map()
+        self.documents = [
+            replace(doc, allowed_principals=mapping.get(doc.document_id, doc.allowed_principals))
+            for doc in self.documents
+        ]
+        return self.retriever.restamp(mapping)
 
     @property
     def drafting_provider(self) -> ChatProvider | None:

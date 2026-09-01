@@ -86,6 +86,19 @@ not answer, contradictions refused until an admin resolves them in
 single list — add a policy once, everyone can ask about it seconds
 later.
 
+## Changing who may read what
+
+Rules are set per folder on `/manage`, and the deepest rule wins for its
+subtree. A change is in force the moment the response returns — there is no
+window in which a rule is stored and the index is still answering to the
+old audience — and it costs milliseconds rather than a rebuild, because a
+rule decides a document's audience and nothing else about it.
+
+Cached answers are deliberately not thrown away when a rule changes: the
+cache keys on the corpus, not on who is asking, and a cached answer is only
+served to somebody who could have retrieved each of its sources themselves.
+Access is enforced when the answer is read, not when it was written.
+
 ## Keeping one caller from spending everybody's day
 
 The budget governor already stops a flood becoming an invoice: the ceiling

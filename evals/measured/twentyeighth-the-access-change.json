@@ -1,0 +1,25 @@
+{
+  "what": "Changing who may read a folder stopped rebuilding the corpus for it. 9.6 seconds to 93 milliseconds on 1,200 documents, with the audiences asserted identical to what a rebuild produces.",
+  "the_cost": {
+    "what_it_was": "Both access endpoints called engine.reindex() synchronously inside the request: read every file off disk, re-parse it, re-chunk it, re-tokenise every passage for BM25, recompute corpus-wide tag frequencies, and re-run contradiction detection. Measured end to end through PUT /admin/access/hr on 1,200 documents / 21,600 passages: 9,620ms.",
+    "why_that_is_worse_than_slow": "It grows with the corpus. Past a proxy's timeout the admin sees the request fail while the change actually applied - which invites a retry, on an action that looked like a checkbox."
+  },
+  "what_an_access_change_actually_changes": {
+    "measured_first": "Indexed 300 documents, set a folder rule, re-indexed, and compared. corpus_version: unchanged. Answers evicted: 0. The only difference anywhere: allowed_principals on the chunks.",
+    "why": "corpus_version hashes content, and an access rule is not content. The answer cache keys on it and re-checks a cached answer's sources against whoever is asking at read time, so an access change invalidates nothing and must not - evicting would throw away the hit rate the cost model depends on, for nothing."
+  },
+  "the_change": {
+    "restamp": "BM25Retriever.restamp() replaces allowed_principals on the chunks and the doc_principals map, and swaps the whole _Index in one assignment - the same atomicity a rebuild has, and for the same reason: a reader takes one snapshot and finishes against it, so nobody is served through half of an access change.",
+    "the_dense_half_needs_nothing": "The vector index stores vectors by position and reads the chunk back out of the lexical snapshot, so it sees the new audience the moment the swap happens.",
+    "where_the_rule_lives": "LocalFilesConnector.access_map() does the same walk fetch does and none of the parsing - an access rule is decided by where a file sits, so recomputing it needs the tree and not the contents. Kept beside fetch on purpose: the rule that decides an audience must be written once, or the two drift and the one that drifts is a document served to the wrong people.",
+    "silence_is_not_permission": "A document the mapping says nothing about keeps what it had. The re-stamp is told what the rules now say, and reading an absent entry as 'open to everyone' would be a way to widen access by omission. Pinned by restamp({}) changing nothing."
+  },
+  "still_synchronous_on_purpose": "The obvious move was to make the rebuild asynchronous. That would have broken a deliberate property the endpoint's own comment states: no window may exist in which a rule is stored and the index is still serving the old audience. So the fix is to make the work small, not to defer it. Pinned by a test that signs somebody in, confirms they can see the HR folder, changes the rule, and asserts their very next request cannot - with no re-index in between. Confirmed to fail when the apply is deferred past the response.",
+  "measured": {
+    "endpoint": "1,200 documents / 21,600 passages. PUT /admin/access/hr: 9,620ms before, 93ms after (21,600 passages re-stamped). A second rule change: 78ms. DELETE: 128ms. A full rebuild on the same corpus, for scale: 9,620ms.",
+    "correctness": "Two engines on identical corpora, one re-indexed and one re-stamped, produce the same audience for every chunk and the same corpus_version. The deepest rule still wins - hr/archive keeps group:records under an hr rule of group:hr - which is what a flat re-stamp would be most likely to get wrong."
+  },
+  "gate": "No retrieval, prompt, chunking or grounding change; the cache key policy string is untouched and corpus_version is asserted unchanged. The golden sets gate answers, and no answer moved.",
+  "pinned_by": "tests/test_access_restamp.py, 7 tests. 1,117 tests pass.",
+  "still_open": "Uploads and deletes still rebuild, and should: a new document genuinely needs parsing, chunking and indexing, and the person who just uploaded it is expecting to wait. The remaining unnecessary work there is re-parsing the other 1,199 documents, which would need caching parses by mtime and size - not done, and not measured as urgent, because that request is one somebody knowingly started."
+}
