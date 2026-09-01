@@ -22,7 +22,16 @@
       "fix": "Matched whole against OpenKnowledge-Setup-[0-9A-Za-z._-]+.exe. A release whose asset does not match simply offers no update, which is the existing behaviour for a release with no verifiable installer."
     }
   ],
-  "what_ci_now_proves": "A new windows-upgrade job installs the previous published release, writes a document and an .env into the per-user state directory, runs the new installer over it with the flags the app hands it, and asserts the installed --version moved and both files survived. Every release so far proved only that the installer works on a clean machine, which is the one case an existing user is never in.",
+  "what_ci_now_proves": "A windows-upgrade job installs the previous published release, writes a document and an .env into the per-user state directory, runs the new installer over it with the flags the app hands it, and asserts the installed --version moved and both files survived. It found the defect above on its first run, and its second green run is the first evidence in this project's history that an install can receive a build.",
   "still_unproven": "The final hop - the app quitting, the detached PowerShell running while its parent dies, and the relaunch - needs a real desktop session. CI installs over an idle install, which is the same situation the app arranges by quitting first, but it is not the same as watching it happen from inside the app.",
-  "pinned_by": "tests/test_update.py: the apostrophe case and the asset-name case, both checked to fail against the previous code."
+  "pinned_by": "tests/test_update.py: the apostrophe case and the asset-name case, both checked to fail against the previous code.",
+  "the_defect_the_new_job_found": {
+    "symptom": "An install does not receive a new build. The installer exits 0, replaces every file, and the app goes on reporting the version it just replaced.",
+    "cause": "PyInstaller bundles the package's .dist-info so the frozen app can read its own version, and the directory name carries that version. Inno replaces files; it never removes ones the new build no longer has. After a 0.2.18 -> 0.2.19 upgrade the install held BOTH openknowledge-0.2.18.dist-info and openknowledge-0.2.19.dist-info, and importlib.metadata answered with whichever it found first.",
+    "measured_before": "every file replaced, installer exit 0, installed --version still 'openknowledge 0.2.18'",
+    "measured_after": "upgraded 0.2.18 -> openknowledge 0.2.19, state intact",
+    "why_it_hid_for_eighteen_releases": "v0.2.8 fixed the opposite failure - no metadata at all, so the version fell back to 0.0.0 and every comparison was nonsense. With metadata present the number looked plausible, so nothing downstream complained; the updater simply compared each new release against a version that never moved and offered the same update for ever. This is the whole of 'I still don't see the update button after several releases'.",
+    "fix": "[InstallDelete] clears {app}\\_internal\\openknowledge-*.dist-info before the files land. Scoped to the metadata rather than all of _internal: this is the defect that is measured, and wiping the runtime would fail badly for anyone who runs the installer with the app still open.",
+    "still_true": "Anything else a build stops shipping still lingers on an upgrade. Recorded in ROADMAP with what fixing it properly would take - the installer stopping the app first."
+  }
 }
