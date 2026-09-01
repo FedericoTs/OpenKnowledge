@@ -321,7 +321,18 @@ jobs:
 
           # `serve` holds the same files the desktop app does and needs no
           # models, so this costs seconds rather than 2.6 GB.
+          #
+          # The .env matters for what happens at the END of this: the app the
+          # helper reopens is the desktop launcher, and a launcher that
+          # decides it needs its 2.6 GB is windows-e2e's job, not this one.
+          # Written before anything starts, because plan_launch reads the
+          # persisted state rather than this shell's environment.
           $env:OK_STATE_DIR = "$env:TEMP\ok-upgrade-state"
+          New-Item -ItemType Directory -Force -Path $env:OK_STATE_DIR | Out-Null
+          Set-Content -Path "$env:OK_STATE_DIR\.env" -Value @(
+            "OK_LOCAL_ENABLED=false",
+            "OK_EMBEDDING_ENABLED=false"
+          )
           $running = Start-Process -FilePath "$app\openknowledge.exe" `
             -ArgumentList "serve","--port","8123" -PassThru `
             -RedirectStandardOutput serve-out.log -RedirectStandardError serve-err.log
@@ -347,20 +358,72 @@ jobs:
           Start-Sleep -Seconds 2
           Stop-Process -Id $running.Id -Force -ErrorAction SilentlyContinue
 
-          $landed = $false
-          foreach ($i in 1..90) {
-            Start-Sleep -Seconds 2
-            $v = (& "$app\openknowledge.exe" --version) -join ''
-            if ($v -match [regex]::Escape($newVersion)) { $landed = $true; break }
+          # What the helper does next, in order: wait for that pid, run the
+          # installer to completion, then start the app again. So a NEW
+          # openknowledge process is the honest signal that the install
+          # finished - and it is also the last hop, the one a person
+          # experiences as "it closed, updated and reopened", which nothing
+          # here had ever checked.
+          #
+          # The version string is not that signal, and used to be. Inno
+          # writes the version-named .dist-info that --version reads 3.0s
+          # into a 6.6s install, with 400 files still to be replaced, so a
+          # probe inside that window reports the NEW version out of a
+          # half-installed directory. The 0.5.0 run did exactly that: it
+          # declared the upgrade landed 1.9 seconds before the installer
+          # finished, and an earlier probe crashed reading a base_library.zip
+          # that was being overwritten underneath it - a ZipImportError the
+          # retry loop absorbed, leaving a traceback inside a green run.
+          $reopened = $null
+          foreach ($i in 1..120) {
+            Start-Sleep -Seconds 1
+            $reopened = @(Get-Process -Name openknowledge -ErrorAction SilentlyContinue |
+              Where-Object { $_.Id -ne $running.Id }) | Select-Object -First 1
+            if ($reopened) { break }
           }
-          if (-not $landed) {
+          if (-not $reopened) {
             Write-Host "--- metadata the frozen app can see ---"
             Get-ChildItem "$app\_internal" -Filter "openknowledge-*.dist-info" -ErrorAction SilentlyContinue |
               Select-Object Name | Out-String | Write-Host
+            # No 2>&1 anywhere below: this step runs with
+            # $ErrorActionPreference = 'stop', under which redirecting a
+            # native command's stderr turns its first line into a
+            # terminating error - so the traceback would replace the
+            # message explaining what it means. Unredirected it prints to
+            # the log where a reader wants it, and $LASTEXITCODE still
+            # says what happened.
             $now = (& "$app\openknowledge.exe" --version) -join ''
-            throw "the app's own handoff never landed: --version says '$now'"
+            throw "the app never reopened after handing off its own upgrade (--version says '$now')"
           }
-          Write-Host "the app handed off its own upgrade while running, and it landed: $newVersion"
+          Write-Host "it reopened as pid $($reopened.Id)"
+
+          # And it has to answer. A frozen app started on a half-replaced
+          # _internal dies in about a second; one that serves has every file
+          # it needs.
+          $served = $false
+          foreach ($i in 1..90) {
+            if (-not (Get-Process -Id $reopened.Id -ErrorAction SilentlyContinue)) {
+              throw "the app reopened after the upgrade and then died"
+            }
+            try {
+              Invoke-RestMethod -Uri "http://127.0.0.1:8080/healthz" -TimeoutSec 2 | Out-Null
+              $served = $true; break
+            } catch { Start-Sleep -Seconds 1 }
+          }
+          if (-not $served) { throw "the app reopened after the upgrade and never served" }
+
+          # Only now is the version question meaningful - and a crash reading
+          # it is a failure, not "not yet".
+          $after = (& "$app\openknowledge.exe" --version) -join ''
+          $code = $LASTEXITCODE
+          if ($code -ne 0 -or $after -notmatch [regex]::Escape($newVersion)) {
+            Write-Host "--- metadata the frozen app can see ---"
+            Get-ChildItem "$app\_internal" -Filter "openknowledge-*.dist-info" -ErrorAction SilentlyContinue |
+              Select-Object Name | Out-String | Write-Host
+            throw "after upgrading and reopening, --version says '$after' (exit $code)"
+          }
+          Stop-Process -Name openknowledge -Force -ErrorAction SilentlyContinue
+          Write-Host "the app handed off its own upgrade while running, reopened, served, and reports $newVersion"
 
       # Win, lose or hang: a killed step never reaches its own Write-Host, and
       # Inno's log is the only account of what the installer did.
