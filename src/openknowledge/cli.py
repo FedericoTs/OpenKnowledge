@@ -136,15 +136,17 @@ def _cmd_gaps(args: argparse.Namespace) -> int:
 
     if not gaps:
         window = f"the last {args.days} days" if args.days > 0 else "any question yet"
-        print(f"Nothing was refused in {window} - the documents covered what was asked.")
+        print(f"Nothing went unanswered in {window} - the documents covered what was asked.")
         return 0
 
-    print(f"Questions the documents could not answer (last {args.days} days):")
+    print(f"Questions the documents did not fully answer (last {args.days} days):")
     print()
     for gap in gaps:
         asked = gap["asked"]
         times = "once" if asked == 1 else f"{asked} times"
-        print(f"  {times:>10}  {gap['question']}")
+        # A question answered halfway needs a section written, not a document.
+        half = "  (answered in part)" if gap["kind"] == "partial" else ""
+        print(f"  {times:>10}  {gap['question']}{half}")
     print()
     print("Each line is a document worth writing, or a question worth pinning.")
     print("Nobody's name is recorded against any of them.")

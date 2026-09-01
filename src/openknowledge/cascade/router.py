@@ -561,6 +561,7 @@ class Cascade:
                                 citations=entry.citations,
                                 grounded=True,
                                 support=round(verdict.support_ratio, 3),
+                                declined_in_part=verdict.declined_in_part,
                                 notes=(
                                     "matched an earlier phrasing "
                                     f'("{entry.canonical_query}", similarity '
@@ -827,6 +828,7 @@ class Cascade:
             cache_key=key,
             citations=_citations([c for c in chunks if c.document_id in cited] or chunks),
             usage=completion.usage,
+            declined_in_part=report.declined_in_part,
             cost_usd=cost,
             grounded=True,
             notes=cost_notes,

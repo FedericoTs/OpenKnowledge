@@ -688,3 +688,34 @@ def test_a_snippet_does_not_end_in_two_marks() -> None:
     assert len(text) > _SNIPPET_CHARS
     assert ".…" not in cite.snippet
     assert cite.snippet.endswith("…")
+
+
+async def test_a_partial_answer_reaches_the_gaps_report(store, retriever, settings) -> None:
+    """Gate to Answer to ledger to report, in one pass.
+
+    The unit tests either side of this prove the gate spots a partial decline
+    and that the report counts one. This is the wiring between them, which is
+    where a field added in three files quietly fails to arrive.
+    """
+    # The citation sits inside the sentence it supports, before the full stop,
+    # which is where the prompt asks for it and where models put it. Written
+    # the other way - "...parental leave. [hr-handbook] There is no
+    # information..." - the marker begins the declining sentence instead of
+    # ending the answering one, nothing outside the decline cites anything,
+    # and the gate reads the whole answer as a refusal. Which it should.
+    half = (
+        "Employees with 12 months of continuous service get 20 weeks of fully paid "
+        "parental leave [hr-handbook]. There is no information in the documents "
+        "about sabbatical leave."
+    )
+    answer = await build(store, retriever, settings, local=FakeProvider(replies=[half])).answer(
+        "How much parental leave do I get, and what is the sabbatical policy?"
+    )
+
+    assert answer.tier is Tier.LOCAL, "the half it could answer must survive"
+    assert answer.declined_in_part, "and the half it could not must be recorded"
+
+    (gap,) = store.knowledge_gaps()
+    assert gap["kind"] == "partial"
+    assert gap["asked"] == 1
+    assert gap["answered_in_part"] == 1

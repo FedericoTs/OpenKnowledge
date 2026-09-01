@@ -71,10 +71,28 @@ CREATE TABLE IF NOT EXISTS ledger (
     model_id        TEXT NOT NULL,
     cost_usd        REAL NOT NULL DEFAULT 0.0,
     usage           TEXT NOT NULL DEFAULT '{}',
-    channel         TEXT
+    channel         TEXT,
+    -- The answer covered part of the question and said the documents did not
+    -- cover the rest. Not a refusal, and still a gap worth reporting.
+    partial         INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_ledger_ts ON ledger(ts);
 """
+
+
+def _add_missing_columns(conn: sqlite3.Connection) -> None:
+    """Columns added after a database was first created.
+
+    CREATE TABLE IF NOT EXISTS does nothing to a table that already exists, so
+    a column added later never reaches an install that has been running. Every
+    one is nullable or defaulted, so an old row keeps its meaning: a ledger
+    entry written before `partial` existed is simply not known to be partial,
+    which is exactly what it was.
+    """
+    known = {row[1] for row in conn.execute("PRAGMA table_info(ledger)")}
+    if "partial" not in known:
+        conn.execute("ALTER TABLE ledger ADD COLUMN partial INTEGER NOT NULL DEFAULT 0")
+        conn.commit()
 
 
 @dataclass(frozen=True, slots=True)
@@ -164,6 +182,7 @@ class AnswerStore:
         self._lock = threading.RLock()
         with self._lock:
             self._conn.executescript(_SCHEMA)
+            _add_missing_columns(self._conn)
             self._conn.commit()
 
     def close(self) -> None:
@@ -315,8 +334,9 @@ class AnswerStore:
         """Append one answered question to the ledger, free or not."""
         with self._lock:
             self._conn.execute(
-                "INSERT INTO ledger (ts, canonical_query, tier, model_id, cost_usd, usage, channel)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO ledger"
+                " (ts, canonical_query, tier, model_id, cost_usd, usage, channel, partial)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     time.time(),
                     canonical_query,
@@ -325,6 +345,7 @@ class AnswerStore:
                     answer.cost_usd,
                     _dump_usage(answer.usage),
                     channel,
+                    int(answer.declined_in_part),
                 ),
             )
             self._conn.commit()
@@ -370,11 +391,18 @@ class AnswerStore:
         Grouped by the canonical query, so "how much parental leave" and "How
         much parental leave?" are one gap rather than two.
         """
-        where = "WHERE l.tier = ?"
-        params: tuple[object, ...] = ("refused",)
+        # What makes a row a gap: the ask left something unanswered. A refusal
+        # leaves everything unanswered; a partial answer leaves the part it
+        # named. Both belong here, and until this they did not - when a partial
+        # decline stopped being a refusal (v0.2.17) the gap it names went with
+        # it, silently, which is the worst way for a report like this to be
+        # wrong.
+        unanswered = "(l.tier = 'refused' OR l.partial = 1)"
+        where = f"WHERE {unanswered}"
+        params: tuple[object, ...] = ()
         if since is not None:
             where += " AND l.ts >= ?"
-            params = (*params, since)
+            params = (since,)
 
         # A gap that has been dealt with has to leave the list, or the person
         # working through it does the work and watches nothing happen. Two
@@ -389,15 +417,20 @@ class AnswerStore:
         # The count stays the count of refusals: the question is how much
         # this gap cost, not how often it has been asked since.
         rows = self._conn.execute(
-            f"SELECT l.canonical_query, COUNT(*) AS asked, MAX(l.ts) AS last_asked"
+            "SELECT l.canonical_query, COUNT(*) AS asked,"
+            "       SUM(l.partial) AS in_part, MAX(l.ts) AS last_asked,"
+            "       (SELECT later.partial FROM ledger later"
+            "         WHERE later.canonical_query = l.canonical_query"
+            "         ORDER BY later.ts DESC, later.id DESC LIMIT 1) AS latest_partial"
             f" FROM ledger l {where}"
             "   AND NOT EXISTS ("
             "     SELECT 1 FROM pinned_answers p"
             "     WHERE p.canonical_query = l.canonical_query AND p.enabled = 1)"
             "   AND ("
-            "     SELECT tier FROM ledger later"
+            "     SELECT (later.tier = 'refused' OR later.partial = 1)"
+            "     FROM ledger later"
             "     WHERE later.canonical_query = l.canonical_query"
-            "     ORDER BY later.ts DESC, later.id DESC LIMIT 1) = 'refused'"
+            "     ORDER BY later.ts DESC, later.id DESC LIMIT 1) = 1"
             " GROUP BY l.canonical_query"
             " ORDER BY asked DESC, last_asked DESC LIMIT ?",
             (*params, limit),
@@ -406,6 +439,12 @@ class AnswerStore:
             {
                 "question": r["canonical_query"],
                 "asked": int(r["asked"]),
+                # How many of those asks got half an answer rather than none,
+                # and which of the two the last one was. "We answer this
+                # halfway every time" is a different job from "we cannot
+                # answer it at all", and the two should not look alike.
+                "answered_in_part": int(r["in_part"] or 0),
+                "kind": "partial" if r["latest_partial"] else "refused",
                 "last_asked": float(r["last_asked"]),
             }
             for r in rows

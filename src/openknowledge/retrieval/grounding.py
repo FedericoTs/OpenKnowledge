@@ -70,6 +70,12 @@ class GroundingReport:
     unsupported_numbers: tuple[str, ...] = ()
     support_ratio: float = 0.0
     abstained: bool = False
+    #: The answer declined part of the question while answering the rest -
+    #: "meals are covered [expenses-policy]; there is no information about
+    #: taxis". Not a failure: it is the honest shape for a question with two
+    #: parts and one answer. Recorded so the gap it names is not lost, which
+    #: is exactly what happened when partial declines stopped being refusals.
+    declined_in_part: bool = False
     reasons: tuple[str, ...] = ()
     #: Share of the answer's substantive claims that carry a resolving
     #: citation. 1.0 is the citation discipline that earns the lower floor.
@@ -280,6 +286,8 @@ def check_grounding(
         )
 
     reasons: list[str] = []
+    # Declining somewhere without declining throughout: the answer names a gap.
+    declined_in_part = _declining(answer_text)
     known_ids = {c.document_id for c in retrieved} | {c.chunk_id for c in retrieved}
     cited = tuple(dict.fromkeys(_CITATION_RE.findall(answer_text)))
 
@@ -368,4 +376,5 @@ def check_grounding(
         support_ratio=round(support_ratio, 4),
         reasons=tuple(reasons),
         cited_coverage=round(coverage, 4),
+        declined_in_part=declined_in_part,
     )

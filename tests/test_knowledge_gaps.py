@@ -96,7 +96,23 @@ def test_the_report_cannot_name_anyone(store) -> None:
 
     store.record("something nobody could answer", _answer(Tier.REFUSED))
     gap = store.knowledge_gaps()[0]
-    assert set(gap) == {"question", "asked", "last_asked"}
+    # Named exactly, so adding a field to this report is a decision somebody
+    # made rather than something that happened.
+    assert set(gap) == {"question", "asked", "answered_in_part", "kind", "last_asked"}
+    # And named badly is still named: nothing here may describe a person.
+    assert not {k.lower() for k in gap} & {
+        "principal",
+        "principals",
+        "user",
+        "users",
+        "asker",
+        "askers",
+        "session",
+        "email",
+        "name",
+        "account",
+        "who",
+    }
 
 
 def test_the_endpoint_is_admin_only(tmp_path) -> None:
@@ -200,3 +216,93 @@ def test_the_manage_page_can_answer_a_gap_in_place(tmp_path) -> None:
         assert "Pin this answer" in page
         assert "/admin/pins" in page
         assert "cite no document" in page, "a citation is offered, never required"
+
+
+def _half(tier: Tier = Tier.LOCAL) -> Answer:
+    """An answer that covered part of the question and named the rest."""
+    return Answer(
+        text="Meals are covered [expenses]. There is no information about taxis.",
+        tier=tier,
+        model_id="qwen3-4b",
+        cache_key="k",
+        declined_in_part=True,
+    )
+
+
+def test_a_question_answered_only_in_part_is_still_a_gap(store) -> None:
+    """The debt taken in v0.2.17, repaid.
+
+    Before that release a partial "I don't know" was fatal to the whole
+    answer, so the question came back as a refusal and the report saw it.
+    Making the answer survive - which was right - took the gap with it, and
+    the half the documents could not answer stopped being reported at all.
+    """
+    for _ in range(3):
+        store.record("are taxis and meals covered", _half())
+
+    (gap,) = store.knowledge_gaps()
+    assert gap["question"] == "are taxis and meals covered"
+    assert gap["asked"] == 3
+    assert gap["answered_in_part"] == 3
+    assert gap["kind"] == "partial", "half an answer is not the same job as none"
+
+
+def test_a_full_answer_is_not_a_gap(store) -> None:
+    """Nothing widens into 'every question we ever answered'."""
+    store.record("how much parental leave", _answer(Tier.LOCAL))
+    assert store.knowledge_gaps() == []
+
+
+def test_a_partial_gap_closes_when_the_document_is_written(store) -> None:
+    """The same rule refusals get: the list tracks the present."""
+    store.record("are taxis and meals covered", _half())
+    assert store.knowledge_gaps()
+
+    store.record("are taxis and meals covered", _answer(Tier.LOCAL))
+    assert store.knowledge_gaps() == [], "answered in full, so no longer a gap"
+
+
+def test_the_kind_follows_the_most_recent_ask(store) -> None:
+    """A question that used to be refused and is now half-answered has moved,
+    and the report should say which way."""
+    store.record("are taxis and meals covered", _answer(Tier.REFUSED))
+    store.record("are taxis and meals covered", _half())
+
+    (gap,) = store.knowledge_gaps()
+    assert gap["asked"] == 2
+    assert gap["answered_in_part"] == 1
+    assert gap["kind"] == "partial"
+
+
+def test_a_ledger_written_before_partial_existed_still_reads(tmp_path) -> None:
+    """An install that has been running does not get a new database.
+
+    CREATE TABLE IF NOT EXISTS does nothing to a table that already exists, so
+    a column added later never arrives without an explicit migration - and a
+    row written before it existed is simply not known to be partial, which is
+    what it was.
+    """
+    import sqlite3
+
+    db = tmp_path / "old.db"
+    old = sqlite3.connect(db)
+    old.executescript(
+        "CREATE TABLE ledger (id INTEGER PRIMARY KEY AUTOINCREMENT, ts REAL NOT NULL,"
+        " canonical_query TEXT NOT NULL, tier TEXT NOT NULL, model_id TEXT NOT NULL,"
+        " cost_usd REAL NOT NULL DEFAULT 0.0, usage TEXT NOT NULL DEFAULT '{}', channel TEXT);"
+    )
+    old.execute(
+        "INSERT INTO ledger (ts, canonical_query, tier, model_id) VALUES (1.0, 'old one', ?, 'm')",
+        ("refused",),
+    )
+    old.commit()
+    old.close()
+
+    with AnswerStore(db) as store:
+        (gap,) = store.knowledge_gaps()
+        assert gap["question"] == "old one"
+        assert gap["answered_in_part"] == 0
+        assert gap["kind"] == "refused"
+        # And the column is usable from here on.
+        store.record("are taxis and meals covered", _half())
+        assert len(store.knowledge_gaps()) == 2

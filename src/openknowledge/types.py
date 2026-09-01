@@ -101,6 +101,12 @@ class Answer:
     #: like the best-supported thing in the log. `retrieval/confidence.py`
     #: records the scored version that was built, measured, and withdrawn.
     support: float | None = None
+    #: This answer answered part of the question and said plainly that the
+    #: documents did not cover the rest. The gap is real and belongs in the
+    #: gaps report; the answer is not a refusal and must not be discarded.
+    #: Appended, like `section` on Citation, because this class is built
+    #: positionally in places.
+    declined_in_part: bool = False
 
     @property
     def is_answerable(self) -> bool:
