@@ -387,17 +387,24 @@ jobs:
           # and it cannot be satisfied by the old build either: it reports
           # the version it was built as.
           # Bounded so a failure is a message rather than the job's own
-          # 15-minute timeout: 75 tries of at most two seconds each. An
-          # install takes under seven, and the helper starts the app the
-          # moment it returns.
+          # 15-minute timeout, and bounded generously: two runs reopened in
+          # 15 seconds and the third took 119, which is unexplained and was
+          # 30 seconds from failing a release for a reason that is not the
+          # product's. Hence the progress line - the next slow run says where
+          # the time went instead of leaving somebody to subtract timestamps
+          # by hand - and a budget that a slow runner cannot trip.
+          $clock = [Diagnostics.Stopwatch]::StartNew()
           Write-Host "waiting for the app to come back ($(Get-Date -Format HH:mm:ss))"
           $landed = $false
-          foreach ($i in 1..75) {
+          foreach ($i in 1..180) {
             Start-Sleep -Seconds 1
+            $saw = "nothing listening on 8080"
             try {
               $health = Invoke-RestMethod -Uri "http://127.0.0.1:8080/healthz" -TimeoutSec 1
+              $saw = "serving $($health.version)"
               if ($health.version -match [regex]::Escape($newVersion)) { $landed = $true; break }
             } catch { }
+            if ($i % 15 -eq 0) { Write-Host "  ${i}s: $saw" }
           }
           if (-not $landed) {
             Write-Host "--- processes ---"
@@ -415,7 +422,8 @@ jobs:
             throw "the app never came back as $newVersion after handing off its own upgrade (on disk: '$now')"
           }
           Stop-Process -Name OpenKnowledgeApp -Force -ErrorAction SilentlyContinue
-          Write-Host "the app handed off its own upgrade while running, reopened, and served as $($health.version)"
+          Write-Host ("the app handed off its own upgrade while running, reopened, and served " +
+            "as $($health.version) after $([int]$clock.Elapsed.TotalSeconds)s")
 
       # Win, lose or hang: a killed step never reaches its own Write-Host, and
       # Inno's log is the only account of what the installer did.

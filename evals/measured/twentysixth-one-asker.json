@@ -24,5 +24,11 @@
   },
   "gate": "No retrieval, prompt, chunking or grounding change: a new limiter, a new renderer, one guard on each of the two question paths, one admin endpoint and a widget error path. The cache key policy string is untouched. The golden sets gate answers, and no answer moved.",
   "pinned_by": "tests/test_limits.py, 19 tests. 1,103 tests pass.",
-  "still_open": "The limit is per process, so two servers behind a load balancer each enforce their own and the effective limit is doubled. Documented rather than solved: sharing the counters would need a store they both reach, and the deployment this guide describes is one server."
+  "still_open": "The limit is per process, so two servers behind a load balancer each enforce their own and the effective limit is doubled. Documented rather than solved: sharing the counters would need a store they both reach, and the deployment this guide describes is one server.",
+  "a_number_worth_watching": {
+    "what": "The v0.6.0 release's upgrade job reopened the app in 119.5 seconds. The two runs before it took 15.1 and 15.2. All three passed; the third was 30 seconds from failing a release under the bound I had set.",
+    "explanation": "None yet. The installer itself was slower on that runner (30s against 18s), which accounts for some of it but nowhere near an eight-fold jump. The reopened app is detached, so its output does not reach the step's log and there was nothing to read.",
+    "done_about_it": "The bound is now 180 seconds rather than 75, so a slow runner cannot fail a release for a reason that is not the product's, and the wait prints what it sees every fifteen seconds - nothing listening, serving the old version, serving the new one - plus the elapsed time on success. The next slow run says where the time went instead of leaving somebody to subtract timestamps by hand.",
+    "why_it_is_recorded": "A green run with an unexplained number in it is the same shape as the green run with a traceback in it that started the previous investigation. Widening the bound without saying so would have buried it."
+  }
 }
