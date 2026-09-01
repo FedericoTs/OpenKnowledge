@@ -373,3 +373,22 @@ def test_only_a_plain_installer_filename_is_ever_offered() -> None:
         assert not result.update_available, hostile
         assert not result.installer_name, hostile
         assert "no digest-verified installer" in result.error, hostile
+
+
+def test_the_installer_clears_the_version_it_is_replacing() -> None:
+    """The guard for the defect that made every update invisible.
+
+    The frozen app reads its version from bundled .dist-info, whose directory
+    name carries that version, and Inno never removes files the new build no
+    longer has. An upgrade left openknowledge-0.2.18.dist-info beside
+    openknowledge-0.2.19.dist-info, importlib.metadata answered 0.2.18, and
+    the updater offered the same release for ever.
+
+    This asserts only that the removal is still declared; the CI
+    windows-upgrade job is what measures that an install actually receives a
+    build.
+    """
+    iss = Path(__file__).resolve().parent.parent / "packaging" / "windows" / "installer.iss"
+    text = iss.read_text(encoding="utf-8")
+    assert "[InstallDelete]" in text
+    assert r"{app}\_internal\openknowledge-*.dist-info" in text

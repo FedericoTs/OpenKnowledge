@@ -354,6 +354,23 @@ column, so it can say a question was asked forty times and never who asked it
 - a knowledge base that reports what its people are looking for should not
 also be a log of who looked. A test asserts that column stays absent.
 
+### Known gaps in the Windows upgrade
+
+- **Inno removes nothing the new build dropped.** An upgrade replaces every file
+  the new installer carries and leaves everything else exactly where it was. That
+  was fatal once already: the frozen app reads its version from bundled
+  `.dist-info`, whose directory name carries the version, so an upgrade left the
+  old one beside the new and the app went on reporting the version it had
+  replaced. `[InstallDelete]` now clears that one directory, and CI upgrades a
+  real previous release on every packaging run.
+
+  The general hazard stands. Any module, DLL or data file a future build stops
+  shipping stays on disk, where it can shadow or simply mislead. The clean fix is
+  to clear `{app}\_internal` wholesale before installing, which is safe only when
+  nothing holds those files - and someone can always run the installer with the
+  app open. Doing it properly means the installer stopping the app first, which
+  is worth building and is not built.
+
 ### Known gaps in the golden sets
 
 - **`must_not_say` is a flat substring list**, so it cannot express "not *as the answer

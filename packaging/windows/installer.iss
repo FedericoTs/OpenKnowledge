@@ -39,6 +39,24 @@ ChangesEnvironment=yes
 Name: "desktopicon"; Description: "Create a &desktop shortcut"; Flags: unchecked
 Name: "addtopath"; Description: "Add the &command line tool to PATH (for `openknowledge ask`, audits, scripting)"; Flags: unchecked
 
+[InstallDelete]
+; PyInstaller bundles the package's own .dist-info so the frozen app can read
+; its version, and the directory name carries that version. Inno replaces
+; files; it never removes ones the new build no longer has - so an upgrade
+; left both, and importlib.metadata answered with whichever it found first.
+;
+; Measured on a real 0.2.18 -> 0.2.19 upgrade in CI: every file was replaced,
+; the installer exited 0, and the installed app still reported 0.2.18. The
+; updater then compared each new release against that stale number and
+; offered the same update again, for ever. This is why an install could
+; never be seen to update itself.
+;
+; Scoped to the metadata rather than all of {app}\_internal: this is the
+; defect that is measured, and a wholesale delete of the runtime would fail
+; badly if someone ran the installer while the app still held those files.
+; Anything else the new build drops still lingers - see ROADMAP.
+Type: filesandordirs; Name: "{app}\_internal\openknowledge-*.dist-info"
+
 [Files]
 ; The PyInstaller onedir bundle: both executables and their shared runtime.
 Source: "..\..\dist\OpenKnowledge\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs
