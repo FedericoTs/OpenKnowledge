@@ -393,6 +393,38 @@ an identity that does not exist is theatre.
 The asymmetry with the gaps report above is deliberate and now holds from
 both ends. Who governs is recorded by name. Who is curious is not.
 
+### A PDF is not a markdown file
+
+The plan was to cache document parses, listed as second-tier work behind
+things that needed somebody else. Measuring the number it rested on moved
+it to the front.
+
+Per document, on this project's own parsers: markdown **5.9 ms**, docx
+**56.7 ms**, PDF **780 ms**. A hundred and thirty-two times, for the same
+words. Profiling put **99.2%** of a PDF rebuild in `opendataloader`, which
+spawns a Java process once per file — the cost is JVM startup and pipe
+traffic, not reading the document. Sixty small PDFs rebuilt in 46 seconds;
+a thousand policy PDFs, which is an ordinary corpus for the company this is
+built for, is minutes, paid again on every upload and every delete. PDF is
+the format a company's policies actually live in, so this was never
+second-tier.
+
+None of that work is new each time, so it is now remembered — keyed on the
+**content**, not the clock. `mtime` and size are the obvious key and the
+wrong one: `rsync -t`, `git checkout` and every restore-from-backup put old
+timestamps on new bytes, and a cache that believed them would serve last
+year's policy for ever. A test rewrites a document to the same length,
+rolls its mtime backwards, and asserts the new figure reaches the corpus.
+
+Rebuild: 46 s → **0.23 s**, and 0.74 s across a restart because it is on
+disk. A warm cache and no cache at all produce the same `corpus_version`
+and the same passages, chunk for chunk.
+
+It is deliberately not in the backup — a backup already carries the
+documents, and a parse of every one would double the archive to save a
+rebuild — and deliberately not used by `openknowledge audit`, which
+promises no database and nothing written.
+
 ### An access change is not a corpus change
 
 Both access endpoints re-indexed the whole corpus, synchronously, inside the

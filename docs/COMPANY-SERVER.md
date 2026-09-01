@@ -86,6 +86,24 @@ not answer, contradictions refused until an admin resolves them in
 single list — add a policy once, everyone can ask about it seconds
 later.
 
+## PDFs, and why the first index is the slow one
+
+A PDF costs about **780 ms** to read against **6 ms** for the same words in
+markdown — almost all of it a Java process starting up, once per file. So
+the first index of a large PDF corpus takes minutes, and there is no way
+around that first pass.
+
+Every index after it is fast: a file whose bytes have not changed is never
+re-read. The parses live in `parses.db` beside the other state, survive a
+restart, and are keyed on the content of each file rather than its
+timestamp — so a restore-from-backup or an `rsync -t`, which put old
+timestamps on new bytes, cannot make it serve you the previous version of a
+policy.
+
+It is pure derived data. Deleting `parses.db` costs one slow rebuild and
+nothing else, which is why it is a separate file and why it is not in the
+backup: the backup already carries the documents themselves.
+
 ## Changing who may read what
 
 Rules are set per folder on `/manage`, and the deepest rule wins for its

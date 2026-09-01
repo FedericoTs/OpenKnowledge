@@ -349,6 +349,14 @@ class Settings(BaseSettings):
         return f"{self.data_dir.rstrip('/')}/knowledge.db"
 
     @property
+    def parse_cache_path(self) -> str:
+        """Parsed documents by content hash. Its own file because it is pure
+        derived data: deleting it costs one slow rebuild and nothing else,
+        which is a promise worth being able to make about a cache holding
+        the text of every document."""
+        return f"{self.data_dir.rstrip('/')}/parses.db"
+
+    @property
     def auth_db_path(self) -> str:
         """Sessions and pending logins. Its own file: sign-in state is
         disposable and personal, and wiping it must not touch answers."""

@@ -14,6 +14,7 @@ from ..cascade.budget import Budget
 from ..cascade.ladder import Ladder, Rung
 from ..config import Settings
 from ..connectors import LocalFilesConnector
+from ..documents.cache import ParseCache
 from ..knowledge import IngestReport, KnowledgeStore, draft_for_documents, scan_documents
 from ..knowledge.claims import ClaimCache
 from ..knowledge.reverify import reverify_changed_documents
@@ -402,6 +403,11 @@ def build_engine(settings: Settings) -> Engine:
         # admin decisions that change at runtime, and each re-index reads
         # the ones in force.
         folder_rules=knowledge.folder_rules,
+        # Parsing dominates every scan on the formats a company actually has:
+        # 780ms for one small PDF against 6ms for the same words in markdown,
+        # almost all of it a Java process starting up. Persisted, so a restart
+        # does not re-pay the first build.
+        parses=ParseCache(settings.parse_cache_path),
     )
     local = _build_local(settings)
     ladder = _build_ladder(settings, local)

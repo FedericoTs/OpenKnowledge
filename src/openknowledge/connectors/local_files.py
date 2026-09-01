@@ -25,6 +25,8 @@ from pathlib import Path
 
 from ..access import effective_principals
 from ..documents import SUPPORTED_SUFFIXES, declares_superseded, parse_file, skip_reason
+from ..documents.blocks import ParsedDocument
+from ..documents.cache import ParseCache, cache_key
 from ..retrieval.base import Document
 
 log = logging.getLogger(__name__)
@@ -59,6 +61,7 @@ class LocalFilesConnector:
         allowed_principals: frozenset[str] = frozenset(),
         pdf_backend: str = "auto",
         folder_rules: Callable[[], Mapping[str, frozenset[str]]] | None = None,
+        parses: ParseCache | None = None,
     ) -> None:
         self.name = "local-files"
         # Resolved eagerly: a relative root cannot be turned into the file:// URI
@@ -70,7 +73,51 @@ class LocalFilesConnector:
         # A callable, not a snapshot: rules are admin decisions that change
         # at runtime, and every re-index must see the current ones.
         self.folder_rules = folder_rules
+        # Parsing is by far the most expensive thing a scan does on the formats
+        # a company actually has - 780ms for one small PDF against 6ms for the
+        # same words in markdown, almost all of it a Java process starting up.
+        # None means parse every time, which is what a test wants.
+        self.parses = parses
         self.skipped = []
+
+    def _parse(self, path: Path) -> ParsedDocument:
+        """Parse a file, or hand back the parse of these exact bytes.
+
+        The bytes are the key, not the timestamp: ``rsync -t``, ``git
+        checkout`` and every restore-from-backup put old mtimes on new
+        content, and a cache that believed them would serve the previous
+        version of a policy for ever. Reading the file to hash it costs
+        milliseconds against the hundreds a PDF parse costs.
+        """
+        if self.parses is None:
+            return parse_file(path, title=None, pdf_backend=self.pdf_backend)
+        try:
+            data = path.read_bytes()
+        except OSError:
+            # Let the parser produce the warning; it already has the words for
+            # a file it could not read, and duplicating them here would mean
+            # two ways to say the same thing and one of them going stale.
+            return parse_file(path, title=None, pdf_backend=self.pdf_backend)
+
+        key = cache_key(data, parser=self._parser_name(path))
+        self._seen_keys.add(key)
+        cached = self.parses.get(key)
+        if cached is not None:
+            return cached
+        parsed = parse_file(path, title=None, pdf_backend=self.pdf_backend)
+        # A parse that failed is not worth remembering: the next scan should
+        # try again, because the reason is usually outside the file - a
+        # missing backend, a JVM that did not start, a full disk.
+        if parsed.blocks:
+            self.parses.put(key, parsed)
+        return parsed
+
+    def _parser_name(self, path: Path) -> str:
+        """Which parser's output this is. Two PDF backends extract slightly
+        different text, so a cache shared between them would hand one
+        backend's words to a corpus fingerprinted under the other's."""
+        suffix = path.suffix.lower()
+        return f"pdf:{self.pdf_backend}" if suffix == ".pdf" else suffix
 
     def access_map(self) -> dict[str, frozenset[str]]:
         """Who may read each document, without reading any of them.
@@ -97,6 +144,7 @@ class LocalFilesConnector:
 
     def fetch(self) -> list[Document]:
         self.skipped = []
+        self._seen_keys: set[str] = set()
         if not self.root.is_dir():
             log.warning("document root %s does not exist; no documents loaded", self.root)
             return []
@@ -114,7 +162,7 @@ class LocalFilesConnector:
                     self.skipped.append(SkippedFile(relative, reason))
                 continue
 
-            parsed = parse_file(path, title=None, pdf_backend=self.pdf_backend)
+            parsed = self._parse(path)
             for warning in parsed.warnings:
                 self.skipped.append(SkippedFile(relative, warning))
                 log.warning("%s: %s", relative, warning)
@@ -140,6 +188,11 @@ class LocalFilesConnector:
                     superseded=declares_superseded(text),
                 )
             )
+        if self.parses is not None:
+            # Everything this whole scan saw. Without it the cache grows by a
+            # row per edit for ever - every draft of a policy ever saved into
+            # the folder, kept because it existed once.
+            self.parses.keep_only(self._seen_keys)
         return documents
 
 

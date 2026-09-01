@@ -1,0 +1,28 @@
+{
+  "what": "The same bytes are never parsed twice. A rebuild of 60 PDFs went from 46 seconds to 0.23, and the corpus that comes out is asserted identical.",
+  "the_measurement_that_started_it": {
+    "why": "The plan was to cache parses, listed as second-tier work. Before building it the number it rested on was measured, because the previous claim - 'far higher for PDFs' - was speculation.",
+    "per_document": "markdown 5.9ms, docx 56.7ms, PDF 780.3ms. 132x between the first and the last, for the same words.",
+    "where_it_goes": "cProfile on a PDF rebuild put 99.2% in opendataloader, which spawns a Java process once per file. The time is JVM startup and pipe traffic - select.poll alone was 90.9 of 92.2 seconds - not reading the document.",
+    "what_that_means": "120 small PDFs rebuilt in 93.6 seconds. A thousand policy PDFs, which is an ordinary corpus for the company this is built for, is about thirteen minutes - paid again on every upload and every delete. PDF is the format a company's policies actually live in, so this was not second-tier work at all."
+  },
+  "the_key": {
+    "content_not_clock": "mtime and size are the obvious key and the wrong one. rsync -t, git checkout and every restore-from-backup put old timestamps on new bytes, and a cache that believed them would serve the previous version of a policy for ever. Reading the file to hash it costs milliseconds against the hundreds a PDF parse costs. Pinned by a test that rewrites a document to the SAME LENGTH and rolls its mtime backwards, then asserts the new figure is in the corpus.",
+    "the_parser_too": "Two PDF backends extract slightly different text - parse_pdf says so itself - so a shared entry would hand one backend's words to a corpus fingerprinted under the other's.",
+    "format_version": "In the key, so a change to the stored shape is a miss rather than something to interpret. Cheaper than a migration for a cache: everything in it can be recomputed from the file it came from."
+  },
+  "measured": {
+    "sixty_pdfs_of_eight_pages": "No cache: first build 92.45s, every rebuild 46.06s. Cached: first build 46.00s, every rebuild 0.23s, and 0.74s after a restart because it is on disk. Rebuild 198x faster; a restart 125x cheaper than paying the first build again.",
+    "correctness": "A warm cache and no cache at all produce the same corpus_version and the same passages, chunk for chunk. An edited file is re-parsed. Deleting the cache file costs a rebuild and changes nothing about the result.",
+    "note_on_the_first_build": "It halved too, from 92.45s to 46.00s, because build_engine indexes at construction and the reindex that used to re-parse everything now hits the cache. The first parse itself is unchanged - this caches work, it does not make the JVM faster."
+  },
+  "what_it_deliberately_does_not_do": {
+    "not_in_the_backup": "A backup already carries the documents themselves; adding a parse of every one would double the archive to save a rebuild. Its own file, so 'deleting this costs one slow rebuild and nothing else' is a promise that can be made about a database holding the text of every document.",
+    "not_in_audit": "`openknowledge audit` promises no database and nothing written - the one command for somebody who has not decided whether to trust this project yet. Its connector is built without a cache, so it parses every time, which is the right trade for a command that runs once. Pinned by a test that asserts no .db file appears.",
+    "not_remembering_failures": "A parse that produced nothing is not stored. The reason is usually outside the file - a missing backend, a JVM that did not start, a full disk - so the next scan should try again rather than inherit the failure."
+  },
+  "a_test_of_mine_that_proved_nothing": "The first version of the two-backends test asserted that cache_key distinguishes two parser names it was handed. It does, and always did. It passed happily while the connector was sabotaged to hand it the same name for both backends - a test of the half that was never wrong. It now asserts against the connector's own _parser_name, and was confirmed to fail against that sabotage.",
+  "gate": "No retrieval, prompt, chunking or grounding change: a cache in front of the parsers, keyed on their input. corpus_version and every passage are asserted identical with the cache and without it. The golden sets gate answers, and no answer moved.",
+  "pinned_by": "tests/test_parse_cache.py, 11 tests. 1,128 tests pass.",
+  "still_open": "The first build is unchanged - a cold corpus of a thousand PDFs is still minutes, because each one still starts a JVM. Batching them into one invocation would fix that and is a change to how the backend is called rather than to when; not attempted, and worth measuring before it is."
+}
