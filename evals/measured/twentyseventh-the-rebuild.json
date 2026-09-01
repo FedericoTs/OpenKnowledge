@@ -1,0 +1,31 @@
+{
+  "what": "Measuring the rebuild before optimising it, which found the cost somewhere unexpected - and then found a bug that had nothing to do with speed.",
+  "why_measure_first": "The plan was incremental indexing. Before writing any, two facts were checked. Embeddings are already cached by chunk text, so adding one document only embeds the new chunks - the expensive part was already incremental. And a full rebuild was timed at four corpus sizes.",
+  "the_measurement": {
+    "method": "Synthetic markdown corpora of ~30 KB each, embeddings off, timing engine.reindex() on a warm engine.",
+    "before": "25 docs / 450 chunks: 0.65s. 100 / 1,800: 2.45s. 400 / 7,200: 8.98s. 1,200 / 21,600: 27.55s. Linear at about 23ms per document - and this is markdown, the cheapest parse there is.",
+    "why_it_matters": "A rebuild runs on every upload, every delete, and every access rule an admin changes - synchronously, inside the request that is waiting for it. A company with 1,200 documents waited 27 seconds to change who may read a folder."
+  },
+  "where_the_time_actually_went": {
+    "method": "cProfile on one rebuild of 400 documents.",
+    "result": "Contradiction detection was 57% of it, and claim extraction alone 48%. The retrieval index everybody would have optimised first - BM25 at 29%, reading and parsing at 14%, tag frequencies at 14% - was the smaller half.",
+    "the_assumption_that_cost_it": "A comment in the scan said 'Conflicts are free, so re-run over the whole corpus every time'. True of money, which is why it was written, and the reason re-running was affordable. Not true of the clock."
+  },
+  "the_fix": {
+    "what": "A ClaimCache keyed by (document_id, content_hash). Extraction is a pure function of the document's text, so the same words yield the same claims; comparison is a property of the whole corpus and still runs over every pair on every scan.",
+    "what_did_not_change": "Which conflicts are found. That is the property the whole change rests on, and it is tested directly: same corpus, cached and uncached, identical conflict keys and identical agreement counts.",
+    "keyed_on_both": "Not on the content hash alone. Two documents can carry identical text - an archive copy is ordinary - and a claim cites where it came from.",
+    "after": "25: 0.20s. 100: 0.67s. 400: 3.16s. 1,200: 9.40s. From 23ms per document to 7.8ms; a 1,200-document rebuild from 27.55s to 9.40s. The first build after a restart is unchanged, which is the right trade: a restart is rare and an upload is not."
+  },
+  "the_bug_it_found": {
+    "what": "A contradiction that has been CORRECTED in the documents stayed open forever.",
+    "how_it_surfaced": "The test written to prove the cache faithful compared a warm engine against a fresh one that had never seen the old text. They disagreed. The obvious conclusion was that the cache was serving stale claims - so the same check was run against the unmodified code, and it disagreed identically. The cache was innocent; what it exposed was not.",
+    "the_mechanism": "drop_conflicts_for_documents only ever removed conflicts whose documents had LEFT the corpus. Its docstring says so plainly: 'Deleting one side of a disagreement resolves it.' Correcting the figure is the other way to resolve one, and nothing handled it - no code anywhere compared the open conflicts against what a scan currently finds.",
+    "what_it_cost": "block_on_conflict is on by default and refuses questions touching an open conflict. So fixing the document did not unblock the questions. The corpus was right and the assistant still refused, and the only way out was an admin resolving something that no longer existed.",
+    "the_fix": "The scan now reconciles: what it found IS the set of disagreements the corpus contains, so an open flag it did not find is deleted. Only open rows - a resolved one is the record of a judgement, gates nothing, and deleting it would erase what the admin log points at. The departed-document clearance is kept alongside, because that one also removes resolved rows for files nobody has any more.",
+    "pinned_by": "test_correcting_a_document_clears_the_conflict_it_caused and test_a_resolution_somebody_made_is_not_undone_by_a_rescan; both confirmed to fail when the reconciliation is removed."
+  },
+  "gate": "No retrieval, prompt, chunking or grounding change. The cache key policy string is untouched, and the conflicts a corpus produces are asserted identical with the cache and without it. The golden sets gate answers, and no answer moved.",
+  "pinned_by": "tests/test_claim_cache.py, 7 tests. 1,110 tests pass.",
+  "still_open": "BM25 (29%) and tag document-frequency (14%) are corpus-wide statistics and genuinely need every document; reading and parsing (14%) could be cached by mtime and size and is not. A 1,200-document rebuild is 9.4 seconds, which is still inside a request somebody is waiting on - the next move there is to stop doing it synchronously, not to shave it further."
+}

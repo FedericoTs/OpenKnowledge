@@ -21,8 +21,9 @@ module is the free first pass, not the whole answer.
 from __future__ import annotations
 
 import re
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from ..retrieval.base import Document, tokenize
 from .salience import salience_from
@@ -297,6 +298,7 @@ def compare_numeric_claims(
     *,
     min_overlap: float = 0.34,
     min_shared_words: int = 3,
+    cache: ClaimCache | None = None,
 ) -> tuple[list[Conflict], dict[tuple[str, str], int]]:
     """Compare every pair of documents on the figures they both assert.
 
@@ -317,9 +319,10 @@ def compare_numeric_claims(
     measures, and applying the weighting twice punished a small corpus where a
     single genuinely shared subject word is all there is to go on.
     """
+    pull = cache.numeric if cache is not None else extract_claims
     by_doc: dict[str, list[Claim]] = {}
     for doc in documents:
-        by_doc.setdefault(doc.document_id, []).extend(extract_claims(doc))
+        by_doc.setdefault(doc.document_id, []).extend(pull(doc))
 
     weights = salience_from(claim.context for claims in by_doc.values() for claim in claims)
 
@@ -373,12 +376,73 @@ def find_numeric_conflicts(
     return conflicts
 
 
+class ClaimCache:
+    """Claims already pulled out of a document, keyed by that document's text.
+
+    Extraction is a pure function of ``doc.text``: the same words yield the
+    same claims, every time. Comparison is not - it is a property of the whole
+    corpus, and a disagreement between two untouched documents is still a
+    disagreement - so this caches only the extracting, and every pair is still
+    compared on every scan. What is found does not change; what is re-derived
+    does.
+
+    It earns its place on the clock rather than the invoice. Conflict detection
+    costs no money, which is why it re-ran over everything, but at 400 markdown
+    documents it was 57% of a rebuild and claim extraction alone was 48% - and
+    a rebuild happens on every upload, every delete and every access rule an
+    admin changes, in the request that is waiting for it.
+
+    Keyed by ``(document_id, content_hash)`` rather than by the hash alone: two
+    documents can carry identical text, and their claims cite where they came
+    from.
+    """
+
+    __slots__ = ("_deontic", "_numeric")
+
+    def __init__(self) -> None:
+        self._numeric: dict[tuple[str, str], tuple[Claim, ...]] = {}
+        self._deontic: dict[tuple[str, str], tuple[object, ...]] = {}
+
+    @staticmethod
+    def _key(doc: Document) -> tuple[str, str]:
+        return (doc.document_id, doc.content_hash)
+
+    def numeric(self, doc: Document) -> list[Claim]:
+        key = self._key(doc)
+        cached = self._numeric.get(key)
+        if cached is None:
+            cached = tuple(extract_claims(doc))
+            self._numeric[key] = cached
+        return list(cached)
+
+    def deontic(self, doc: Document, extract: Callable[[Document], list[Any]]) -> list[Any]:
+        key = self._key(doc)
+        cached = self._deontic.get(key)
+        if cached is None:
+            cached = tuple(extract(doc))
+            self._deontic[key] = cached
+        return list(cached)
+
+    def keep_only(self, documents: Iterable[Document]) -> None:
+        """Forget documents that are no longer in the corpus.
+
+        Without this the cache is a slow leak keyed by everything that was ever
+        indexed - and an install that re-uploads a document under a new name
+        every week would keep both forever.
+        """
+        live = {self._key(doc) for doc in documents}
+        for store in (self._numeric, self._deontic):
+            for key in [k for k in store if k not in live]:
+                del store[key]
+
+
 def compare_documents(
     documents: list[Document],
     *,
     min_overlap: float = 0.34,
     min_shared_words: int = 3,
     deontic_strictness: float = 1.0,
+    cache: ClaimCache | None = None,
 ) -> tuple[list[Conflict], dict[tuple[str, str], int]]:
     """Every disagreement between documents that we can find without a model.
 
@@ -394,11 +458,12 @@ def compare_documents(
     """
     from .deontic import conflicts_between, extract_deontic_claims
 
+    cache = cache if cache is not None else ClaimCache()
     conflicts, agreements = compare_numeric_claims(
-        documents, min_overlap=min_overlap, min_shared_words=min_shared_words
+        documents, min_overlap=min_overlap, min_shared_words=min_shared_words, cache=cache
     )
 
-    by_doc = {doc.document_id: extract_deontic_claims(doc) for doc in documents}
+    by_doc = {doc.document_id: cache.deontic(doc, extract_deontic_claims) for doc in documents}
     doc_ids = sorted(by_doc)
     seen = {c.key for c in conflicts}
 

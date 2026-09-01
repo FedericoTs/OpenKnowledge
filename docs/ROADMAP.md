@@ -393,6 +393,41 @@ an identity that does not exist is theatre.
 The asymmetry with the gaps report above is deliberate and now holds from
 both ends. Who governs is recorded by name. Who is curious is not.
 
+### The rebuild, measured before it was optimised
+
+The plan was incremental indexing. Measuring first changed what got built.
+
+Embeddings turned out to be cached by chunk text already, so the expensive
+part was incremental before anyone touched it. Profiling a rebuild found
+the cost somewhere else entirely: contradiction detection was **57%** of
+it, and pulling claims back out of documents alone was **48%**. The
+retrieval index everybody would optimise first — BM25 at 29%, parsing at
+14% — was the smaller half.
+
+The comment that made it so said *"Conflicts are free, so re-run over the
+whole corpus every time."* True of money, which is why it was written and
+why re-running was affordable. Not true of the clock — and a rebuild runs
+on every upload, every delete and every access rule, inside the request
+that is waiting for it. At 1,200 markdown documents that was 27.5 seconds
+to change who may read a folder.
+
+So claims are now remembered per document, keyed by its text, while every
+pair is still compared on every scan. Which conflicts are found does not
+change — that is asserted directly, cached against uncached — and a
+1,200-document rebuild went from 27.5 to 9.4 seconds.
+
+**The bug it found on the way.** The test written to prove the cache
+faithful compared a warm engine against a fresh one, and they disagreed.
+The obvious reading was a stale cache; running the same check against the
+unmodified code disagreed identically. A contradiction that had been
+*corrected in the documents* stayed open forever, because the only thing
+that ever cleared one was a document leaving the corpus. With
+`block_on_conflict` on — the default — the questions it gated stayed
+refused after the corpus was already right, and the only way out was an
+admin resolving something that no longer existed. The scan now reconciles
+what it found against what is still flagged, leaving resolved rows alone
+because those are decisions somebody made.
+
 ### One asker, everybody's ceiling
 
 The budget governor turns a declared budget into a ceiling on what one

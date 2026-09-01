@@ -606,6 +606,31 @@ class KnowledgeStore:
             self._conn.commit()
         return removed
 
+    def drop_open_conflicts_absent_from(self, detected: frozenset[str]) -> int:
+        """Close the flag on disagreements this corpus no longer contains.
+
+        A contradiction is resolved by deleting one of the documents, and
+        equally by *correcting the text* - and only the first was ever handled.
+        Fixing the figure left the flag up for good, so with
+        ``block_on_conflict`` on, every question it gated stayed refused after
+        the corpus was already right, and the only way out was an admin
+        resolving something that no longer existed.
+
+        Only open rows. A resolved one is the record of a decision somebody
+        made, it gates nothing, and deleting it to tidy up would erase the
+        history the admin log points at.
+
+        The caller passes what a scan of the **whole** corpus detected; giving
+        it a subset would clear flags for documents it never looked at.
+        """
+        with self._lock:
+            rows = self._conn.execute("SELECT key FROM conflicts WHERE status = 'open'").fetchall()
+            stale = [row["key"] for row in rows if row["key"] not in detected]
+            for key in stale:
+                self._conn.execute("DELETE FROM conflicts WHERE key = ?", (key,))
+            self._conn.commit()
+        return len(stale)
+
     # -- document versions ------------------------------------------------
     def sync_documents(
         self, documents: list[Document]

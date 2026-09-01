@@ -15,6 +15,7 @@ from ..cascade.ladder import Ladder, Rung
 from ..config import Settings
 from ..connectors import LocalFilesConnector
 from ..knowledge import IngestReport, KnowledgeStore, draft_for_documents, scan_documents
+from ..knowledge.claims import ClaimCache
 from ..knowledge.reverify import reverify_changed_documents
 from ..providers.anthropic_provider import AnthropicProvider
 from ..providers.azure_openai import AzureOpenAIProvider
@@ -46,6 +47,12 @@ class Engine:
     last_scan: IngestReport | None = None
     #: The folder stamp as of the last read; see reindex_if_documents_changed.
     _documents_stamp: str = ""
+    #: Claims already pulled out of documents whose text has not changed. Lives
+    #: on the engine rather than inside the scan so it survives between
+    #: rebuilds, which is the whole point: a rebuild happens on every upload,
+    #: every delete and every access rule, and re-reading claims out of a
+    #: thousand unchanged documents each time was half its clock.
+    claims: ClaimCache = field(default_factory=ClaimCache)
 
     def documents_fingerprint(self) -> str:
         """A cheap stamp of the corpus folder: names, sizes, modification times.
@@ -113,7 +120,9 @@ class Engine:
             retriever=self.retriever,
             min_conflict_overlap=self.settings.conflict_min_overlap,
             deontic_strictness=self.settings.deontic_strictness,
+            claims=self.claims,
         )
+        self.claims.keep_only(self.documents)
         for skipped in self.connector.skipped:
             self.last_scan.notes.append(f"skipped {skipped.path}: {skipped.reason}")
         log.info(

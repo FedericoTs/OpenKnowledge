@@ -23,7 +23,7 @@ from dataclasses import dataclass, field, replace
 
 from ..providers.base import ChatProvider
 from ..retrieval.base import Document, Retriever
-from .claims import compare_documents
+from .claims import ClaimCache, compare_documents
 from .crosscheck import crosscheck_answers
 from .generate import draft_from_document
 from .store import KnowledgeStore, Proposal
@@ -74,6 +74,7 @@ def scan_documents(
     retriever: Retriever | None = None,
     min_conflict_overlap: float = 0.34,
     deontic_strictness: float = 1.0,
+    claims: ClaimCache | None = None,
 ) -> IngestReport:
     """The free half of ingest: version tracking, conflicts, stale drafts.
 
@@ -88,16 +89,26 @@ def scan_documents(
     report.changed = tuple(sorted(changed))
     report.removed = tuple(sorted(removed))
 
-    # Conflicts are free, so re-run over the whole corpus every time: a
-    # disagreement between two untouched documents is still a disagreement, and
-    # re-running beats reasoning about which pairs might have been affected.
+    # Every pair is compared on every scan: a disagreement between two
+    # untouched documents is still a disagreement, and re-comparing beats
+    # reasoning about which pairs might have been affected. What is not redone
+    # is pulling the claims back out of text that has not changed - free of
+    # money, and 48% of a rebuild's clock - which `claims` remembers across
+    # scans without altering a single comparison.
+    # A document that left takes its rows with it, resolved ones included:
+    # they are history about a file nobody has any more. Open rows for
+    # documents that are still here are reconciled below, against what this
+    # scan actually found.
     present = frozenset(d.document_id for d in documents)
     report.conflicts_cleared = store.drop_conflicts_for_documents(present)
+
     conflicts, agreements = compare_documents(
         documents,
         min_overlap=min_conflict_overlap,
         deontic_strictness=deontic_strictness,
+        cache=claims,
     )
+    detected: set[str] = set()
     for pair in group_by_document_pair(conflicts, agreements):
         # Two documents disagreeing on two dozen shared figures are not two
         # dozen contradictions - they are two versions of one document, and
@@ -109,12 +120,22 @@ def scan_documents(
         # relevance excludes the kind.
         if pair.is_variant:
             store.record_conflict(replace(pair.conflicts[0], kind="versions"))
+            detected.add(pair.conflicts[0].key)
             report.conflicts_detected += 1
             report.notes.append(pair.describe())
             continue
         for conflict in pair.conflicts:
             store.record_conflict(conflict)
+            detected.add(conflict.key)
             report.conflicts_detected += 1
+
+    # What this scan found IS the set of disagreements the corpus contains, so
+    # an open flag it did not find is a flag for a disagreement that is gone.
+    # Deleting one side of it was already handled; correcting the text was not,
+    # and with block_on_conflict on that left every question it gated refused
+    # after the documents were already right, with no way out but an admin
+    # resolving something that no longer existed.
+    report.conflicts_cleared += store.drop_open_conflicts_absent_from(frozenset(detected))
 
     # A new document contradicting an existing *answer* is the case document
     # pairing cannot see - no stored answer cites a file that did not exist. The
