@@ -425,6 +425,44 @@ documents, and a parse of every one would double the archive to save a
 rebuild — and deliberately not used by `openknowledge audit`, which
 promises no database and nothing written.
 
+What it did **not** fix was the first index, and its own record said so: a
+cold corpus of a thousand PDFs was still minutes, because each one still
+started a JVM. That is now fixed too. Measured directly rather than
+inferred: of the 656 ms a four-page PDF cost, about **640 ms was the
+process starting up** and roughly 51 ms was parsing. The parser accepts a
+batch, so it is handed one — 64 documents per invocation, which takes ~13x
+of a possible ~16x while bounding both the files staged on disk and what
+the parser holds at once.
+
+A first index of 120 PDFs: **65.7 s → 3.1 s**, twenty-one times faster, and
+the documents that come out are asserted identical — blocks, title, pages
+and warnings, per document and across the whole corpus. A thousand policy
+PDFs go from about nine minutes to about twenty-five seconds. With a warm
+parse cache the same scan starts no JVM at all.
+
+The reading-ahead is driven by the walk and stays **one group ahead**
+rather than parsing everything first: a group holds every document in it in
+memory, and reading a thousand large PDFs before indexing any of them would
+trade a JVM problem for a memory one. Doing it eagerly measured 22x against
+this 21x — inside the noise, and not worth holding a second copy of a
+corpus for.
+
+Two things would have been silent. The parser names each output after its
+input's **basename**, so batching `HR/policy.pdf` and `Finance/policy.pdf`
+by their real paths writes one `policy.json` — verified, not feared: two
+different PDFs with the same name produced exactly one output file. That is
+a document lost, or one policy answered out of another's text. Every file
+is staged under a generated name instead. And the CLI exits non-zero when
+any file in a batch is unreadable, *having already written every good
+document*, so the failure is read rather than raised and anything missing
+is re-parsed alone — where it produces the same sentence it would have
+produced had it never been batched.
+
+That last test found a defect it was not looking for. The sentence an
+operator saw for an unreadable PDF was the whole `java` command line and an
+exit code. It now reads `broken.pdf: OpenDataLoader: this file is not a
+valid PDF file (corrupted or truncated content).`
+
 ### An access change is not a corpus change
 
 Both access endpoints re-indexed the whole corpus, synchronously, inside the
@@ -653,6 +691,15 @@ one the bundle builds.
   OpenDataLoader's `--hybrid` backend would close this, but it needs a running Docling or
   Hancom server, which breaks the no-external-calls promise.
 - **Spreadsheet formulas are read as last-saved values**, which can be stale.
+- **No timeout on a PDF parse.** `TIMEOUT_SECONDS` in `documents/opendataloader.py`
+  says what a bound would be and is not enforced: the wrapper package offers no
+  timeout and runs the jar with a blocking `subprocess.run`, so nothing on this
+  side can interrupt a parse that never returns. A pathological or hostile PDF
+  hangs an index, and now that PDFs are parsed in groups it takes its whole
+  group with it. Fixing it properly means a `timeout` in the wrapper or
+  spawning the jar here, which would duplicate the wrapper's job and drift with
+  it. Not attempted; stated rather than left as a constant that reads like a
+  protection nobody has.
 
 ### Withdrawn after measurement
 

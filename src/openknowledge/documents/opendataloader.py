@@ -31,9 +31,11 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import shutil
 import subprocess
 import tempfile
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
@@ -55,12 +57,36 @@ _PLACEHOLDER_TITLES = frozenset(
     {"(anonymous)", "anonymous", "untitled", "unknown", "document", "-", "microsoft word"}
 )
 
-#: 500 pages at the documented 60+ pages/sec is about 8 seconds; this leaves
-#: room for JVM start-up and an unusually heavy file without hanging an index.
+#: What a bound on one parse would be: 500 pages at the documented 60+
+#: pages/sec is about 8 seconds, leaving room for JVM start-up and an unusually
+#: heavy file.
+#:
+#: **Not enforced.** The wrapper package offers no timeout and runs the jar with
+#: a blocking ``subprocess.run``, so nothing here can interrupt a parse that
+#: never returns; the ``TimeoutExpired`` branch below is kept because that is
+#: cheap and a later wrapper may grow one. Batching makes a hang cost a whole
+#: group rather than one file. Recorded as a gap in docs/ROADMAP.md rather than
+#: left as a number that reads like a protection nobody has.
 TIMEOUT_SECONDS = 120
 
 #: Same cap as the pdfplumber backend: bound a garbled or adversarial file.
 MAX_CHARS = 2_000_000
+
+#: How many PDFs go to one JVM.
+#:
+#: Measured on this box, 128 four-page PDFs, per document:
+#:
+#:     one JVM per file    656 ms
+#:     batches of 32        71 ms
+#:     batches of 64        49 ms
+#:     batches of 128       40 ms
+#:
+#: Almost the whole win is in not paying JVM start-up per document (~640 ms of
+#: that 656); past a few dozen the curve is nearly flat, and every document
+#: added to a batch is one more file staged on disk and one more held by the
+#: parser at once. 64 takes ~13x of a possible ~16x and keeps both bounded,
+#: which is the trade a company server with a thousand policy PDFs wants.
+BATCH_SIZE = 64
 
 
 def is_available() -> bool:
@@ -85,31 +111,74 @@ def unavailable_reason() -> str | None:
     return None
 
 
+def _convert(sources: list[Path], output: Path, *, use_struct_tree: bool) -> Exception | None:
+    """Run the parser over these files, handing back the failure rather than raising.
+
+    The only place that decides how this parser is invoked. One document and
+    sixty-four go through here identically, so the batch cannot come to read a
+    document differently from the single-file path - which would be invisible
+    until a corpus grew past the batching threshold and every cached answer
+    was invalidated by a re-index that changed nothing.
+
+    Not raising is the point of the return type: the CLI exits non-zero on a
+    file it cannot read *having already written every good document*, so the
+    caller reads the output directory either way.
+    """
+    import opendataloader_pdf
+
+    try:
+        opendataloader_pdf.convert(
+            input_path=[str(source) for source in sources],
+            output_dir=str(output),
+            format="json",
+            quiet=True,
+            use_struct_tree=use_struct_tree,
+        )
+    except Exception as exc:  # noqa: BLE001 - a subprocess failure is not fatal
+        return exc
+    return None
+
+
+def _failure_sentence(failure: Exception) -> str:
+    """What the parser said, rather than the command line that said it.
+
+    The wrapper raises ``CalledProcessError``, whose ``str`` is the whole java
+    invocation - a temp path, a jar path and an exit code, none of which an
+    operator can act on. The CLI's own stdout says the useful thing:
+
+        Error: '000001.pdf' is not a valid PDF file (corrupted or truncated
+        content).
+
+    The quoted name is the one this parse staged the file under, never the
+    operator's filename, so it is replaced rather than shown; the caller
+    prefixes the real path when it records the file as skipped.
+    """
+    output = getattr(failure, "output", None)
+    if isinstance(output, bytes):
+        output = output.decode("utf-8", errors="replace")
+    lines = [line.strip() for line in str(output or "").splitlines() if line.strip()]
+    if not lines:
+        return str(failure)
+    sentence = lines[0].removeprefix("Error:").strip()
+    return re.sub(r"^'[^']*'", "this file", sentence, count=1)
+
+
 def parse_pdf_opendataloader(
     data: bytes, *, title: str | None = None, use_struct_tree: bool = False
 ) -> ParsedDocument:
     """Parse a PDF through OpenDataLoader. Never raises."""
-    import opendataloader_pdf
-
     with tempfile.TemporaryDirectory(prefix="ok-odl-") as workspace:
         root = Path(workspace)
         source = root / "input.pdf"
         output = root / "out"
         source.write_bytes(data)
 
-        try:
-            opendataloader_pdf.convert(
-                input_path=str(source),
-                output_dir=str(output),
-                format="json",
-                quiet=True,
-                use_struct_tree=use_struct_tree,
-            )
-        except subprocess.TimeoutExpired:
+        failure = _convert([source], output, use_struct_tree=use_struct_tree)
+        if isinstance(failure, subprocess.TimeoutExpired):
             return ParsedDocument(warnings=("OpenDataLoader timed out on this PDF",))
-        except Exception as exc:  # noqa: BLE001 - a subprocess failure is not fatal
-            log.warning("OpenDataLoader failed: %s", exc)
-            return ParsedDocument(warnings=(f"OpenDataLoader could not read this PDF: {exc}",))
+        if failure is not None:
+            log.warning("OpenDataLoader failed: %s", failure)
+            return ParsedDocument(warnings=(f"OpenDataLoader: {_failure_sentence(failure)}",))
 
         produced = sorted(output.rglob("*.json"))
         if not produced:
@@ -121,6 +190,59 @@ def parse_pdf_opendataloader(
             return ParsedDocument(warnings=(f"OpenDataLoader output was unreadable: {exc}",))
 
     return _to_blocks(document, title=title)
+
+
+def parse_pdfs_opendataloader(
+    blobs: Sequence[bytes], *, use_struct_tree: bool = False
+) -> list[ParsedDocument]:
+    """Parse many PDFs in as few JVM starts as possible. Never raises.
+
+    One parse per input, in the order given. This exists because the JVM, not
+    the parsing, is what a first index spends its time on: ~640 ms of the
+    ~656 ms a one-page PDF cost was the process starting up.
+
+    **Staged under generated names, never their own.** The CLI names each
+    output after its input's basename, so batching ``HR/policy.pdf`` and
+    ``Finance/policy.pdf`` by their real paths writes one ``policy.json`` and
+    silently loses a document - or worse, answers questions about one policy
+    out of the other one's text. Verified, not assumed: two different PDFs
+    with the same basename produce exactly one output file.
+
+    A file the parser rejects does not take the batch with it. The CLI exits
+    non-zero but still writes every good document first, so anything missing
+    is re-parsed on its own, where it produces the same warning it would have
+    produced had it never been batched.
+    """
+    results: list[ParsedDocument | None] = [None] * len(blobs)
+    for start in range(0, len(blobs), BATCH_SIZE):
+        chunk = blobs[start : start + BATCH_SIZE]
+        with tempfile.TemporaryDirectory(prefix="ok-odl-batch-") as workspace:
+            root = Path(workspace)
+            staged = root / "in"
+            output = root / "out"
+            staged.mkdir()
+            names = []
+            for offset, data in enumerate(chunk):
+                source = staged / f"{offset:06d}.pdf"
+                source.write_bytes(data)
+                names.append(source)
+            failure = _convert(names, output, use_struct_tree=use_struct_tree)
+            if failure is not None:
+                log.debug("OpenDataLoader batch reported a failure: %s", failure)
+            for offset in range(len(chunk)):
+                produced = output / f"{offset:06d}.json"
+                try:
+                    document = json.loads(produced.read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError):
+                    continue  # parsed alone below, where it gets a real warning
+                results[start + offset] = _to_blocks(document, title=None)
+
+    return [
+        parsed
+        if parsed is not None
+        else parse_pdf_opendataloader(data, use_struct_tree=use_struct_tree)
+        for parsed, data in zip(results, blobs, strict=True)
+    ]
 
 
 # -- walking the document tree ---------------------------------------------

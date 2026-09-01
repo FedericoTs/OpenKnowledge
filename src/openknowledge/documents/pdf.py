@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import io
 import logging
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -92,6 +93,49 @@ def parse_pdf(data: bytes, *, title: str | None = None, backend: str = "auto") -
         return ParsedDocument(warnings=(f"OpenDataLoader was requested but {reason}",))
 
     return parse_pdf_pdfplumber(data, title=title)
+
+
+def batching_helps(backend: str) -> bool:
+    """Whether ``parse_pdfs`` will do anything for this backend.
+
+    The same condition ``parse_pdfs`` decides on, so a caller can ask before
+    it has gone to the trouble of collecting a batch - and, more to the point,
+    so the two can never come to disagree about it.
+    """
+    from . import opendataloader
+
+    return backend in ("auto", "opendataloader") and opendataloader.is_available()
+
+
+def parse_pdfs(blobs: Sequence[bytes], *, backend: str = "auto") -> list[ParsedDocument] | None:
+    """Parse many PDFs at once, or None if there is nothing to gain by it.
+
+    Only the Java backend has a fixed cost worth amortising - it starts a JVM
+    per document, which is where a first index of a real corpus spends almost
+    all of its time. pdfplumber is pure Python with no process to start, so
+    batching it would buy nothing and add a second code path to the parser
+    that is the fallback for everything; None says "parse these the ordinary
+    way" and the caller does exactly that.
+
+    The result is per-document identical to parsing each one alone - asserted
+    in the tests, because the corpus fingerprint is built from this text and a
+    batch that parsed even slightly differently would invalidate every cached
+    answer the moment a corpus crossed the batch threshold.
+    """
+    from . import opendataloader
+
+    if not batching_helps(backend):
+        return None
+    parsed = opendataloader.parse_pdfs_opendataloader(list(blobs))
+    if backend == "opendataloader":
+        return parsed
+    # Same rescue as the single-document path: under `auto`, an empty result
+    # from a healthy backend means a scan, and pdfplumber occasionally reads a
+    # file whose structure the Java parser declined.
+    return [
+        document if document.blocks else parse_pdf_pdfplumber(data)
+        for document, data in zip(parsed, blobs, strict=True)
+    ]
 
 
 def parse_pdf_pdfplumber(data: bytes, *, title: str | None = None) -> ParsedDocument:

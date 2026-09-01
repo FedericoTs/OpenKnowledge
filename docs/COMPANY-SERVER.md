@@ -86,23 +86,35 @@ not answer, contradictions refused until an admin resolves them in
 single list — add a policy once, everyone can ask about it seconds
 later.
 
-## PDFs, and why the first index is the slow one
+## PDFs, and why the first index used to be the slow one
 
-A PDF costs about **780 ms** to read against **6 ms** for the same words in
-markdown — almost all of it a Java process starting up, once per file. So
-the first index of a large PDF corpus takes minutes, and there is no way
-around that first pass.
+A PDF costs far more to read than the same words in markdown, and almost
+all of the difference is a Java process starting up — about **640 ms** of
+the 656 ms a four-page PDF cost, against roughly 51 ms of actual parsing.
+Paid once per file, the first index of a thousand policy PDFs was about
+nine minutes.
 
-Every index after it is fast: a file whose bytes have not changed is never
-re-read. The parses live in `parses.db` beside the other state, survive a
-restart, and are keyed on the content of each file rather than its
-timestamp — so a restore-from-backup or an `rsync -t`, which put old
-timestamps on new bytes, cannot make it serve you the previous version of a
-policy.
+The parser accepts a batch, so it is handed one: 64 documents per
+invocation. The same thousand PDFs now index in about **twenty-five
+seconds**, and the documents that come out are asserted identical to
+parsing each one alone. Nothing about this needs configuring.
 
-It is pure derived data. Deleting `parses.db` costs one slow rebuild and
-nothing else, which is why it is a separate file and why it is not in the
-backup: the backup already carries the documents themselves.
+Every index after the first is faster still: a file whose bytes have not
+changed is never re-read, and a corpus that has not changed at all starts
+no Java process whatever. The parses live in `parses.db` beside the other
+state, survive a restart, and are keyed on the content of each file rather
+than its timestamp — so a restore-from-backup or an `rsync -t`, which put
+old timestamps on new bytes, cannot make it serve you the previous version
+of a policy.
+
+It is pure derived data. Deleting `parses.db` costs one rebuild and nothing
+else, which is why it is a separate file and why it is not in the backup:
+the backup already carries the documents themselves.
+
+A PDF the parser cannot read is **named** rather than skipped in silence,
+with the reason it gave — `handbook.pdf: OpenDataLoader: this file is not a
+valid PDF file (corrupted or truncated content).` One unreadable file never
+costs you the rest of the batch.
 
 ## Changing who may read what
 

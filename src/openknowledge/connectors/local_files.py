@@ -27,6 +27,8 @@ from ..access import effective_principals
 from ..documents import SUPPORTED_SUFFIXES, declares_superseded, parse_file, skip_reason
 from ..documents.blocks import ParsedDocument
 from ..documents.cache import ParseCache, cache_key
+from ..documents.opendataloader import BATCH_SIZE
+from ..documents.pdf import batching_helps, parse_pdfs
 from ..retrieval.base import Document
 
 log = logging.getLogger(__name__)
@@ -79,6 +81,11 @@ class LocalFilesConnector:
         # None means parse every time, which is what a test wants.
         self.parses = parses
         self.skipped = []
+        # Per-scan working state, reset by every `fetch`. Named here so the
+        # connector is a complete object before one has run.
+        self._seen_keys: set[str] = set()
+        self._pdf_queue: list[Path] = []
+        self._parsed_ahead: dict[Path, ParsedDocument] = {}
 
     def _parse(self, path: Path) -> ParsedDocument:
         """Parse a file, or hand back the parse of these exact bytes.
@@ -89,6 +96,11 @@ class LocalFilesConnector:
         version of a policy for ever. Reading the file to hash it costs
         milliseconds against the hundreds a PDF parse costs.
         """
+        if path.suffix.lower() == ".pdf" and path not in self._parsed_ahead:
+            self._parse_ahead()
+        ahead = self._parsed_ahead.pop(path, None)
+        if ahead is not None:
+            return ahead  # already hashed, cached and counted by `_parse_ahead`
         if self.parses is None:
             return parse_file(path, title=None, pdf_backend=self.pdf_backend)
         try:
@@ -119,6 +131,48 @@ class LocalFilesConnector:
         suffix = path.suffix.lower()
         return f"pdf:{self.pdf_backend}" if suffix == ".pdf" else suffix
 
+    def _parse_ahead(self) -> None:
+        """Parse the next group of PDFs, so the JVM starts once for all of them.
+
+        The parse cache made a *re*-index nearly free; a first index still paid
+        a whole Java process per PDF, which on a corpus of a thousand policies
+        is most of nine minutes spent starting and stopping JVMs. The parser
+        takes a batch, so this hands it one - and the results wait here until
+        the walk reaches each file.
+
+        Driven from the walk rather than done up front, and only one group
+        ahead: a batch holds every document in it in memory, and reading a
+        whole corpus of large PDFs before indexing any of them would trade a
+        JVM problem for a memory one. The queue is in the walk's own order, so
+        the group starting at its head is the group about to be needed.
+
+        A group already in the cache costs no JVM at all: the hit is kept and
+        handed to ``_parse`` rather than being looked up a second time.
+        """
+        group, self._pdf_queue = self._pdf_queue[:BATCH_SIZE], self._pdf_queue[BATCH_SIZE:]
+        pending: list[tuple[Path, str, bytes]] = []
+        for path in group:
+            try:
+                data = path.read_bytes()
+            except OSError:
+                continue  # `_parse` reads it again and reports the reason
+            key = cache_key(data, parser=self._parser_name(path))
+            self._seen_keys.add(key)
+            cached = self.parses.get(key) if self.parses is not None else None
+            if cached is not None:
+                self._parsed_ahead[path] = cached
+                continue
+            pending.append((path, key, data))
+        if not pending:
+            return
+        parsed = parse_pdfs([data for _, _, data in pending], backend=self.pdf_backend)
+        if parsed is None:
+            return  # this backend gains nothing from a batch; `_parse` handles it
+        for (path, key, _), document in zip(pending, parsed, strict=True):
+            self._parsed_ahead[path] = document
+            if self.parses is not None and document.blocks:
+                self.parses.put(key, document)
+
     def access_map(self) -> dict[str, frozenset[str]]:
         """Who may read each document, without reading any of them.
 
@@ -144,14 +198,33 @@ class LocalFilesConnector:
 
     def fetch(self) -> list[Document]:
         self.skipped = []
-        self._seen_keys: set[str] = set()
+        self._seen_keys = set()
+        self._pdf_queue = []
+        self._parsed_ahead = {}
         if not self.root.is_dir():
             log.warning("document root %s does not exist; no documents loaded", self.root)
             return []
 
         rules = dict(self.folder_rules()) if self.folder_rules is not None else {}
         documents: list[Document] = []
-        for path in sorted(self.root.rglob("*")):
+        paths = sorted(self.root.rglob("*"))
+        # The PDFs this walk will reach, in the order it will reach them, so
+        # `_parse` can pull a whole group forward and start one JVM for it.
+        # Left empty for a backend that gains nothing from a group, or every
+        # file would be read once to build a batch that is never parsed.
+        self._pdf_queue = (
+            [
+                path
+                for path in paths
+                if path.suffix.lower() == ".pdf"
+                and ".pdf" in self.suffixes
+                and not path.name.startswith("~$")
+                and path.is_file()
+            ]
+            if batching_helps(self.pdf_backend)
+            else []
+        )
+        for path in paths:
             if not path.is_file() or path.name.startswith("~$"):
                 continue  # ~$ files are Office lock files, not documents
 
