@@ -35,6 +35,18 @@ class ChatRequest(BaseModel):
     channel: str | None = None
 
 
+class ReportRequest(BaseModel):
+    """A reader saying the answer they were shown is wrong."""
+
+    question: str = Field(min_length=1, max_length=4000)
+    answer: str = Field(min_length=1, max_length=20000)
+    tier: str = Field(default="", max_length=40)
+    #: What should it say instead, or what is wrong with it. Optional, and
+    #: the most useful field on the form: "the figure changed in April" is
+    #: the whole fix.
+    note: str = Field(default="", max_length=2000)
+
+
 class CitationOut(BaseModel):
     document_id: str
     document_title: str
@@ -110,6 +122,13 @@ class ResolveRequest(BaseModel):
     keep: str | None = None
     note: str | None = None
     reviewer: str | None = None
+
+
+class ReportResolution(BaseModel):
+    """Closing a reported answer: fixed, or dismissed with a reason."""
+
+    status: Literal["fixed", "dismissed"] = "fixed"
+    note: str = Field(default="", max_length=2000)
 
 
 class LearnRequest(BaseModel):

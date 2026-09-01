@@ -135,6 +135,18 @@
     <div id="gaps"><p class="locked-note">Unlock to load.</p></div>
   </section>
 
+  <section data-admin-section>
+    <h2>Answered wrong</h2>
+    <p class="hint">
+      Answers readers said were wrong, most-reported first. A refusal shows up
+      above; this is the other failure — an answer that looked exactly like a
+      right one. <b>Stale</b> means the documents changed after it was
+      reported, so it may already be fixed. Nobody's name is recorded here
+      either: what is useful is which answer is wrong and why.
+    </p>
+    <div id="reports"><p class="locked-note">Unlock to load.</p></div>
+  </section>
+
   <section data-admin-section data-governance-section>
     <h2>Access</h2>
     <p class="hint">
@@ -203,6 +215,10 @@ function el(tag, cls, text) {
   return n;
 }
 function say(text, ok) { const s = $('status'); s.textContent = text; s.className = ok ? 'ok' : 'bad'; }
+// Which role this page finished arriving as. Three routes in - a pasted
+// token, an admin's session, a curator's - and each ends somewhere
+// different, so "the page has settled" needs saying rather than guessing.
+function ready(role) { document.body.dataset.ready = role; }
 function authHeaders() { return state.token ? { 'Authorization': 'Bearer ' + state.token } : {}; }
 
 async function api(path, options = {}) {
@@ -329,6 +345,73 @@ $('reindex').onclick = async () => {
 };
 
 // ---- admin sections --------------------------------------------------------
+async function refreshReports() {
+  const box = $('reports');
+  try {
+    const body = await api('/admin/reports');
+    box.textContent = '';
+    if (!body.reports.length) {
+      box.appendChild(el('p', 'empty',
+        'Nobody has reported a wrong answer. That is worth checking against '
+        + 'whether anyone knows they can.'));
+      return;
+    }
+    for (const r of body.reports) {
+      const item = box.appendChild(el('div', 'gap'));
+      const head = item.appendChild(el('p'));
+      head.appendChild(el('b', null, r.question));
+      head.appendChild(document.createTextNode(
+        '  — reported ' + r.reports + (r.reports === 1 ? ' time' : ' times')));
+      if (r.stale) head.appendChild(el('span', 'tag', 'stale'));
+      item.appendChild(el('p', 'quiet', 'It answered: “' + r.answer + '”'));
+      for (const n of r.notes) item.appendChild(el('p', null, '“' + n + '”'));
+
+      const text = item.appendChild(el('textarea'));
+      text.rows = 3;
+      text.placeholder = 'The right answer, in your own words. Pinning it '
+        + 'replaces what they saw.';
+      text.style.width = '100%';
+      const row = item.appendChild(el('div', 'row'));
+      const cite = row.appendChild(el('select'));
+      cite.appendChild(new Option('cite no document', ''));
+      for (const d of state.documents) cite.appendChild(new Option(d.name, d.id));
+      const fix = row.appendChild(el('button', 'small', 'Pin this and close'));
+      const drop = row.appendChild(el('button', 'ghost small', 'Not wrong'));
+      const note = row.appendChild(el('span', 'quiet'));
+
+      const close = async (status, resolution) => {
+        await api('/admin/reports/' + r.id + '/resolve', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status, note: resolution }),
+        });
+        refreshReports();
+      };
+      fix.onclick = async () => {
+        const answer = text.value.trim();
+        if (!answer) { note.textContent = 'Write the right answer first.'; return; }
+        fix.disabled = true;
+        note.textContent = 'Pinning…';
+        try {
+          await api('/admin/pins', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ question: r.question, answer,
+              cite: cite.value ? [cite.value] : [], author: 'manage-page' }),
+          });
+          await close('fixed', 'Pinned a corrected answer.');
+        } catch (e) { fix.disabled = false; note.textContent = e.message; }
+      };
+      drop.onclick = async () => {
+        drop.disabled = true;
+        try { await close('dismissed', 'Reviewed and left as it was.'); }
+        catch (e) { drop.disabled = false; note.textContent = e.message; }
+      };
+    }
+  } catch (e) {
+    box.textContent = '';
+    box.appendChild(el('p', 'locked-note', e.message));
+  }
+}
+
 async function refreshAdminLog() {
   const box = $('admin-log');
   try {
@@ -715,8 +798,9 @@ async function unlock(token) {
   say('Unlocked.', true);
   $('forget').hidden = false;
   $('token-input').value = '';
-  refreshCosts(); refreshGaps(); refreshAccess(); refreshProposals();
-  refreshConflicts(); refreshSettings(); refreshAdminLog();
+  refreshCosts(); refreshGaps(); refreshReports(); refreshAccess();
+  refreshProposals(); refreshConflicts(); refreshSettings(); refreshAdminLog();
+  ready('admin');
   return true;
 }
 $('unlock').onclick = () => {
@@ -760,16 +844,18 @@ fetch('/auth/me').then(r => r.ok ? r.json() : null).then(async (who) => {
       await api('/admin/settings');
       $('unlock-section').hidden = true;
       say('Admin, via your sign-in group.', true);
-      refreshCosts(); refreshGaps(); refreshAccess(); refreshProposals();
-      refreshConflicts(); refreshSettings(); refreshAdminLog();
+      refreshCosts(); refreshGaps(); refreshReports(); refreshAccess();
+      refreshProposals(); refreshConflicts(); refreshSettings(); refreshAdminLog();
+      ready('admin');
     } catch (e) { /* fall back to the token flow */ }
   } else if (who.curator && !state.token) {
     // A curator shapes the answers, not who may read them. Rather than let
     // the governance panels each fail with their own 403, say once what this
     // account is and leave those sections legible.
     $('unlock-section').hidden = true;
-    say('Knowledge curator, via your sign-in group.', true);
-    refreshCosts(); refreshGaps(); refreshProposals(); refreshConflicts();
+    // Withhold first, announce second: a panel that says "Unlock to load"
+    // for even a moment after the page calls itself ready is a panel
+    // somebody screenshots.
     for (const section of document.querySelectorAll('[data-governance-section] > div[id]')) {
       section.textContent = '';
       section.appendChild(el('p', 'locked-note',
@@ -778,6 +864,10 @@ fetch('/auth/me').then(r => r.ok ? r.json() : null).then(async (who) => {
     for (const button of document.querySelectorAll('[data-governance-section] button')) {
       button.hidden = true;
     }
+    say('Knowledge curator, via your sign-in group.', true);
+    refreshCosts(); refreshGaps(); refreshReports(); refreshProposals();
+    refreshConflicts();
+    ready('curator');
   }
 }).catch(() => {});
 </script>

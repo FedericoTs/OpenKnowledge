@@ -450,6 +450,19 @@ class AnswerStore:
             for r in rows
         ]
 
+    def was_asked(self, canonical_query: str) -> bool:
+        """Did this install ever answer this question?
+
+        The authenticity check behind reported answers: you may report an
+        answer this server actually gave, not any sentence you care to post.
+        The ledger is the record of what was asked, so it is the record that
+        decides.
+        """
+        row = self._conn.execute(
+            "SELECT 1 FROM ledger WHERE canonical_query = ? LIMIT 1", (canonical_query,)
+        ).fetchone()
+        return row is not None
+
     def cost_report(self, since: float | None = None) -> dict[str, object]:
         """Blended cost per question, broken down by tier."""
         where, params = ("WHERE ts >= ?", (since,)) if since is not None else ("", ())

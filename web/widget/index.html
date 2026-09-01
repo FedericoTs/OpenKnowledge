@@ -143,6 +143,19 @@
            border-radius:999px; cursor:pointer; }
   .again:hover:not(:disabled) { color:var(--ink); border-color:var(--muted); }
   .again:disabled { cursor:default; opacity:.6; }
+  .report { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-top:10px;
+            font-size:12px; color:var(--muted); }
+  .report label { flex:1 1 100%; }
+  .report input { flex:1 1 240px; font:inherit; font-size:12.5px; padding:5px 9px;
+                  border:1px solid var(--line); border-radius:8px;
+                  background:var(--panel); color:var(--ink); }
+  .report button { font:inherit; font-size:11.5px; padding:4px 12px; border-radius:999px;
+                   cursor:pointer; border:1px solid transparent;
+                   background:var(--accent); color:var(--panel); }
+  .report button.ghost { background:none; border-color:var(--line); color:var(--muted); }
+  .report button:disabled { cursor:default; opacity:.6; }
+  .report.done { color:var(--free); }
+  .report .bad { flex:1 1 100%; color:var(--danger); }
   .verdict { margin-top:9px; font-size:12.5px; display:flex; gap:8px;
              align-items:baseline; flex-wrap:wrap; }
   .verdict b { font-weight:650; }
@@ -804,6 +817,59 @@ function citeWhere(c) {
   return parts.join(' · ');
 }
 
+// Saying an answer is wrong. The only signal this product could not collect:
+// a refusal is counted in the gaps report, while an answer that was
+// confidently wrong left nothing at all, because it looked exactly like one
+// that was right - so somebody told a colleague and the documents never heard.
+//
+// The note is the field that matters. "The figure changed in April" is the
+// whole fix, and it takes one sentence from somebody who already knows.
+function reportWrong(button, box, data, asked) {
+  button.disabled = true;
+  const form = el('div', 'report');
+  form.appendChild(el('label', null, 'What should it say, or what is wrong with it?'));
+  const note = form.appendChild(el('input'));
+  note.type = 'text';
+  note.placeholder = 'optional - one sentence is plenty';
+  const send = form.appendChild(el('button', null, 'Send'));
+  send.type = 'button';
+  const cancel = form.appendChild(el('button', 'ghost', 'Cancel'));
+  cancel.type = 'button';
+  cancel.onclick = () => { form.remove(); button.disabled = false; };
+
+  const submit = async () => {
+    send.disabled = true;
+    try {
+      const res = await fetch('/report', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          question: asked.question, answer: data.answer,
+          tier: data.tier || '', note: note.value.trim(),
+        }),
+      });
+      if (needsSignIn(res)) return;
+      if (!res.ok) {
+        let why = 'HTTP ' + res.status;
+        try { why = (await res.json()).detail || why; } catch (e) { /* keep the status */ }
+        throw new Error(why);
+      }
+      const body = await res.json();
+      form.replaceWith(el('div', 'report done', body.reports > 1
+        ? 'Reported — ' + body.reports + ' people have flagged this answer. Nobody is named.'
+        : 'Reported. Whoever owns these documents will see it. Nobody is named.'));
+      button.textContent = 'Reported';
+    } catch (err) {
+      send.disabled = false;
+      form.appendChild(el('div', 'bad', 'Could not send that: ' + err.message));
+    }
+  };
+  send.onclick = submit;
+  note.addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); });
+  box.appendChild(form);
+  note.focus();
+}
+
 function renderAnswer(data, asked) {
   const box = el('div', 'msg a');
   box.appendChild(el('p', null, withoutCitationMarkers(data.answer, data.citations)));
@@ -836,6 +902,12 @@ function renderAnswer(data, asked) {
     again.title = 'Ask the identical question again and compare the two answers';
     again.onclick = () => askAgain(again, data, asked);
     meta.appendChild(again);
+
+    const wrong = el('button', 'again', 'This is wrong');
+    wrong.type = 'button';
+    wrong.title = 'Tell whoever owns these documents. Your name is not recorded.';
+    wrong.onclick = () => reportWrong(wrong, box, data, asked);
+    meta.appendChild(wrong);
   }
   box.appendChild(meta);
   if (data.notes && data.notes.length) {

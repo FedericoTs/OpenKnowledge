@@ -338,6 +338,53 @@ def _nesting_of(source: str, needle: str) -> list[int]:
     return depths
 
 
+def test_a_reader_can_say_the_answer_is_wrong(managed_app) -> None:
+    """The control, the form and the confirmation, clicked in Chromium.
+
+    The server contract has its own tests. This is the half only a browser
+    proves: that the button is on the card, that it knows which question it
+    is reporting, and that a reader is told their name was not sent - the
+    reason to use it rather than telling a colleague.
+    """
+    import httpx
+    from playwright.sync_api import sync_playwright
+
+    httpx.post(
+        managed_app + "/admin/pins",
+        json={"question": "how much parental leave?", "answer": "16 weeks.", "cite": []},
+        headers={"authorization": "Bearer t0ken"},
+        timeout=20,
+    )
+    with sync_playwright() as pw:
+        browser, page = _page(pw, managed_app)
+        errors: list[str] = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        try:
+            page.fill("#q", "how much parental leave?")
+            page.press("#q", "Enter")
+            page.wait_for_selector(".msg.a .meta", timeout=20000)
+            page.click("text=This is wrong")
+            page.fill(".report input", "It went to 20 weeks in April.")
+            page.click(".report button:not(.ghost)")
+            page.wait_for_selector(".report.done", timeout=15000)
+            confirmation = page.inner_text(".report.done")
+            labels = page.eval_on_selector_all(".msg.a .again", "b => b.map(x => x.textContent)")
+        finally:
+            browser.close()
+
+    assert "Nobody is named" in confirmation
+    assert "Reported" in labels, "the button does not say it was sent"
+    assert errors == [], f"page errors: {errors}"
+
+    seen = httpx.get(
+        managed_app + "/admin/reports",
+        headers={"authorization": "Bearer t0ken"},
+        timeout=20,
+    ).json()["reports"]
+    assert [r["answer"] for r in seen] == ["16 weeks."]
+    assert seen[0]["notes"] == ["It went to 20 weeks in April."]
+
+
 def test_the_boot_calls_are_at_the_top_level() -> None:
     """The guard that runs where no browser is installed.
 

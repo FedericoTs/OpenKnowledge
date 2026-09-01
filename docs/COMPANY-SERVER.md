@@ -86,6 +86,36 @@ not answer, contradictions refused until an admin resolves them in
 single list — add a policy once, everyone can ask about it seconds
 later.
 
+## When it gets one wrong
+
+A refusal is easy to learn from: it is counted, ranked and reported
+(`openknowledge gaps`). A *wrong* answer is the hard one, because it looks
+exactly like a right one — so it used to reach a colleague and never the
+documents.
+
+The answer card carries a **This is wrong** button. A reader clicks it,
+types one sentence — "the figure changed in April" is the whole fix — and
+it lands in *Answered wrong* on `/manage`, ranked by how many people said
+so, with the answer they were shown and the notes they left. From there
+one box pins the right answer and closes the report.
+
+```sh
+openknowledge reports          # the same list, on the server
+```
+
+Two things it will not do. It records **nothing about who reported it** —
+the same rule the gaps report follows, and checked against the bytes of
+the database, not just the API: what is useful is which answer is wrong
+and why, and a knowledge base that reports what its people got wrong
+should not also be a record of who complained. And it only accepts
+reports for questions this install actually answered, so the list holds
+real answers rather than whatever anybody posts.
+
+A report raised before a re-index is marked **stale**: the documents
+changed underneath it, so it may already be fixed. It is flagged rather
+than deleted, because "we fixed that" is a claim somebody should be able
+to check.
+
 ## Backing it up
 
 ```

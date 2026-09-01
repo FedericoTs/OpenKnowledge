@@ -1,0 +1,33 @@
+{
+  "what": "A way to say the answer was wrong, and a way for that to reach the documents. The one signal this product could not collect.",
+  "why_it_was_missing": "A refusal is the best-instrumented thing here: counted, ranked by how many people asked, reported as a list of documents worth writing. A wrong answer had none of that, because it looked exactly like a right one - same card, same citations, same grounding percentage. So somebody noticed, told a colleague, and the corpus never heard. The whole 'field failure becomes a pinned test' loop was closeable by the maintainer and by nobody else.",
+  "the_loop": {
+    "capture": "A 'This is wrong' button on the answer card, next to 'Ask again'. One optional sentence - 'the figure changed in April' is the whole fix, and it takes ten seconds from somebody who already knows.",
+    "surface": "Answered wrong on /manage and `openknowledge reports`, ranked by how many people said so, with the answer they were shown and every note left on it.",
+    "close": "One box in the panel writes the right pin and closes the report in a single click. Closing is an admin action, so the admin log records who did it, like every other."
+  },
+  "three_deliberate_limits": {
+    "only_answers_this_install_gave": "The report is refused unless the ledger has a record of answering that question. Without it the table holds whatever anybody posts, and an admin's morning goes on reading it. Pinned by posting a question nobody asked and asserting nothing is recorded.",
+    "one_row_with_a_count": "The same wrong answer to the same question increments rather than duplicating: a hundred colleagues agreeing is one thing to act on. Notes are kept, deduped and capped at twenty - the twenty-first person saying 'still wrong' adds a count, not a paragraph, and the count keeps rising past the cap.",
+    "stale_rather_than_deleted": "A report raised before a re-index is marked stale: the documents changed underneath it, so it may already be fixed. Flagged, not dropped, because 'we fixed that' is a claim somebody should be able to check."
+  },
+  "the_promise_the_table_keeps": {
+    "what": "It records nothing about who reported it. Same rule as the gaps report, which cannot name who asked.",
+    "why": "This table travels in every backup and is read by whoever runs the server. A reporter's name in it turns 'what did we get wrong' into 'who complained', which is a different product and a worse one.",
+    "how_it_is_checked": "Not through the API. A signed-in person (Alice Moreau, subject alice-oid-8821) reports an answer, then the test dumps knowledge.db with iterdump and asserts neither her name nor her subject id appears in the bytes - after first asserting the table itself is in the dump, so the search cannot pass by looking at nothing. Confirmed to FAIL when the endpoint is made to append the reporter's name to the note."
+  },
+  "measured": {
+    "the_whole_loop_in_two_browsers": "One Chromium context as the reader, one as the admin, against one server. 1. reader is told '16 weeks, fully paid.' 2. reader clicks This is wrong, types 'It went to 20 weeks in April - it is in the handbook.', and reads back 'Reported. Whoever owns these documents will see it. Nobody is named.' 3. admin opens /manage and sees it with the answer and the note. 4. admin types the right answer and clicks Pin this and close; the panel empties. 5. reader asks the same question and is told '20 weeks, fully paid.' No page errors in either context.",
+    "the_admin_log": "report.fixed, attributed, next to the pin that fixed it.",
+    "ranking": "Two reported answers, x2 and x1, ranked by count with both sets of notes shown."
+  },
+  "a_race_found_in_my_own_test": {
+    "what": "The curator browser test failed once in a full run and passed in isolation - the shape of a flake, and a flake in CI is a test nobody trusts.",
+    "cause": "It waited on the status line as a proxy for 'the page has finished arriving', but the curator path announced itself BEFORE it withheld the governance panels. The read landed in that window and saw 'Unlock to load'.",
+    "fix": "The page now says when it has settled - ready(role) stamps data-ready on the body at the end of each of the three routes in - and the test waits on that. The curator path also withholds first and announces second, so there is no window to land in even without the signal. Run three times: three passes. Confirmed still to fail when the selector it depends on is renamed.",
+    "reused": "The source-level guard that every route into /manage loads the same panels now finds each route by its ready() call, instead of pinning two refresh calls being adjacent - the brittleness that broke it the moment this feature slotted a panel between them."
+  },
+  "gate": "No retrieval, prompt, chunking or grounding change: a new table, one open endpoint, two admin endpoints, a control on the answer card, a panel, a CLI command. The cache key policy string is untouched. The golden sets gate answers, and no answer moved, so they were not run.",
+  "pinned_by": "tests/test_answer_reports.py (19 tests), one browser test in tests/test_widget_rendering.py, one rewritten and one new test in tests/test_knowledge_gaps.py. 1,081 tests pass.",
+  "still_open": "Nothing rate-limits reporting beyond the ledger check and content dedupe. On a server with sign-in that is bounded by the people who can sign in; without sign-in it is bounded by who can reach the port, which is the same bound as asking questions, and asking costs money while reporting does not."
+}

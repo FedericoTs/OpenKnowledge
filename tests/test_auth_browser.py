@@ -147,11 +147,13 @@ def test_the_manage_page_shows_a_curator_only_what_they_may_change(stack) -> Non
         page.on("pageerror", lambda e: errors.append(str(e)))
         page.goto(base + "/manage")
         page.wait_for_selector("#who-line b", timeout=15000)
-        page.wait_for_function(
-            "document.getElementById('status').textContent.includes('via your sign-in group')",
-            timeout=15000,
-        )
+        # The page says when it has finished arriving. Waiting on the status
+        # line instead was a race: the curator path announced itself before it
+        # withheld the governance panels, so this read "Unlock to load" about
+        # one run in twenty and failed a correct build.
+        page.wait_for_selector("body[data-ready]", timeout=15000)
         seen = {
+            "role": page.get_attribute("body", "data-ready") or "",
             "status": page.inner_text("#status"),
             "access": page.inner_text("#access"),
             "settings": page.inner_text("#settings"),
@@ -169,6 +171,8 @@ def test_the_manage_page_shows_a_curator_only_what_they_may_change(stack) -> Non
         finally:
             browser.close()
 
+    assert admin["role"] == "admin"
+    assert curator["role"] == "curator"
     assert "Admin" in admin["status"]
     assert "retrieval_k" in admin["settings"], "an admin sees the settings themselves"
     assert "Unlock to load" not in admin["log"], "and the log loaded"

@@ -61,6 +61,8 @@ from .schemas import (
     LearnRequest,
     PinRequest,
     ReindexResponse,
+    ReportRequest,
+    ReportResolution,
     ResolveRequest,
     ReviewRequest,
 )
@@ -999,6 +1001,103 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return ChatResponse.from_answer(answer)
 
     # -- admin ---------------------------------------------------------------
+    @app.post("/report", status_code=201)
+    async def report_answer(
+        req: ReportRequest, engine: EngineDep, request: Request
+    ) -> dict[str, Any]:
+        """A reader says the answer they were shown is wrong.
+
+        Open to whoever may ask, because a report that needs an admin is a
+        report nobody files. It is the only signal this product could not
+        collect: a refusal leaves a trace in the gaps report, while an answer
+        that was confidently wrong left nothing at all, because it looked
+        exactly like one that was right.
+
+        Two guards, and no more. The question must be one this install
+        actually answered - so the table holds real answers rather than
+        whatever anybody posts - and the same wrong answer to the same
+        question is one row with a count, so a hundred colleagues agreeing
+        is one line an admin can act on.
+
+        Nothing about the reporter is recorded, deliberately. What is useful
+        is which answer is wrong and why somebody thinks so.
+        """
+        canonical = canonicalize_query(req.question)
+        if not canonical:
+            raise HTTPException(422, "question is empty after normalisation")
+        if not engine.store.was_asked(canonical):
+            # Not an error the reader caused: their question was rephrased
+            # into something this install has no record of answering.
+            raise HTTPException(
+                404,
+                "this install has no record of answering that question - report it "
+                "with the question worded as it was asked",
+            )
+        report = engine.knowledge.report_answer(
+            canonical,
+            req.question,
+            req.answer,
+            tier=req.tier,
+            corpus_version=engine.retriever.corpus_version,
+            note=req.note,
+        )
+        return {
+            "recorded": True,
+            "reports": report.reports,
+            "message": (
+                "Recorded. An admin sees this with the answer and your note - not who sent it."
+            ),
+        }
+
+    @app.get("/admin/reports", dependencies=[CuratorOnly])
+    async def reports(engine: EngineDep, status: str = "open", limit: int = 50) -> dict[str, Any]:
+        """Answers people said were wrong, most-reported first.
+
+        ``stale`` marks a report raised against a corpus this install has
+        since replaced: the documents changed underneath it, so the
+        complaint may already be answered. Worth checking before spending a
+        morning on it, and worth not deleting, because "we fixed that" is a
+        claim somebody should be able to verify.
+        """
+        current = engine.retriever.corpus_version
+        entries = engine.knowledge.answer_reports(status=status, limit=min(max(limit, 1), 500))
+        return {
+            "reports": [
+                {
+                    "id": r.id,
+                    "question": r.question,
+                    "canonical_query": r.canonical_query,
+                    "answer": r.answer,
+                    "tier": r.tier,
+                    "notes": list(r.notes),
+                    "reports": r.reports,
+                    "first_at": round(r.first_at, 3),
+                    "last_at": round(r.last_at, 3),
+                    "status": r.status,
+                    "resolution": r.resolution,
+                    "stale": bool(r.corpus_version) and r.corpus_version != current,
+                    "cited": [c.document_id for c in r.citations],
+                }
+                for r in entries
+            ],
+            "corpus_version": current,
+        }
+
+    @app.post("/admin/reports/{report_id}/resolve", dependencies=[CuratorOnly])
+    async def resolve_report(
+        report_id: int, req: ReportResolution, engine: EngineDep, request: Request
+    ) -> dict[str, Any]:
+        """Close a report as fixed, or dismiss it. Both are decisions, and
+        both are recorded in the admin log with who made them."""
+        if not engine.knowledge.resolve_report(
+            report_id, status=req.status, resolution=req.note.strip()
+        ):
+            raise HTTPException(404, "no open report with that id")
+        engine.knowledge.record_action(
+            _actor(request), f"report.{req.status}", str(report_id), {"note": req.note}
+        )
+        return {"id": report_id, "status": req.status}
+
     @app.get("/admin/costs", dependencies=[CuratorOnly])
     async def costs(engine: EngineDep, days: int = 0) -> dict[str, Any]:
         """What the bot actually costs, measured rather than estimated.

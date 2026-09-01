@@ -145,12 +145,58 @@ def test_the_manage_page_shows_the_gaps(tmp_path) -> None:
         # Both unlock paths specifically, rather than a count of every call:
         # pinning refreshes the list too, and a total would break the moment
         # somebody adds a legitimate third caller.
-        assert page.count("refreshGaps(); refreshAccess();") == 2, (
-            "the token path and the signed-in admin path must both load it"
-        )
+        #
+        # Read as "which panels does this path load", not as an exact line of
+        # source. The first version of this check pinned two calls being
+        # adjacent, and broke the day a third panel was slotted between them -
+        # a green-to-red on a change that was correct.
+        for path, loaded in _boot_paths(page).items():
+            assert "refreshGaps" in loaded, f"the {path} path does not load the gaps panel"
         # The promise the panel makes about privacy has to be on the page,
         # not only in a docstring the reader will never open.
         assert "no column for who asked" in page
+
+
+def _boot_paths(page: str) -> dict[str, set[str]]:
+    """Which refresh functions each way into /manage calls on arrival.
+
+    Three ways in - a pasted admin token, an admin's sign-in session, a
+    curator's - and a panel that loads on one and not the others is empty
+    for a third of the people who have the page.
+    """
+    import re
+
+    # Each path ends by calling ready() with the role it arrived as - the same
+    # signal the browser test waits on - so the bounds move with the code
+    # instead of being pinned to whatever line happened to sit nearby.
+    bounds = {
+        "token": ("$('token-input').value", "ready('admin')"),
+        "admin session": ("say('Admin, via your sign-in group.'", "ready('admin')"),
+        "curator session": ("say('Knowledge curator", "ready('curator')"),
+    }
+    found: dict[str, set[str]] = {}
+    for name, (start, end) in bounds.items():
+        at = page.find(start)
+        assert at >= 0, f"the {name} path is not in the page any more"
+        stop = page.find(end, at)
+        assert stop > at, f"the {name} path has no end marker"
+        found[name] = set(re.findall(r"(refresh[A-Za-z]+)\(\)", page[at:stop]))
+    return found
+
+
+def test_every_way_into_the_page_loads_the_same_panels(tmp_path) -> None:
+    """A panel that loads on one route and not the others is empty for
+    however many people arrive the other way, and looks like a bug in the
+    feature rather than in the wiring."""
+    with TestClient(create_app(_settings(tmp_path))) as c:
+        paths = _boot_paths(c.get("/manage").text)
+
+    assert paths["token"] == paths["admin session"], (
+        "the pasted token and an admin's session must load the same page"
+    )
+    # A curator holds no governance, so those panels are deliberately absent.
+    assert paths["curator session"] < paths["admin session"]
+    assert {"refreshGaps", "refreshReports"} <= paths["curator session"]
 
 
 def test_pinning_an_answer_closes_the_gap(tmp_path) -> None:

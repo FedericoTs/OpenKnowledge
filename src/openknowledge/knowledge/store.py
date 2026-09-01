@@ -84,6 +84,27 @@ CREATE TABLE IF NOT EXISTS folder_access (
     updated_at REAL NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS answer_reports (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    canonical_query TEXT NOT NULL,
+    question        TEXT NOT NULL,
+    answer          TEXT NOT NULL,
+    answer_hash     TEXT NOT NULL,
+    tier            TEXT NOT NULL DEFAULT '',
+    citations       TEXT NOT NULL DEFAULT '[]',
+    corpus_version  TEXT NOT NULL DEFAULT '',
+    notes           TEXT NOT NULL DEFAULT '[]',
+    reports         INTEGER NOT NULL DEFAULT 1,
+    first_at        REAL NOT NULL,
+    last_at         REAL NOT NULL,
+    status          TEXT NOT NULL DEFAULT 'open',
+    resolved_at     REAL,
+    resolution      TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_report_answer
+    ON answer_reports(canonical_query, answer_hash);
+CREATE INDEX IF NOT EXISTS idx_report_status ON answer_reports(status);
+
 CREATE TABLE IF NOT EXISTS admin_actions (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     at         REAL NOT NULL,
@@ -154,6 +175,43 @@ class StoredConflict:
             f"[{self.left_document}] says {self.left_raw}, "
             f"[{self.right_document}] says {self.right_raw}"
         )
+
+
+#: How many notes one report keeps. A wrong answer somebody bothered to
+#: explain is worth reading; the twenty-first person saying "still wrong"
+#: adds a count, not a paragraph.
+MAX_REPORT_NOTES = 20
+
+
+@dataclass(frozen=True, slots=True)
+class AnswerReport:
+    """A reader said an answer was wrong.
+
+    The one signal this product could not previously collect. A refusal
+    leaves a trace in the gaps report; an answer that was confidently wrong
+    left nothing at all, because it looked exactly like an answer that was
+    right. Somebody noticed, told a colleague, and the corpus never heard.
+
+    Carries no identity, deliberately - the same rule the gaps report
+    follows. What is useful is *which answer* is wrong and *why somebody
+    thinks so*, and a knowledge base that reports what its people got wrong
+    should not also be a record of who complained.
+    """
+
+    id: int
+    canonical_query: str
+    question: str
+    answer: str
+    tier: str
+    citations: tuple[Citation, ...]
+    corpus_version: str
+    notes: tuple[str, ...]
+    reports: int
+    first_at: float
+    last_at: float
+    status: str
+    resolved_at: float | None = None
+    resolution: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -622,6 +680,111 @@ class KnowledgeStore:
             self._conn.commit()
         return cursor.rowcount > 0
 
+    # -- reported answers ----------------------------------------------------
+    # The loop the product was missing. A refusal leaves a trace in the gaps
+    # report; an answer that was confidently wrong left nothing, because it
+    # looked exactly like one that was right. This is where a reader says so.
+
+    def report_answer(
+        self,
+        canonical_query: str,
+        question: str,
+        answer: str,
+        *,
+        tier: str = "",
+        citations: tuple[Citation, ...] = (),
+        corpus_version: str = "",
+        note: str = "",
+    ) -> AnswerReport:
+        """Record that somebody said this answer was wrong.
+
+        The same wrong answer to the same question is one report with a
+        count, not a hundred rows: what an admin needs is "this one, and
+        eleven people agree", ranked against everything else. A note is kept
+        with it because "the figure changed in April" is the whole fix, and
+        the person who typed it is not.
+
+        Re-reporting an answer that was marked fixed re-opens it - if it is
+        still wrong, the fix did not work, and a closed row would hide that.
+        """
+        note = note.strip()
+        now = time.time()
+        digest = hashlib.sha256(answer.encode("utf-8")).hexdigest()[:16]
+        with self._lock:
+            self._conn.execute(
+                "INSERT INTO answer_reports"
+                " (canonical_query, question, answer, answer_hash, tier, citations,"
+                "  corpus_version, notes, reports, first_at, last_at, status)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, 'open')"
+                " ON CONFLICT(canonical_query, answer_hash) DO UPDATE SET"
+                "   reports = reports + 1,"
+                "   last_at = excluded.last_at,"
+                "   status = 'open',"
+                "   resolved_at = NULL,"
+                "   resolution = NULL",
+                (
+                    canonical_query,
+                    question,
+                    answer,
+                    digest,
+                    tier,
+                    _dump_citations(citations),
+                    corpus_version,
+                    json.dumps([note] if note else []),
+                    now,
+                    now,
+                ),
+            )
+            if note:
+                row = self._conn.execute(
+                    "SELECT notes FROM answer_reports"
+                    " WHERE canonical_query = ? AND answer_hash = ?",
+                    (canonical_query, digest),
+                ).fetchone()
+                kept = _names_list(row["notes"])
+                if note not in kept:
+                    kept = [*kept, note][-MAX_REPORT_NOTES:]
+                    self._conn.execute(
+                        "UPDATE answer_reports SET notes = ?"
+                        " WHERE canonical_query = ? AND answer_hash = ?",
+                        (json.dumps(kept), canonical_query, digest),
+                    )
+            self._conn.commit()
+        stored = self._report_by(canonical_query, digest)
+        assert stored is not None  # just written, under the same lock
+        return stored
+
+    def _report_by(self, canonical_query: str, digest: str) -> AnswerReport | None:
+        row = self._conn.execute(
+            "SELECT * FROM answer_reports WHERE canonical_query = ? AND answer_hash = ?",
+            (canonical_query, digest),
+        ).fetchone()
+        return _as_report(row) if row is not None else None
+
+    def answer_reports(self, *, status: str = "open", limit: int = 50) -> tuple[AnswerReport, ...]:
+        """Reported answers, most-reported first. ``status=''`` for all."""
+        sql = "SELECT * FROM answer_reports"
+        args: list[object] = []
+        if status:
+            sql += " WHERE status = ?"
+            args.append(status)
+        sql += " ORDER BY reports DESC, last_at DESC LIMIT ?"
+        args.append(max(1, limit))
+        return tuple(_as_report(row) for row in self._conn.execute(sql, args).fetchall())
+
+    def resolve_report(self, report_id: int, *, status: str, resolution: str = "") -> bool:
+        """Close a report. ``fixed`` or ``dismissed``; True if one changed."""
+        if status not in {"fixed", "dismissed"}:
+            raise ValueError(f"a report is fixed or dismissed, not {status!r}")
+        with self._lock:
+            cursor = self._conn.execute(
+                "UPDATE answer_reports SET status = ?, resolution = ?, resolved_at = ?"
+                " WHERE id = ? AND status = 'open'",
+                (status, resolution, time.time(), report_id),
+            )
+            self._conn.commit()
+        return cursor.rowcount > 0
+
     # -- the admin log -------------------------------------------------------
     # Every change an admin makes, in order, with who made it. Kept with the
     # other human decisions because that is what it records: not what the
@@ -704,3 +867,31 @@ def _loaded_detail(raw: str) -> dict[str, object]:
     except (TypeError, ValueError):
         return {}
     return value if isinstance(value, dict) else {}
+
+
+def _names_list(raw: str) -> list[str]:
+    """A JSON list of strings out of a column, whatever it actually holds."""
+    try:
+        value = json.loads(raw)
+    except (TypeError, ValueError):
+        return []
+    return [str(v) for v in value] if isinstance(value, list) else []
+
+
+def _as_report(row: sqlite3.Row) -> AnswerReport:
+    return AnswerReport(
+        id=int(row["id"]),
+        canonical_query=row["canonical_query"],
+        question=row["question"],
+        answer=row["answer"],
+        tier=row["tier"],
+        citations=_load_citations(row["citations"]),
+        corpus_version=row["corpus_version"],
+        notes=tuple(_names_list(row["notes"])),
+        reports=int(row["reports"]),
+        first_at=float(row["first_at"]),
+        last_at=float(row["last_at"]),
+        status=row["status"],
+        resolved_at=row["resolved_at"],
+        resolution=row["resolution"],
+    )

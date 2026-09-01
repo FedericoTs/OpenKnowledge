@@ -122,6 +122,54 @@ def _cmd_ask(args: argparse.Namespace) -> int:
     return 0 if answer.tier is not Tier.REFUSED else 1
 
 
+def _cmd_reports(args: argparse.Namespace) -> int:
+    """Answers readers said were wrong. The other half of `gaps`."""
+    engine = _engine()
+    entries = engine.knowledge.answer_reports(status="" if args.all else "open", limit=args.limit)
+    current = engine.retriever.corpus_version
+
+    if args.json:
+        print(
+            json.dumps(
+                [
+                    {
+                        "id": r.id,
+                        "question": r.question,
+                        "answer": r.answer,
+                        "tier": r.tier,
+                        "notes": list(r.notes),
+                        "reports": r.reports,
+                        "status": r.status,
+                        "stale": bool(r.corpus_version) and r.corpus_version != current,
+                    }
+                    for r in entries
+                ],
+                indent=2,
+            )
+        )
+        return 0
+
+    if not entries:
+        print("Nobody has reported a wrong answer.")
+        print("Worth checking whether anyone knows they can: the chat card has the button.")
+        return 0
+
+    for r in entries:
+        stale = "  (documents changed since)" if r.corpus_version != current else ""
+        times = "once" if r.reports == 1 else f"{r.reports} times"
+        print(f"  [{r.id}] reported {times}{stale}")
+        print(f"        {r.question}")
+        print(f"        it answered: {r.answer}")
+        for note in r.notes:
+            print(f"        - {note}")
+        if r.status != "open":
+            print(f"        {r.status}: {r.resolution or 'no reason recorded'}")
+        print()
+    print("Pin the right answer with `openknowledge pin`, then close it in /manage.")
+    print("Nobody's name is recorded against any of these.")
+    return 0
+
+
 def _cmd_admin_log(args: argparse.Namespace) -> int:
     """Who changed what, in order. The audit trail, read from the console."""
     import time
@@ -939,6 +987,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--limit", type=int, default=50)
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=_cmd_gaps)
+
+    p = sub.add_parser("reports", help="answers readers said were wrong")
+    p.add_argument("--limit", type=int, default=50)
+    p.add_argument("--all", action="store_true", help="include closed reports")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=_cmd_reports)
 
     p = sub.add_parser("admin-log", help="who changed what: the admin audit trail")
     p.add_argument("--limit", type=int, default=50)

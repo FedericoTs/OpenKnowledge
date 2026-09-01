@@ -393,6 +393,35 @@ an identity that does not exist is theatre.
 The asymmetry with the gaps report above is deliberate and now holds from
 both ends. Who governs is recorded by name. Who is curious is not.
 
+### The wrong answer nobody heard about
+
+A refusal was already the best-instrumented thing this product does: it is
+counted, ranked by how many people asked, and reported as a list of
+documents worth writing. An answer that was *wrong* had none of that,
+because it looked exactly like an answer that was right. There was no
+button, no table and no signal — somebody noticed, told a colleague, and
+the documents never heard.
+
+The answer card now carries **This is wrong**, and one sentence from
+somebody who already knows the right answer is the whole fix. It lands in
+*Answered wrong* on `/manage` (and `openknowledge reports`), ranked by how
+many people said so, with the answer they were shown and the notes they
+left; one box pins the correction and closes the report. Closing it is an
+admin action, so it is attributed in the admin log like every other.
+
+Three deliberate limits. Only questions this install actually answered can
+be reported, so the table holds real answers rather than whatever anybody
+posts. The same wrong answer to the same question is one row with a count,
+because a hundred colleagues agreeing is one thing to act on. And a report
+raised before a re-index is marked stale rather than deleted — the
+documents changed underneath it, so it may already be fixed, and "we fixed
+that" is a claim somebody should be able to check.
+
+It records nothing about who reported it. That is the same promise the
+gaps report makes about who asked, and it is checked the same way it is
+made: by dumping the database and asserting the reporter's name and
+subject id appear nowhere in the bytes.
+
 ### The update button, cause two
 
 "I still don't see the update button after several releases" had two
