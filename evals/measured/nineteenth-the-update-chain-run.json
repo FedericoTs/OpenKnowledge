@@ -33,5 +33,15 @@
     "why_it_hid_for_eighteen_releases": "v0.2.8 fixed the opposite failure - no metadata at all, so the version fell back to 0.0.0 and every comparison was nonsense. With metadata present the number looked plausible, so nothing downstream complained; the updater simply compared each new release against a version that never moved and offered the same update for ever. This is the whole of 'I still don't see the update button after several releases'.",
     "fix": "[InstallDelete] clears {app}\\_internal\\openknowledge-*.dist-info before the files land. Scoped to the metadata rather than all of _internal: this is the defect that is measured, and wiping the runtime would fail badly for anyone who runs the installer with the app still open.",
     "still_true": "Anything else a build stops shipping still lingers on an upgrade. Recorded in ROADMAP with what fixing it properly would take - the installer stopping the app first."
+  },
+  "the_job_hanging": {
+    "what": "In the release pipeline the same job that had passed in 19 seconds ran 32 minutes without finishing, and an in-progress job serves no logs, so the hang could not be read.",
+    "changed": [
+      "timeout-minutes: 15, so a step waiting on something nobody can answer fails in a quarter of an hour rather than six hours",
+      "Inno's logs upload with if: always(), because a killed step never reaches the Write-Host that dumped them",
+      "$ProgressPreference = 'SilentlyContinue' before the 75 MB download - Invoke-WebRequest renders a progress bar with no console to render it to, which on a large file dominates the transfer"
+    ],
+    "outcome": "The release ran green and published, so the job passed inside it.",
+    "honestly": "The progress-bar overhead is the strongly indicated cause and the only change that could plausibly unstick a download; it is not proven, because the hung run's logs never existed to read. If it recurs, the always-upload artifact is now there to say so."
   }
 }
