@@ -266,6 +266,10 @@ jobs:
           # the app report the version it had just replaced, for ever.
           $stale = "$app\_internal\left-by-an-older-build.txt"
           Set-Content -Path $stale -Value "shipped by $oldVersion, not by $newVersion"
+          # Assert it is there before asserting it is gone. A test that never
+          # planted the file passes exactly like one that planted it and saw it
+          # removed, and the two are indistinguishable from the log.
+          if (-not (Test-Path $stale)) { throw "could not plant the stale file at $stale" }
 
           # Stand in for everything a person would lose: their documents, the
           # answer store, the admin token. App mode puts all of it here.
@@ -330,8 +334,11 @@ jobs:
             throw "could not put $oldVersion back: --version says '$reverted'"
           }
           # Again, for the harder path: this time the app will be *running* and
-          # holding these files when the installer clears them.
+          # holding these files when the installer clears them. Re-planted
+          # because the upgrade above removed it - and asserted present, so
+          # this half cannot pass vacuously either.
           Set-Content -Path $stale -Value "shipped by $oldVersion, not by $newVersion"
+          if (-not (Test-Path $stale)) { throw "could not re-plant the stale file at $stale" }
 
           # The state this runs against, told to want no models: the app
           # below is the real desktop launcher, and a launcher that decides
