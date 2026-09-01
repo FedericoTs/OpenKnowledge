@@ -1,0 +1,18 @@
+{
+  "what": "The end of the update path, run for the first time: the app handing off its own upgrade while it is still running, and the upgrade landing.",
+  "the_race_that_was_there": "spawn_installer is called from the launcher's `finally`, so the process spawning the helper is still alive - still holding its own executable and every DLL under _internal, none of which Windows lets an installer replace. The helper did not wait for it. It worked because PowerShell takes a moment to start and Inno takes longer to unpack itself than the process takes to exit: a race we happened to win, never a guarantee, and losing it leaves half a version on disk.",
+  "fix": "Wait-Process on our own pid before the installer runs, with -Timeout 30 -ErrorAction SilentlyContinue: neither a process already gone nor an expired timeout is a reason to abandon the update, and the installer's own in-use handling is a better last resort than not installing.",
+  "measured": {
+    "idle_install": "upgraded 0.2.19 -> openknowledge 0.2.20, state intact",
+    "running_app": "old build serving as pid 2084; the app handed off its own upgrade while running, and it landed: 0.2.20",
+    "the_command_that_ran": "Wait-Process -Id 2084 -Timeout 30 -ErrorAction SilentlyContinue; Start-Process -FilePath '...OpenKnowledge-Setup-0.2.20.exe' -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -Wait; Start-Process -FilePath '...openknowledge.exe'",
+    "note": "That string came from tools/print_handoff.py, which calls the app's own spawn_command - so CI ran what the app would run, not an approximation of it. The old build serves rather than running the desktop launcher: it holds the same files and needs no 2.6 GB of models."
+  },
+  "a_green_that_meant_nothing": {
+    "what": "The first run of the running-app case went green in one second. pyproject was 0.2.19 and the published latest was 0.2.19, so the job took its 'nothing to upgrade from' exit and passed without upgrading anything.",
+    "why_it_matters": "That is the third time in this session a green result would have proved nothing, and the shape was identical every time: something upstream made the interesting path unreachable while the result still read as success. Twice it was a test of mine, once an eval.",
+    "fix": "Every early exit now writes 'windows-upgrade DID NOT RUN: <why>' to the run's summary page, and on a release it throws. A release publishing a build that nothing upgraded to is exactly what this job exists to prevent, so it must never be the quiet outcome."
+  },
+  "the_update_path_now": "check -> offer -> download -> verify -> hand off from a running app -> wait for it to exit -> install -> relaunch. Every hop has been run and measured; none of it had been before this session.",
+  "still_unproven": "A real desktop session: the windowed launcher, a tray quit, and the browser reopening on the new build. CI drives the console entry through the identical launcher code path."
+}
