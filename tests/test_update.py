@@ -375,23 +375,76 @@ def test_only_a_plain_installer_filename_is_ever_offered() -> None:
         assert "no digest-verified installer" in result.error, hostile
 
 
-def test_the_installer_clears_the_version_it_is_replacing() -> None:
-    """The guard for the defect that made every update invisible.
-
-    The frozen app reads its version from bundled .dist-info, whose directory
-    name carries that version, and Inno never removes files the new build no
-    longer has. An upgrade left openknowledge-0.2.18.dist-info beside
-    openknowledge-0.2.19.dist-info, importlib.metadata answered 0.2.18, and
-    the updater offered the same release for ever.
-
-    This asserts only that the removal is still declared; the CI
-    windows-upgrade job is what measures that an install actually receives a
-    build.
-    """
+def _installer_source() -> str:
+    """The Inno script, read as text. There is no Inno on a Linux runner, so
+    these are source guards rather than a build - what actually installs is
+    measured by the packaging workflow."""
     iss = Path(__file__).resolve().parent.parent / "packaging" / "windows" / "installer.iss"
-    text = iss.read_text(encoding="utf-8")
+    return iss.read_text(encoding="utf-8")
+
+
+def test_the_installer_replaces_the_whole_runtime() -> None:
+    """Inno replaces files and removes nothing the new build no longer has.
+
+    That was fatal once: the frozen app reads its version from bundled
+    .dist-info, whose directory name carries that version, so an upgrade left
+    openknowledge-0.2.18.dist-info beside openknowledge-0.2.19.dist-info,
+    importlib.metadata answered 0.2.18, and the updater offered the same
+    release for ever.
+
+    Deleting that one directory fixed the instance and left the class open:
+    any module, DLL or data file a future build stops shipping stays on disk,
+    where it can shadow the new one. So the whole runtime goes and [Files]
+    lays down exactly what this build carries.
+
+    This asserts only that the removal is declared. What measures that an
+    install actually loses the old files is the CI windows-upgrade job, which
+    plants a file the new build does not ship and fails if it survives -
+    once on a quiet install and once while the app is running and holding
+    those very files.
+    """
+    text = _installer_source()
     assert "[InstallDelete]" in text
-    assert r"{app}\_internal\openknowledge-*.dist-info" in text
+    assert r"{app}\_internal" in text
+
+
+def test_the_installer_stops_the_app_before_replacing_it() -> None:
+    """The delete above is safe only because nothing is holding those files.
+
+    The app's own updater waits for its process to exit, so on that path
+    there is nothing to stop. This is the other way an upgrade happens:
+    somebody double-clicks the installer with the app open. Without it the
+    wholesale delete would silently do nothing on exactly the files it exists
+    to remove, and the install would be no better than before while looking
+    like it was.
+    """
+    text = _installer_source()
+    # The exact signature: Inno calls this hook by name, so a renamed one is a
+    # hook that never runs, and a prefix match would not notice.
+    assert "function PrepareToInstall(var NeedsRestart: Boolean): String;" in text
+    for image in ("OpenKnowledgeApp.exe", "openknowledge.exe", "llama-server.exe"):
+        assert f"'{image}'" in text, f"{image} would keep holding the runtime"
+    assert text.index("procedure StopTheRunningApp") < text.index("function PrepareToInstall")
+
+
+def test_the_installer_does_not_kill_the_process_installing_it() -> None:
+    """The coupling that would turn this into a half-installed app.
+
+    The update helper is what runs the installer, and the installer now kills
+    processes by image name. If the helper were one of them it would be shot
+    dead partway through its own install - the app's files deleted, the new
+    ones not yet copied. It is PowerShell, and the installer is Inno's own
+    executable, so neither is in the list; this pins that the two lists do
+    not overlap rather than leaving it to whoever edits either one next.
+    """
+    killed = {"openknowledgeapp.exe", "openknowledge.exe", "llama-server.exe"}
+    helper = spawn_command(Path("C:/x/OpenKnowledge-Setup-9.9.9.exe"), Path("C:/a/App.exe"))
+
+    assert Path(helper[0]).name.lower() in {"powershell", "powershell.exe"}
+    assert Path(helper[0]).name.lower() not in killed
+    # And the installer it launches is Inno's own name, not one of ours.
+    assert "OpenKnowledge-Setup-9.9.9.exe" in helper[-1]
+    assert not any(name in helper[-1].lower() for name in killed)
 
 
 def test_the_helper_waits_for_the_app_to_let_go_of_its_own_files() -> None:

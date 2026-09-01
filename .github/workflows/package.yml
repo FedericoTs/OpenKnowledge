@@ -259,6 +259,14 @@ jobs:
             throw "expected the previous build $oldVersion, got '$installed'"
           }
 
+          # A file this build does not ship, standing in for every module, DLL
+          # and data file a past version left behind. Inno replaces files and
+          # removes nothing, so before the runtime was cleared wholesale this
+          # survived every upgrade - which is how a stale .dist-info once made
+          # the app report the version it had just replaced, for ever.
+          $stale = "$app\_internal\left-by-an-older-build.txt"
+          Set-Content -Path $stale -Value "shipped by $oldVersion, not by $newVersion"
+
           # Stand in for everything a person would lose: their documents, the
           # answer store, the admin token. App mode puts all of it here.
           $state = "$env:LOCALAPPDATA\OpenKnowledge"
@@ -299,7 +307,10 @@ jobs:
           if ((Get-Content "$state\.env" -Raw) -notmatch 'upgrade-marker') {
             throw "the upgrade destroyed the user's configuration"
           }
-          Write-Host "upgraded $oldVersion -> $after, state intact ($(Get-Date -Format HH:mm:ss))"
+          if (Test-Path $stale) {
+            throw "the upgrade left a file $newVersion does not ship: $stale"
+          }
+          Write-Host "upgraded $oldVersion -> $after, state intact, runtime replaced ($(Get-Date -Format HH:mm:ss))"
 
           # --- and again, the way the app actually does it -----------------
           # Everything above upgrades an install sitting still. The app is
@@ -318,6 +329,9 @@ jobs:
           if ($reverted -notmatch [regex]::Escape($oldVersion)) {
             throw "could not put $oldVersion back: --version says '$reverted'"
           }
+          # Again, for the harder path: this time the app will be *running* and
+          # holding these files when the installer clears them.
+          Set-Content -Path $stale -Value "shipped by $oldVersion, not by $newVersion"
 
           # The state this runs against, told to want no models: the app
           # below is the real desktop launcher, and a launcher that decides
@@ -422,6 +436,9 @@ jobs:
             throw "the app never came back as $newVersion after handing off its own upgrade (on disk: '$now')"
           }
           Stop-Process -Name OpenKnowledgeApp -Force -ErrorAction SilentlyContinue
+          if (Test-Path $stale) {
+            throw "the upgrade under load left a file $newVersion does not ship: $stale"
+          }
           Write-Host ("the app handed off its own upgrade while running, reopened, and served " +
             "as $($health.version) after $([int]$clock.Elapsed.TotalSeconds)s")
 

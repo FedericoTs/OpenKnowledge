@@ -701,20 +701,32 @@ one the bundle builds.
 
 ### Known gaps in the Windows upgrade
 
-- **Inno removes nothing the new build dropped.** An upgrade replaces every file
-  the new installer carries and leaves everything else exactly where it was. That
-  was fatal once already: the frozen app reads its version from bundled
-  `.dist-info`, whose directory name carries the version, so an upgrade left the
-  old one beside the new and the app went on reporting the version it had
-  replaced. `[InstallDelete]` now clears that one directory, and CI upgrades a
-  real previous release on every packaging run.
+- ~~**Inno removes nothing the new build dropped.**~~ **Built.** An upgrade used to
+  replace every file the new installer carries and leave everything else exactly
+  where it was. That was fatal once: the frozen app reads its version from bundled
+  `.dist-info`, whose directory name carries the version, so an upgrade left the old
+  one beside the new and the app went on reporting the version it had replaced —
+  which is why an install could never be seen to update itself.
 
-  The general hazard stands. Any module, DLL or data file a future build stops
-  shipping stays on disk, where it can shadow or simply mislead. The clean fix is
-  to clear `{app}\_internal` wholesale before installing, which is safe only when
-  nothing holds those files - and someone can always run the installer with the
-  app open. Doing it properly means the installer stopping the app first, which
-  is worth building and is not built.
+  Clearing that one directory fixed the instance and left the class open. The
+  installer now stops the app (`PrepareToInstall` → `taskkill` on the windowed app,
+  the CLI and `llama-server`) and then clears `{app}\_internal` **wholesale**, so
+  `[Files]` lays down exactly what the build carries and nothing else survives.
+  The person's state is untouched: documents, database, models and settings live
+  under `%LOCALAPPDATA%\OpenKnowledge`.
+
+  Measured rather than declared: CI plants a file the new build does not ship into
+  the old install's runtime and fails if it survives — once on a quiet install, and
+  once while the app is **running and holding those very files**, which is the case
+  the wholesale delete exists for. A source guard also pins that the update helper
+  is PowerShell and so is not one of the images the installer kills; a helper on
+  that list would be shot dead partway through its own install.
+
+  Residual risk, stated plainly: a failure between the delete and the copy (disk
+  full, antivirus, a cancelled install) leaves a runtime that re-running the
+  installer repairs. That is the ordinary trade every replacing installer makes,
+  and it is the price of not shipping a directory that accumulates every file the
+  project has ever shipped.
 
 ### Known gaps in the golden sets
 
@@ -800,7 +812,6 @@ Worth stating plainly, and the first one is the largest thing wrong with this pr
 - Per-document prompt caching for hot documents — the only caching lever that pays here,
   since the system prompt is measured at 476 tokens and cannot cache at all
 - Per-rung retrieval width, for a rung whose context window cannot take the full set
-- Incremental re-indexing (today's full rebuild is correct but O(corpus))
 - Postgres + pgvector backend for multi-instance deployments
 - Batch pre-warming: answer the top questions overnight at the 50% batch rate
 - Conversation follow-ups ("what about contractors?") — needs care against a single-question
