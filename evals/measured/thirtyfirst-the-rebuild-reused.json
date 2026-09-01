@@ -1,0 +1,29 @@
+{
+  "what": "An upload no longer re-does the whole corpus's index work. On 1,200 documents the index build went from 2.30s to 0.13s, and the index that comes out is asserted identical - field for field - to the one the previous implementation produced.",
+  "why_this_and_why_now": {
+    "what_was_left": "With parses cached and PDFs batched, re-indexing was the cost still paid on every upload and every delete, synchronously, inside the request the operator is waiting on.",
+    "measured_first": "400 documents (4,812 chunks) 1.04s; 1,200 (14,412) 3.42s; 2,400 (28,812) 7.23s. Linear, about 3ms a document - so five thousand policies is fifteen seconds of waiting after dragging in one file, and the file that changed is one of them.",
+    "where_it_went": "Profiling put 79% of a warm re-index in the BM25 index build, and 35% of that in deriving tags - almost all of it tokenising the same unchanged documents again."
+  },
+  "the_split": {
+    "cached": "Chunking a document, tokenising its passages, counting its words, its folded vocabulary and its tag sources depend on THAT DOCUMENT ALONE.",
+    "not_cached": "The tf-idf ranking behind every document's tags, the corpus document frequencies, the average length and corpus_version are recomputed on every build. Adding one document changes what every other document's words are distinctive against; a cached tag set would be right on the day it was computed and quietly drift from then on. It is also the cheap half - the tokenising is what costs.",
+    "still_a_rebuild": "What is reused is the work, not the result. A deleted document really does disappear: corpus_version, chunks and tags are all rebuilt from the current corpus, and a test asserts a removed document leaves no trace anywhere."
+  },
+  "the_key": {
+    "not_the_content_hash": "content_hash covers document.text and was the obvious key. It is wrong twice. A Chunk carries allowed_principals, so an entry keyed on text alone could hand back a passage stamped with a folder's PREVIOUS audience - the worst mistake this product can make. And chunking reads blocks, not text: a heading rewritten as a paragraph with the same words leaves the text byte-identical and the passages different, because a heading starts a chunk and a paragraph does not.",
+    "what_it_costs": "Hashing everything a chunk is made of - id, title, url, superseded, principals, text, and every block's kind, text, locator, level and heading trail - measured 22ms per 1,200 documents against the 2.3s it saves. There was nothing to trade off, so nothing was traded off.",
+    "the_chunk_window_too": "target_words and overlap_words are in the key: the same document cut at a different width is a different set of passages, and an entry that ignored that would survive a settings change it should not have."
+  },
+  "measured": {
+    "index_build": "1,200 documents: 2.30s to 0.13s (18x). 400: 0.76s to 0.04s (19x). 2,400: 4.93s to 0.34s (14x).",
+    "one_upload_end_to_end": "400 documents 1.04s to 0.43s; 1,200 3.42s to 1.22s; 2,400 7.23s to 3.36s. About 2.2x, because the index build is no longer what dominates.",
+    "memory": "Measured twice and agreeing: the whole retriever went from 68.0 MB to 77.8 MB on 1,200 documents (21.9 MB of text), and the cache alone accounts for 9.8 MB of that - 14%. The chunks and counters are handed out by reference rather than copied, so the cache mostly holds what the index already holds.",
+    "correctness": "On a 150-document corpus of mixed formats in nested folders: the corpus document frequency is identical to the previous implementation's, every document's tags are identical to what the ORIGINAL derive_tags produced, and the whole index - chunks, term_freqs, lengths, doc_freq, avg_length, corpus_version, doc_principals, doc_tags, doc_tags_folded - is identical to the previous implementation's."
+  },
+  "in_memory_on_purpose": "Not written to disk, unlike the parse cache. This holds the index's own contents, so persisting it would roughly double the stored state to save a rebuild that now takes a fraction of a second. A restart pays one full derivation, from parses that are themselves cached.",
+  "three_tests_that_proved_nothing": "Fourteen sabotages were applied to main and run. Three passed, and all three were the same mistake: the test compared the system against ITSELF. 'Warm cache equals cold cache' and 'the tags equal derive_tags' both move together when the derivation counts the wrong thing, so a chunk length that counted distinct terms instead of tokens, a document frequency built from only the last document, and a corpus vocabulary narrowed to taggable words all sailed through. They are now pinned against oracles computed by hand from the chunks - lengths against len(tokenize(chunk.text)), doc_freq against a Counter built from each chunk's distinct terms, and the corpus vocabulary against a two-document corpus with the short words spelled out. All fourteen fail against their bug now.",
+  "gate": "No retrieval, prompt, chunking or grounding change: the same index, built from reused work. The index is asserted identical to the previous implementation's, field for field, on a real corpus. The golden sets gate answers, and no answer moved.",
+  "pinned_by": "tests/test_derived_cache.py, 13 tests. 1,154 tests pass.",
+  "still_open": "The bottleneck has moved to connector.fetch(), which is now most of an upload - 1.61s of the 3.36s at 2,400 documents. 64% of that is ParsedDocument.text normalising 22 MB through two regex passes at about 26 MB/s. Storing the normalised text in the parse cache would fix it and would grow that database by roughly the size of the corpus; not attempted, and worth deciding deliberately rather than by reflex."
+}

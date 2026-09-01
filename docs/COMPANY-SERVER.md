@@ -122,6 +122,25 @@ It is pure derived data. Deleting `parses.db` costs one rebuild and nothing
 else, which is why it is a separate file and why it is not in the backup:
 the backup already carries the documents themselves.
 
+## Adding or removing one document
+
+Uploads and deletes re-index, inside the request, so there is never a window
+where the corpus has changed and answers have not. What that costs is the
+work for the **one document that changed** — the rest is reused:
+
+| corpus | one upload |
+|---|---|
+| 400 documents | 0.4 s |
+| 1,200 documents | 1.2 s |
+| 2,400 documents | 3.4 s |
+
+The parts that genuinely depend on the whole corpus are still recomputed
+every time — which documents a word is distinctive against, and so every
+document's tags — because a tag set that went stale would misroute questions
+without ever looking wrong. A deleted document really does disappear: the
+corpus fingerprint, the passages and the tags are all rebuilt from what is
+there now.
+
 A PDF the parser cannot read is **named** rather than skipped in silence,
 with the reason whichever parser you have gave — `handbook.pdf:
 OpenDataLoader: this file is not a valid PDF file (corrupted or truncated

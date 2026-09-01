@@ -473,6 +473,46 @@ operator saw for an unreadable PDF was the whole `java` command line and an
 exit code. It now reads `broken.pdf: OpenDataLoader: this file is not a
 valid PDF file (corrupted or truncated content).`
 
+### An upload is one document, not the whole corpus
+
+With parses cached and PDFs batched, what an upload still paid for was
+re-indexing everything. Measured before touching it: **1.04 s** at 400
+documents, **3.42 s** at 1,200, **7.23 s** at 2,400 — linear, about 3 ms a
+document, so five thousand policies is fifteen seconds of waiting after
+dragging in one file. Profiling put 79% of that in the BM25 index build and
+a third of *that* in deriving tags, almost all of it tokenising the same
+unchanged documents again.
+
+Chunking a document, tokenising its passages and counting its words depend
+on **that document alone**, so they are remembered. The tf-idf ranking
+behind its tags is **not**, and that is the point rather than an omission:
+adding one document changes what every other document's words are
+distinctive against, and a cached tag set would be right on the day it was
+computed and quietly drift from then on. It is also the cheap half — the
+tokenising is what costs.
+
+Index build **2.30 s → 0.13 s** on 1,200 documents; an upload end to end
+3.42 s → 1.22 s. Memory went from 68.0 MB to 77.8 MB, the cache accounting
+for 9.8 MB of that.
+
+It is still a full rebuild — what is reused is the work, not the result.
+`corpus_version`, the chunks and every tag are rebuilt from the current
+corpus, so a deleted document really does disappear.
+
+The key is **everything a chunk is made of**, not the content hash.
+`content_hash` was the obvious choice and is wrong twice: a chunk carries
+`allowed_principals`, so a text-only key could hand back a passage stamped
+with a folder's *previous* audience; and chunking reads `blocks`, so a
+heading rewritten as a paragraph leaves the text byte-identical and the
+passages different. Hashing all of it costs 22 ms per 1,200 documents
+against the 2.3 s it saves, so nothing was traded off.
+
+Held to the same standard as the rest: on a 150-document corpus of mixed
+formats in nested folders, the corpus document frequency, every document's
+tags, and the whole index — chunks, term frequencies, lengths, document
+frequencies, average length, `corpus_version`, principals and both tag maps
+— are asserted identical to what the previous implementation produced.
+
 ### An access change is not a corpus change
 
 Both access endpoints re-indexed the whole corpus, synchronously, inside the

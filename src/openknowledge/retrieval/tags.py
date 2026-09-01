@@ -86,6 +86,81 @@ _MAX_MATCHED_SHARE = 1 / 3
 _MAX_MATCHED_DOCS = 5
 
 
+def tag_sources(document: Document) -> tuple[tuple[str, str], ...]:
+    """The tags a document names itself, needing no corpus to know.
+
+    Three sources, in the order a human would trust them - the document id,
+    which encodes the operator's own folder taxonomy ("hr-expenses-policy"
+    says hr, expenses, policy); the title; and the headings, which name the
+    topics the title does not. Folded form to display form, insertion-ordered,
+    because the order is what survives when the cap bites.
+
+    Split out from ``derive_tags`` so an index rebuild can keep it: this is
+    the half that depends on one document, and the tf-idf half that needs the
+    whole corpus is recomputed every time. ``derive_tags`` still composes the
+    two, and a test asserts the composition equals what it always produced.
+    """
+    chosen: dict[str, str] = {}
+    for part in document.document_id.replace("/", "-").split("-"):
+        _consider(chosen, part, 2)
+    for word in tokenize(document.title):
+        _consider(chosen, word, 2)
+    for block in document.blocks:
+        if block.kind.name == "HEADING":
+            for word in tokenize(block.text):
+                _consider(chosen, word, 2)
+    return tuple(chosen.items())
+
+
+def tag_body(document: Document) -> Counter[str]:
+    """The body words a tf-idf ranking chooses from, counted."""
+    return Counter(
+        w for w in tokenize(document.text) if len(w) > 3 and w not in _NOISE and not w.isdigit()
+    )
+
+
+def folded_vocabulary(document: Document) -> frozenset[str]:
+    """Every folded word this document contains - one document's share of the
+    corpus document frequency. Every token, not only the taggable ones."""
+    return frozenset(fold_word(w) for w in tokenize(document.text))
+
+
+def _consider(chosen: dict[str, str], word: str, minimum: int) -> None:
+    lower = word.lower()
+    if len(lower) < minimum or lower in _NOISE or lower.isdigit():
+        return
+    chosen.setdefault(fold_word(lower), lower)
+
+
+def rank_tags(
+    sources: tuple[tuple[str, str], ...],
+    body: Counter[str],
+    document_frequency: Counter[str],
+    corpus_size: int,
+) -> tuple[str, ...]:
+    """The named sources, then the body words most distinctive against the corpus.
+
+    The corpus-dependent half, kept separate because it must run on every
+    index build: adding one document changes what every other document's
+    words are distinctive *against*, so a cached tag set would slowly stop
+    being true. It is also the cheap half - the tokenising is what costs.
+    """
+    chosen = dict(sources)
+    named = len(chosen)
+    scored = sorted(
+        (
+            (tf * log(1 + corpus_size / (1 + document_frequency[fold_word(word)])), word)
+            for word, tf in body.items()
+        ),
+        key=lambda pair: (-pair[0], pair[1]),
+    )
+    for _, word in scored:
+        if len(chosen) >= named + _DISTINCTIVE_TERMS:
+            break
+        _consider(chosen, word, 4)
+    return tuple(list(chosen.values())[:_MAX_TAGS])
+
+
 def derive_tags(
     document: Document, document_frequency: Counter[str], corpus_size: int
 ) -> tuple[str, ...]:
@@ -105,48 +180,14 @@ def derive_tags(
     ``document_frequency`` counts, per *folded* word, how many documents
     contain it; computed once per index build and shared.
     """
-    chosen: dict[str, str] = {}  # folded form -> display word, insertion-ordered
-
-    def consider(word: str, minimum: int) -> None:
-        lower = word.lower()
-        if len(lower) < minimum or lower in _NOISE or lower.isdigit():
-            return
-        chosen.setdefault(fold_word(lower), lower)
-
-    # Two letters is enough for a *named* source: "hr" is a real taxonomy.
-    for part in document.document_id.replace("/", "-").split("-"):
-        consider(part, 2)
-    for word in tokenize(document.title):
-        consider(word, 2)
-    for block in document.blocks:
-        if block.kind.name == "HEADING":
-            for word in tokenize(block.text):
-                consider(word, 2)
-
-    named = len(chosen)
-    body = Counter(
-        w for w in tokenize(document.text) if len(w) > 3 and w not in _NOISE and not w.isdigit()
-    )
-    scored = sorted(
-        (
-            (tf * log(1 + corpus_size / (1 + document_frequency[fold_word(word)])), word)
-            for word, tf in body.items()
-        ),
-        key=lambda pair: (-pair[0], pair[1]),
-    )
-    for _, word in scored:
-        if len(chosen) >= named + _DISTINCTIVE_TERMS:
-            break
-        consider(word, 4)
-
-    return tuple(list(chosen.values())[:_MAX_TAGS])
+    return rank_tags(tag_sources(document), tag_body(document), document_frequency, corpus_size)
 
 
 def corpus_document_frequency(documents: list[Document]) -> Counter[str]:
     """Per folded word, how many documents contain it."""
     frequency: Counter[str] = Counter()
     for document in documents:
-        frequency.update({fold_word(w) for w in tokenize(document.text)})
+        frequency.update(folded_vocabulary(document))
     return frequency
 
 
