@@ -191,7 +191,7 @@ def test_a_signed_in_admin_is_named_in_the_log(app, admin) -> None:
         assert admin.put("/admin/access/hr", json={"principals": ["group:hr"]}).status_code == 200
         log = admin.get("/admin/log").json()
 
-    assert log["attributed"] == 1
+    assert (log["attributed"], log["returned"], log["total"]) == (1, 1, 1)
     (entry,) = log["entries"]
     assert entry["actor"] == "Alice Moreau"
     assert entry["actor_id"] == "alice-oid"

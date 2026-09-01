@@ -1310,10 +1310,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         already means something else in this product: it checks documents for
         contradictions. This one checks people.
 
-        ``attributed`` is the number of entries that name a person rather
-        than the shared token. With sign-in off it is zero and stays zero -
-        no amount of logging can recover an identity a shared secret never
-        carried - which is the honest way to ask for sign-in.
+        ``attributed`` is how many of the ``returned`` entries name a person
+        rather than the shared token. With sign-in off it is zero and stays
+        zero - no amount of logging can recover an identity a shared secret
+        never carried - which is the honest way to ask for sign-in.
         """
         since = time.time() - days * 86400 if days > 0 else 0.0
         entries = engine.knowledge.admin_actions(limit=min(max(limit, 1), 1000), since=since)
@@ -1331,6 +1331,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 for e in entries
             ],
             "total": engine.knowledge.admin_action_count(),
+            "returned": len(entries),
+            # Of the entries returned, not of the total - named alongside
+            # ``returned`` so the ratio a reader computes is the right one.
             "attributed": sum(1 for e in entries if e.actor.kind == "person"),
             "signed_in": engine.settings.auth_mode == "oidc",
         }
