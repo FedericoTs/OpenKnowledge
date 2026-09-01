@@ -193,3 +193,34 @@ def test_the_admin_log_still_records_who_changed_it(tmp_path: Path, folder: str)
         log = client.get("/admin/log", headers=ADMIN).json()
     (entry,) = [e for e in log["entries"] if e["action"] == "access.set"]
     assert entry["target"] == folder
+
+
+def test_an_upload_after_an_access_change_carries_the_new_audience(tmp_path: Path) -> None:
+    """The realistic sequence, which nothing else here covered.
+
+    An admin walls off a folder; later somebody uploads a document and the
+    corpus re-indexes. That rebuild now reuses per-document work, and the
+    thing it must never reuse is who a passage belongs to. A key that stopped
+    at the document's text would hand every HR passage back stamped with the
+    audience the folder had before the rule - a document served to people who
+    were just told they could not read it.
+    """
+    documents = _corpus(tmp_path)
+    engine = build_engine(_settings(tmp_path, documents))
+    try:
+        assert _audiences(engine)["hr-policy"] == frozenset()
+
+        engine.knowledge.set_folder_access("hr", frozenset({"group:hr"}))
+        engine.reapply_access()
+        assert _audiences(engine)["hr-policy"] == frozenset({"group:hr"})
+
+        (documents / "travel" / "another.md").write_text("# Travel\n\nEconomy only.\n")
+        engine.reindex()
+
+        audiences = _audiences(engine)
+        assert audiences["hr-policy"] == frozenset({"group:hr"})
+        assert audiences["hr-archive-policy"] == frozenset({"group:hr"})
+        assert audiences["travel-another"] == frozenset()
+    finally:
+        engine.store.close()
+        engine.knowledge.close()
