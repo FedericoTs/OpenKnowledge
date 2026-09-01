@@ -46,10 +46,25 @@ def _free_port() -> int:
         return probe.getsockname()[1]
 
 
+def _needs_a_browser() -> None:
+    """Skip before doing any work, not after.
+
+    These fixtures used to start a real uvicorn server and only then let the
+    test body decide it had no browser to drive - so every one of them booted
+    an app in CI, where no browser is installed, purely to skip. On a loaded
+    Windows runner one of those servers missed its start deadline and failed
+    the build. Deciding here costs nothing and starts nothing.
+    """
+    pytest.importorskip("playwright.sync_api", reason="playwright is not installed")
+    if _chromium() is None:
+        pytest.skip("no chromium available")
+
+
 def _serve(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fake, admin_token: str = ""
 ) -> Iterator[str]:
     """A real server on loopback whose only fake part is the model."""
+    _needs_a_browser()
     uvicorn = pytest.importorskip("uvicorn")
     from openknowledge.api import app as app_module
     from openknowledge.api import engine as engine_module
@@ -77,7 +92,7 @@ def _serve(
     )
     thread = threading.Thread(target=server.run, daemon=True)
     thread.start()
-    deadline = time.time() + 15
+    deadline = time.time() + 60
     while not server.started:
         if time.time() > deadline:
             pytest.fail("uvicorn did not start")
@@ -116,10 +131,8 @@ def managed_app(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[str
 
 
 def _page(pw, base: str):
-    executable = _chromium()
-    if executable is None:
-        pytest.skip("no chromium available")
-    browser = pw.chromium.launch(executable_path=executable, args=["--no-sandbox"])
+    # The fixture already established there is one - see _needs_a_browser.
+    browser = pw.chromium.launch(executable_path=_chromium(), args=["--no-sandbox"])
     page = browser.new_page(viewport={"width": 1280, "height": 900})
     page.goto(base + "/")
     return browser, page
@@ -132,9 +145,7 @@ def test_a_refusal_is_printed_once(declining_app) -> None:
     banner between them. Nothing vanished from the reader's view - the draft
     and the answer are the same sentence - so there is nothing to account for.
     """
-    sync_playwright = pytest.importorskip(
-        "playwright.sync_api", reason="playwright is not installed"
-    ).sync_playwright
+    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
 
     with sync_playwright() as pw:
         browser, page = _page(pw, declining_app)
@@ -170,9 +181,7 @@ def test_a_withdrawn_draft_that_said_something_else_is_still_shown(declining_app
     Only duplicates are dropped. A draft the reader watched appear, saying
     something the answer does not say, is still withdrawn in front of them.
     """
-    sync_playwright = pytest.importorskip(
-        "playwright.sync_api", reason="playwright is not installed"
-    ).sync_playwright
+    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
 
     with sync_playwright() as pw:
         browser, page = _page(pw, declining_app)
@@ -205,9 +214,7 @@ def test_a_withdrawn_draft_that_said_something_else_is_still_shown(declining_app
 
 def test_citation_markers_do_not_reach_the_reader(declining_app) -> None:
     """renderAnswer itself, called with an answer shaped like the field's."""
-    sync_playwright = pytest.importorskip(
-        "playwright.sync_api", reason="playwright is not installed"
-    ).sync_playwright
+    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
 
     with sync_playwright() as pw:
         browser, page = _page(pw, declining_app)
@@ -255,9 +262,7 @@ def test_a_retraction_of_nothing_is_not_shown(dying_app) -> None:
     neither what happened nor anything the reader saw. Why the answer is a
     refusal stays in the notes underneath, where it belongs.
     """
-    sync_playwright = pytest.importorskip(
-        "playwright.sync_api", reason="playwright is not installed"
-    ).sync_playwright
+    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
 
     with sync_playwright() as pw:
         browser, page = _page(pw, dying_app)
@@ -282,9 +287,7 @@ def test_asking_again_reports_identical(declining_app) -> None:
     and nothing else. The card now repeats the identical request and compares
     the two answers character for character, in front of the person who asked.
     """
-    sync_playwright = pytest.importorskip(
-        "playwright.sync_api", reason="playwright is not installed"
-    ).sync_playwright
+    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
 
     with sync_playwright() as pw:
         browser, page = _page(pw, declining_app)
@@ -315,9 +318,7 @@ def test_asking_again_shows_a_changed_answer_in_full(declining_app) -> None:
     altered so the comparison genuinely fails, and the card must say so and
     show the answer it got the second time.
     """
-    sync_playwright = pytest.importorskip(
-        "playwright.sync_api", reason="playwright is not installed"
-    ).sync_playwright
+    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
 
     with sync_playwright() as pw:
         browser, page = _page(pw, declining_app)
@@ -349,9 +350,7 @@ def test_asking_again_shows_a_changed_answer_in_full(declining_app) -> None:
 
 def test_a_recheck_is_recorded_as_a_recheck(declining_app) -> None:
     """The repeat is a real question and the ledger says what it was for."""
-    sync_playwright = pytest.importorskip(
-        "playwright.sync_api", reason="playwright is not installed"
-    ).sync_playwright
+    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
 
     with sync_playwright() as pw:
         browser, page = _page(pw, declining_app)
@@ -387,9 +386,7 @@ def test_the_receipts_line_says_only_what_is_true(declining_app) -> None:
     local rung generated a draft that the grounding gate threw out, and
     claiming otherwise would misdescribe the one mechanism this product sells.
     """
-    sync_playwright = pytest.importorskip(
-        "playwright.sync_api", reason="playwright is not installed"
-    ).sync_playwright
+    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
 
     with sync_playwright() as pw:
         browser, page = _page(pw, declining_app)
@@ -419,9 +416,7 @@ def test_the_cost_panel_shows_the_numbers_not_the_json(managed_app) -> None:
     the machinery rather than the number. The figures are now the first thing
     an owner sees after unlocking.
     """
-    sync_playwright = pytest.importorskip(
-        "playwright.sync_api", reason="playwright is not installed"
-    ).sync_playwright
+    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
 
     with sync_playwright() as pw:
         browser, page = _page(pw, managed_app)
@@ -464,9 +459,7 @@ def test_a_citation_names_where_a_reader_can_look(declining_app) -> None:
     "(chunk 4)" against it. It stops being shown, because the reader cannot
     open chunk 1 of anything.
     """
-    sync_playwright = pytest.importorskip(
-        "playwright.sync_api", reason="playwright is not installed"
-    ).sync_playwright
+    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
 
     with sync_playwright() as pw:
         browser, page = _page(pw, declining_app)
