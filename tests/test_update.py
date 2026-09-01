@@ -420,3 +420,40 @@ def test_the_pid_is_a_number_and_nothing_else() -> None:
     """It reaches a shell, so it is an int before it is a string."""
     script = spawn_command(Path("C:/x/S.exe"), Path("C:/a/A.exe"), wait_for_pid=True)[-1]
     assert "Wait-Process -Id 1 " in script
+
+
+# -- which executable a relaunch produces ------------------------------------
+
+
+def test_a_relaunch_after_updating_starts_the_app_not_the_cli(tmp_path: Path) -> None:
+    """The bundle ships two executables and only one of them is the app.
+
+    Started from the Start-menu shortcut, sys.executable is already the
+    windowed entry and nothing needs deciding. Started as `openknowledge
+    desktop` - which the installer's PATH option and every terminal user
+    make reachable - sys.executable is the CLI, and the CLI with no
+    subcommand prints a usage error and exits. Relaunching that closes the
+    app for an update and never brings it back.
+    """
+    cli = tmp_path / "openknowledge.exe"
+    app = tmp_path / update.WINDOWED_EXE
+    cli.write_bytes(b"cli")
+    app.write_bytes(b"app")
+
+    assert update.relaunch_target(cli) == app, "the CLI must hand off to the app"
+    assert update.relaunch_target(app) == app, "the app relaunches itself"
+
+
+def test_a_layout_without_the_windowed_build_is_left_alone(tmp_path: Path) -> None:
+    """A dev checkout, or any layout this does not recognise, gets what it
+    gave rather than a guess at a file that is not there."""
+    lonely = tmp_path / "openknowledge.exe"
+    lonely.write_bytes(b"cli")
+    assert update.relaunch_target(lonely) == lonely
+
+
+def test_the_windowed_name_is_the_one_the_bundle_builds() -> None:
+    """Pinned to the spec: a rename there without one here would ship an
+    update that closes the app and reopens nothing."""
+    spec = Path("packaging/pyinstaller/openknowledge.spec").read_text(encoding="utf-8")
+    assert f'APP_NAME = "{update.WINDOWED_EXE.removesuffix(".exe")}"' in spec

@@ -12,6 +12,7 @@ documents worth writing, in the order worth writing them.
 
 from __future__ import annotations
 
+import re
 import time
 
 import pytest
@@ -157,30 +158,35 @@ def test_the_manage_page_shows_the_gaps(tmp_path) -> None:
         assert "no column for who asked" in page
 
 
+#: Where each route into /manage begins, in the page's own words, and the
+#: role it should arrive as.
+_ROUTES = {
+    "token": ("$('token-input').value", "admin"),
+    "admin session": ("say('Admin, via your sign-in group.'", "admin"),
+    "curator session": ("say('Knowledge curator", "curator"),
+}
+
+
 def _boot_paths(page: str) -> dict[str, set[str]]:
     """Which refresh functions each way into /manage calls on arrival.
 
     Three ways in - a pasted admin token, an admin's sign-in session, a
     curator's - and a panel that loads on one and not the others is empty
     for a third of the people who have the page.
-    """
-    import re
 
-    # Each path ends by calling ready() with the role it arrived as - the same
-    # signal the browser test waits on - so the bounds move with the code
-    # instead of being pinned to whatever line happened to sit nearby.
-    bounds = {
-        "token": ("$('token-input').value", "ready('admin')"),
-        "admin session": ("say('Admin, via your sign-in group.'", "ready('admin')"),
-        "curator session": ("say('Knowledge curator", "ready('curator')"),
-    }
+    Each route ends by handing its panel loads to ``ready(role, [...])``,
+    the same signal the browser test waits on, so these bounds move with the
+    code rather than being pinned to whatever line happens to sit nearby.
+    """
     found: dict[str, set[str]] = {}
-    for name, (start, end) in bounds.items():
+    for name, (start, role) in _ROUTES.items():
         at = page.find(start)
-        assert at >= 0, f"the {name} path is not in the page any more"
-        stop = page.find(end, at)
-        assert stop > at, f"the {name} path has no end marker"
-        found[name] = set(re.findall(r"(refresh[A-Za-z]+)\(\)", page[at:stop]))
+        assert at >= 0, f"the {name} route is not in the page any more"
+        stop = page.find("]);", at)
+        assert stop > at, f"the {name} route does not end in a ready() call"
+        region = page[at:stop]
+        assert f"ready('{role}'" in region, f"the {name} route no longer arrives as {role}"
+        found[name] = set(re.findall(r"(refresh[A-Za-z]+)\(\)", region))
     return found
 
 

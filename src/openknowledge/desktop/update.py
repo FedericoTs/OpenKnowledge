@@ -362,13 +362,39 @@ def spawn_command(installer: Path, relaunch: Path, *, wait_for_pid: int | None =
     return ["powershell", "-NoProfile", "-WindowStyle", "Hidden", "-Command", "; ".join(steps)]
 
 
+#: The windowed executable the Start-menu shortcut runs, from
+#: packaging/pyinstaller/openknowledge.spec. Named here because a relaunch
+#: has to produce the app, and only one of the two bundled executables is
+#: the app; test_update pins the two names together.
+WINDOWED_EXE = "OpenKnowledgeApp.exe"
+
+
+def relaunch_target(executable: Path) -> Path:
+    """Which executable to start again after an update installs.
+
+    ``sys.executable`` is right when the windowed entry is running, which is
+    what the Start-menu shortcut launches. It is wrong when the app was
+    started as ``openknowledge desktop``: that makes ``sys.executable`` the
+    CLI, and the CLI with no subcommand prints a usage error and exits - so
+    the update would close the app and never bring it back, which is the one
+    outcome this whole path exists to avoid.
+
+    Anything else - a dev checkout, a rename, a layout without the windowed
+    build beside it - falls back to what it was given rather than guessing.
+    """
+    windowed = executable.with_name(WINDOWED_EXE)
+    if executable.name.casefold() != WINDOWED_EXE.casefold() and windowed.is_file():
+        return windowed
+    return executable
+
+
 def spawn_installer(installer: Path, *, relaunch: Path) -> None:  # pragma: no cover - windows
     if sys.platform != "win32":
         raise UpdateError("silent self-update is a Windows desktop feature")
     # Our own pid: the helper must outlive us before it touches our files.
     flags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP  # type: ignore[attr-defined]
     subprocess.Popen(  # noqa: S603 - fixed command, paths from our own state
-        spawn_command(installer, relaunch, wait_for_pid=os.getpid()),
+        spawn_command(installer, relaunch_target(relaunch), wait_for_pid=os.getpid()),
         creationflags=flags,
         close_fds=True,
         stdin=subprocess.DEVNULL,

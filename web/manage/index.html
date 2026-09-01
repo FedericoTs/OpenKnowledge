@@ -218,7 +218,15 @@ function say(text, ok) { const s = $('status'); s.textContent = text; s.classNam
 // Which role this page finished arriving as. Three routes in - a pasted
 // token, an admin's session, a curator's - and each ends somewhere
 // different, so "the page has settled" needs saying rather than guessing.
-function ready(role) { document.body.dataset.ready = role; }
+// Called only once the panels this role gets have actually loaded, not
+// once they have been asked for. Firing it after starting the fetches made
+// it a promise the page had not kept: under load the flag arrived while
+// Settings still said "Unlock to load", which is what a reader would have
+// screenshotted and what flaked the browser test that waits on it.
+async function ready(role, loading) {
+  await Promise.all(loading);
+  document.body.dataset.ready = role;
+}
 function authHeaders() { return state.token ? { 'Authorization': 'Bearer ' + state.token } : {}; }
 
 async function api(path, options = {}) {
@@ -798,9 +806,10 @@ async function unlock(token) {
   say('Unlocked.', true);
   $('forget').hidden = false;
   $('token-input').value = '';
-  refreshCosts(); refreshGaps(); refreshReports(); refreshAccess();
-  refreshProposals(); refreshConflicts(); refreshSettings(); refreshAdminLog();
-  ready('admin');
+  await ready('admin', [
+    refreshCosts(), refreshGaps(), refreshReports(), refreshAccess(),
+    refreshProposals(), refreshConflicts(), refreshSettings(), refreshAdminLog(),
+  ]);
   return true;
 }
 $('unlock').onclick = () => {
@@ -844,9 +853,10 @@ fetch('/auth/me').then(r => r.ok ? r.json() : null).then(async (who) => {
       await api('/admin/settings');
       $('unlock-section').hidden = true;
       say('Admin, via your sign-in group.', true);
-      refreshCosts(); refreshGaps(); refreshReports(); refreshAccess();
-      refreshProposals(); refreshConflicts(); refreshSettings(); refreshAdminLog();
-      ready('admin');
+      await ready('admin', [
+        refreshCosts(), refreshGaps(), refreshReports(), refreshAccess(),
+        refreshProposals(), refreshConflicts(), refreshSettings(), refreshAdminLog(),
+      ]);
     } catch (e) { /* fall back to the token flow */ }
   } else if (who.curator && !state.token) {
     // A curator shapes the answers, not who may read them. Rather than let
@@ -865,9 +875,10 @@ fetch('/auth/me').then(r => r.ok ? r.json() : null).then(async (who) => {
       button.hidden = true;
     }
     say('Knowledge curator, via your sign-in group.', true);
-    refreshCosts(); refreshGaps(); refreshReports(); refreshProposals();
-    refreshConflicts();
-    ready('curator');
+    await ready('curator', [
+      refreshCosts(), refreshGaps(), refreshReports(),
+      refreshProposals(), refreshConflicts(),
+    ]);
   }
 }).catch(() => {});
 </script>
