@@ -79,6 +79,51 @@ not answer, contradictions refused until an admin resolves them in
 single list — add a policy once, everyone can ask about it seconds
 later.
 
+## Backing it up
+
+```
+openknowledge backup --out /backups/openknowledge-$(date +%F).zip
+```
+
+One file. It carries what exists nowhere else — the pinned answers somebody
+wrote by hand, the folder access rules somebody decided, the resolved
+contradictions, and the ledger that knows what has been asked and what it cost
+— plus the documents, unless you pass `--no-documents` because they already
+live somewhere you back up separately.
+
+The databases are copied through SQLite's own backup API, so this is safe to
+run against a server that is still answering questions. Copying the files with
+`cp` while it serves is not: you get something that looks like a database and
+is not.
+
+**Secrets are deliberately not in the archive.** A backup is a file that gets
+emailed and dropped in shared storage, and one carrying an API key is a leak
+waiting for somebody to be helpful with it. The backup prints the names of the
+settings that were set, and the restore prints them again — those are typed
+back in by hand.
+
+The vector index is left out too: it is derived from the documents and rebuilt
+by the first `openknowledge index`, so carrying it would double the file to
+save a few minutes of CPU.
+
+## Putting it back
+
+```
+openknowledge restore /backups/openknowledge-2026-09-01.zip
+openknowledge index
+```
+
+Restore refuses to run over an install that already has databases — that is
+the one irreversible thing here — unless you pass `--force`. It checks the
+whole archive before it moves anything, so a truncated or foreign file is
+refused with your install untouched. Once it starts moving files it goes one
+at a time, so a machine that loses power halfway leaves a half-restored
+directory; that is the reason for the refusal rather than a silent overwrite.
+
+It will name the secrets that were set when the backup was taken. Questions
+are refused until those are set again, so do that before telling anyone the
+server is back.
+
 ## Roadmap for this shape (status: not code yet)
 
 1. **Sign in with company credentials (Microsoft Entra ID).** Companies on

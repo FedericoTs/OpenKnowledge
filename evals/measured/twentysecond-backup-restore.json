@@ -1,0 +1,17 @@
+{
+  "what": "A backup and a restore, because there were none. `openknowledge` had 22 subcommands and not one of them could carry an install off the machine it was on.",
+  "what_was_at_risk": "The documents are the easy half - they are files, and whoever put them there usually still has them. The half that exists nowhere else is what people decided: the pinned answers somebody wrote by hand, the folder access rules somebody set, the contradictions somebody adjudicated, and the ledger that knows what has been asked and what it cost. All of it lived in three SQLite files with no export, no documented backup, and no way onto a company server from the laptop it was tried on.",
+  "three_decisions": {
+    "secrets_are_never_written": "A backup is a file that gets emailed, dropped in shared storage and occasionally committed. One carrying an API key is a leak waiting for somebody to be helpful with it. The archive records the NAMES of the settings that were set, so a restore says exactly what has to be typed back in rather than leaving somebody to discover it when answers stop. Verified by searching every byte of the archive - not just the manifest - for three planted secrets.",
+    "the_vector_index_is_left_out": "Derived from the documents and rebuilt by the first index, so carrying it would double the archive to save a few minutes of CPU. The manifest says so rather than leaving a reader to wonder.",
+    "databases_go_through_sqlite_backup_api": "A server does not stop being asked questions because somebody is taking a backup, and `cp` of a database mid-write produces a file that looks fine and is not. Pinned by a test that writes to the store continuously from another thread while the archive is taken, then restores it and runs PRAGMA integrity_check."
+  },
+  "measured": {
+    "round_trip": "A pin written on one machine, backed up, restored onto an empty one, and answered there: 'how much parental leave' -> '20 weeks, fully paid.' (tier pinned, free).",
+    "secrets": "OK_ADMIN_TOKEN and OK_OPENAI_API_KEY set at backup time; neither value appears anywhere in the archive; both named for re-entry on restore.",
+    "refusal": "Restore over an install that already has databases is refused by default, and the refusal leaves the existing pins untouched - asserted, not assumed."
+  },
+  "what_restore_does_not_promise": "It is not transactional across files. Everything is extracted and checked before anything moves, so a truncated or foreign archive is refused with the install untouched; once files start moving, a machine that loses power halfway leaves a half-restored directory. That is the reason restore refuses to run over existing state rather than overwriting quietly.",
+  "gate": "No retrieval, prompt or routing change - a new module, two CLI commands and a docs section - so the golden sets were not run. They gate answers, and no answer moved.",
+  "pinned_by": "tests/test_backup.py, 14 tests: the round trip, no secret in any byte, secrets that were never set not advertised, refusal to overwrite, a backup taken during live writes, the vector index left out, an archive from a newer format refused, a zip that is not ours refused, an archive that lies about its contents changing nothing, documents-optional, nested folders, a database not claimed when absent, no staging rubble, and a restored database that is usable rather than merely present."
+}

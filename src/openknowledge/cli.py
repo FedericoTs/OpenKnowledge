@@ -122,6 +122,62 @@ def _cmd_ask(args: argparse.Namespace) -> int:
     return 0 if answer.tier is not Tier.REFUSED else 1
 
 
+def _cmd_backup(args: argparse.Namespace) -> int:
+    """Everything this install would hate to lose, in one file."""
+    from .backup import BackupError, write_backup
+
+    settings = load_settings()
+    out = (
+        Path(args.out)
+        if args.out
+        else Path(f"openknowledge-backup-{time.strftime('%Y%m%d-%H%M%S')}.zip")
+    )
+    try:
+        made = write_backup(settings, out, include_documents=not args.no_documents)
+    except BackupError as exc:
+        print(f"Nothing was written: {exc}")
+        return 1
+
+    print(f"Wrote {made.path} ({made.bytes / 1_000_000:.1f} MB)")
+    for name in made.databases:
+        print(f"  {name}")
+    print(
+        f"  {made.documents} document(s)" if made.documents else "  no documents (--no-documents)"
+    )
+    if made.secrets_omitted:
+        print()
+        print("Secrets are deliberately not in this file. Set these again after a restore:")
+        for name in made.secrets_omitted:
+            print(f"  {name}")
+    return 0
+
+
+def _cmd_restore(args: argparse.Namespace) -> int:
+    """Put a backup back, over this install's state."""
+    from .backup import BackupError, restore_backup
+
+    settings = load_settings()
+    try:
+        done = restore_backup(Path(args.archive), settings, force=args.force)
+    except BackupError as exc:
+        print(exc)
+        return 1
+
+    print(f"Restored from a backup taken by {done.from_version or 'an unknown version'}:")
+    for name in done.databases:
+        print(f"  {name}")
+    print(f"  {done.documents} document(s)")
+    print()
+    print("Run `openknowledge index` to rebuild the search index from these documents.")
+    if done.secrets_to_reenter:
+        print()
+        print("These were set when the backup was taken and are not in it.")
+        print("Questions will be refused until they are set again:")
+        for name in done.secrets_to_reenter:
+            print(f"  {name}")
+    return 0
+
+
 def _cmd_gaps(args: argparse.Namespace) -> int:
     """What people asked that the documents could not answer."""
     import time
@@ -831,6 +887,24 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--limit", type=int, default=50)
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=_cmd_gaps)
+
+    p = sub.add_parser("backup", help="write pins, rules, history and documents to one file")
+    p.add_argument("--out", help="where to write it (default: openknowledge-backup-<date>.zip)")
+    p.add_argument(
+        "--no-documents",
+        action="store_true",
+        help="carry only what this install decided - pins, access rules, history",
+    )
+    p.set_defaults(func=_cmd_backup)
+
+    p = sub.add_parser("restore", help="put a backup back over this install")
+    p.add_argument("archive", help="the .zip written by `openknowledge backup`")
+    p.add_argument(
+        "--force",
+        action="store_true",
+        help="replace databases that are already here",
+    )
+    p.set_defaults(func=_cmd_restore)
 
     p = sub.add_parser("top", help="most-asked questions, i.e. what to pin")
     p.add_argument("--limit", type=int, default=20)
