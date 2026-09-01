@@ -211,3 +211,85 @@
   notes: >
     One document stating several conditional rules is normal. Flagging it would
     teach the admin to ignore the feature entirely.
+
+# ------------------------------------------------------------------ scope ---
+#
+# Fifteen contracts with fifteen counterparties have no business agreeing with
+# each other. Before `scope.py` the detector assumed every document in the
+# folder spoke for the same authority about the same world, and on a real
+# vendor corpus that produced findings that were all false. These four cases
+# hold both directions of the rule: a different counterparty is not a
+# disagreement, and everything else still is.
+
+- id: different-vendors-are-not-disagreeing
+  expect: clean
+  documents:
+    - id: msa-northwind
+      text: >
+        This Master Services Agreement is made by and between Northwind Systems
+        Ltd ("Supplier") and Aveline Holdings Limited ("Customer"). The Supplier
+        shall retain personal data for no more than 30 days after termination.
+    - id: msa-kestrel
+      text: >
+        This Master Services Agreement is made by and between Kestrel Analytics
+        GmbH ("Supplier") and Aveline Holdings Limited ("Customer"). The Supplier
+        shall retain personal data for no more than 90 days after termination.
+  notes: >
+    Two suppliers with different retention terms are not contradicting each
+    other; they are two agreements. The customer is a party to both, which is
+    why the name common to the corpus is dropped before the sets are compared -
+    otherwise every pair would share it and nothing would ever be scoped apart.
+
+- id: one-vendor-two-versions-still-conflicts
+  expect: conflict
+  kind: numeric
+  documents:
+    - id: northwind-2025
+      text: >
+        This Master Services Agreement is made by and between Northwind Systems
+        Ltd ("Supplier") and Aveline Holdings Limited ("Customer"). The Supplier
+        shall retain personal data for no more than 30 days after termination.
+    - id: northwind-2026
+      text: >
+        This Master Services Agreement is made by and between Northwind Systems
+        Ltd ("Supplier") and Aveline Holdings Limited ("Customer"). The Supplier
+        shall retain personal data for no more than 90 days after termination.
+  notes: >
+    Same counterparty, figure moved. Scope must not touch this, or the change
+    would trade a false-positive problem for a missed-contradiction one.
+
+- id: a-named-supplier-does-not-scope-a-policy
+  expect: conflict
+  kind: numeric
+  documents:
+    - id: expenses-2025
+      text: >
+        Travel expenses require prior written approval for any amount above
+        EUR 500. Bookings are made through Corporate Travel Ltd, our appointed
+        booking agent.
+    - id: expenses-2026
+      text: >
+        Travel expenses require prior written approval for any amount above
+        EUR 1,000. Bookings are made through Skyline Travel Ltd, our appointed
+        booking agent.
+  notes: >
+    The control that decides whether scope is safe at all. Two versions of one
+    policy that mention different booking agents must still be compared: a
+    company named in passing is a mention, not a party, so a policy corpus gets
+    no scope and behaves exactly as it did before.
+
+- id: an-annex-naming-only-its-provider-is-scoped
+  expect: clean
+  documents:
+    - id: sla-beacon
+      text: >
+        SERVICE LEVEL SCHEDULE. Beacon Cloud Services Inc. ("Provider") shall
+        retain personal data for no more than 30 days after termination.
+    - id: sla-thornfield
+      text: >
+        SERVICE LEVEL SCHEDULE. Thornfield Security Ltd ("Provider") shall
+        retain personal data for no more than 90 days after termination.
+  notes: >
+    No name repeats across these two, so there is no common party to drop.
+    Dropping the most-common name unconditionally would erase both scopes and
+    put this back to comparing two unrelated annexes.

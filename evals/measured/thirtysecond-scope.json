@@ -1,0 +1,35 @@
+{
+  "what": "Contradiction detection now knows that two agreements with different companies are not disagreeing. On a corpus of the shape that broke it, findings went from 534 across 136 pairs to 3 across 3 - and every one of the three is a genuine same-scope disagreement.",
+  "why_this_one": {
+    "the_roadmap_called_it": "'No notion of scope. Fifteen contracts with fifteen different counterparties have no business agreeing with each other, and nothing here knows that. This is the single biggest correctness gap.' Written before this existed; this is that.",
+    "what_it_looked_like": "On 15 real vendor contracts the detector emitted 320 findings, none useful. Salience weighting and duplicate-pair grouping took that to 6 listed findings - and all 6 were still false, one supplier's SLA component compared against another's. No threshold fixes it, because the words really are shared: contracts come from the same boilerplate.",
+    "and_the_labelled_set_said_nothing": "It was at 100/100 throughout, before and after that catastrophe. It measures a corpus shape real folders do not have."
+  },
+  "the_signal": {
+    "parties_not_mentions": "Scope comes only from a party-defining position - 'between X and Y', or X (\"the Supplier\") - and never because a name appears in the prose. A policy corpus, which is what most users have, gets no scope at all and behaves exactly as before.",
+    "the_opening_only": "An agreement names its parties up front. A company named in a schedule on page forty is a mention.",
+    "your_own_company_is_found_not_configured": "You are a party to every contract you hold, so your name is the one that tells two of them apart from nothing. The party appearing in the MOST documents is dropped, along with anything tied with it. Nothing is dropped when no name repeats - there is then no common party to remove, and removing the unique ones would erase the only signal there was.",
+    "conservative_by_construction": "Two documents are compared unless BOTH name parties and they share none. Silence is not a scope, because an unestablished scope must never be the reason a contradiction goes unreported."
+  },
+  "measured": {
+    "proxy_corpus": "15 contracts with 15 counterparties sharing heavy boilerplate, plus two versions of one vendor's agreement and two versions of a policy. Verified against the SHIPPED code by restoring claims.py from HEAD, not by patching a module global.",
+    "before": "534 findings across 136 document pairs, 105 of them cross-vendor.",
+    "after": "3 findings across 3 pairs, 0 cross-vendor. The three are contract-00 x northwind-sla-2026, northwind-sla-2025 x northwind-sla-2026 (same vendor, liability cap moved) and expenses-2025 x expenses-2026 (the policy pair). Every survivor is a genuine same-scope disagreement.",
+    "controls_kept": "The same-vendor contradiction and the policy contradiction are both still caught."
+  },
+  "the_labelled_set_now_discriminates": {
+    "added": "Four cases in evals/conflicts: two agreements with different counterparties (clean), one vendor's two versions (conflict), a policy pair naming different booking agents (conflict), and two annexes each naming only their own provider (clean).",
+    "proof_they_are_worth_anything": "Against the shipped detector the set drops to 84.6% precision and 91.7% F1, with 2 false flags. The other two new cases pass both ways by design - they are the controls that must keep passing. With scope: 25 cases, 11 caught, 0 missed, 0 false, 14 correctly quiet.",
+    "why_that_matters": "KNOWLEDGE.md said the 21-case set 'was not wrong; it was measuring a corpus shape that real folders do not have', and that adding cases was the cheapest way to find what was missing. The set is no longer blind to this class."
+  },
+  "the_control_that_decided_the_design": "Two versions of an expenses policy that name DIFFERENT booking agents must still be compared - the moved figure between them is exactly what this product exists to catch. That case is why scope reads only party-defining positions. An earlier draft that scoped on any named company would have suppressed it, and a suppressed contradiction means somebody is told the wrong policy with a citation attached. It is pinned as a test and as a labelled case.",
+  "made_visible_rather_than_silent": "The scan reports how many pairs were not compared, so an admin reading 'no contradictions' knows whether the corpus agrees or whether half of it was never compared. It costs nothing on a corpus where no document names a party: the count returns before touching a single pair.",
+  "two_bugs_found_while_building_it": {
+    "ignorecase_defeated_the_capital_letter": "The patterns carried re.IGNORECASE, which makes [A-Z] match anything, so the role pattern read backwards across a whole preamble and 'March 2025 by and between Northwind Systems Ltd' became a company name. Two documents then never agreed on how a company was spelled and the rule that drops your own name stopped working. The patterns are case-sensitive now, with only the legal forms and role words case-folded inline.",
+    "a_trailing_period_blocked_the_match": "'Beacon Cloud Services Inc. (\"Provider\")' - the form alternation consumed 'Inc' and left the abbreviating full stop, which the parenthetical pattern could not cross. An optional period fixed it."
+  },
+  "every_test_was_checked_against_the_bug_it_claims_to_catch": "Nine sabotages, each applied and run: scope from any mention rather than a party position, read the whole document rather than its opening, a case-insensitive role pattern, never drop your own company, drop unique names too, suppress when either side is silent, suppress unless the parties are identical, and each detector ignoring scope in turn. Two passed the first time - the case-sensitivity sabotage hit the wrong pattern, and nothing exercised the guard that keeps unique names when no name repeats. Both are pinned now and all nine fail against their bug.",
+  "gate": "No retrieval, prompt, chunking or grounding change: the same detectors, told which pairs are about the same world. The labelled set is at 25 cases, 100% precision and recall. The golden sets gate answers, and no answer moved.",
+  "pinned_by": "tests/test_scope.py, 10 tests, plus 4 labelled cases in evals/conflicts/conflicts.yaml.",
+  "still_open": "Precision on the real vendor corpus remains unmeasured, because those documents are third-party and are not in this repository - what is shown here is that the failure SHAPE is fixed, on a corpus built to have it. Scope is English-only, like the rest of the marker vocabulary. Per-country and per-client corpora that do not name parties in contract language are still unscoped; the folder signal the roadmap also lists is deliberately not used, because two folders are as often a topic split as a scope split and suppressing across them would hide a real HR-versus-Finance contradiction."
+}

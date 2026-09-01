@@ -770,10 +770,20 @@ Worth stating plainly, and the first one is the largest thing wrong with this pr
   duplicate pairs — but those 6 listed findings are still all false, and that corpus contains
   no true contradiction to find. The labelled set is at 100/100 and always was, throughout.
   See [KNOWLEDGE.md](KNOWLEDGE.md#what-a-labelled-set-could-not-tell-us).
-- **No notion of scope.** Fifteen contracts with fifteen different counterparties have no
-  business agreeing with each other, and nothing here knows that. This is the single biggest
-  correctness gap: the detector assumes every document in the folder speaks for the same
-  authority about the same world. Per-vendor, per-country and per-client corpora break that.
+- ~~**No notion of scope.**~~ **Built.** Two agreements with different companies are not
+  disagreeing, and the detector now knows it. Scope comes from the parties an agreement
+  declares itself to be *between* — never from a mention, so a policy that names a booking
+  agent is not thereby scoped to it — read from the document's opening, with the party
+  common to the most documents dropped, because your own company is on every contract you
+  hold and therefore tells two of them apart from nothing. On a corpus of the shape that
+  broke it: **534 findings across 136 pairs → 3 across 3**, none cross-vendor, with the
+  same-vendor and policy contradictions both still caught. The rule only suppresses when
+  *both* documents name parties and share none: silence is not a scope. Pairs left
+  uncompared are reported, so "no contradictions" cannot quietly mean "never compared".
+  Still open: per-country and per-client corpora that do not name parties in contract
+  language. The folder signal is deliberately **not** used — two folders are as often a
+  topic split as a scope split, and suppressing across them would hide a real
+  HR-versus-Finance contradiction.
 - **No deontic marker, no detection.** "The policy was withdrawn in March" against a document
   still stating the policy is invisible to the pattern passes.
 - **English-only.** The marker vocabulary is English; another language gets numeric

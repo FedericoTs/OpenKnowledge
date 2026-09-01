@@ -336,8 +336,27 @@ that need world knowledge to see. Those fall to re-verification, which covers
 questions somebody already approved, and ultimately to the golden set. Adding
 cases to `evals/conflicts/` is the cheapest way to find out what else is missing.
 
-Above all: **a per-entity corpus.** Fifteen contracts with fifteen different
-counterparties have no business agreeing with each other, and nothing in the
+**A per-entity corpus is now handled**, and it was the largest of these. See
+`scope.py`: an agreement's parties are read from the positions that define
+them — *between X and Y*, `X ("the Supplier")` — in the document's opening,
+and the party common to the most documents is dropped, because your own
+company signs all of them. Two documents are compared unless both name
+parties and share none. On a corpus of the shape that broke this, findings
+went from 534 across 136 pairs to 3 across 3, none of them cross-vendor,
+with a same-vendor contradiction and a policy contradiction both still
+caught. Four cases went into `evals/conflicts/` for it, and against the
+previous detector the set now falls to 84.6% precision — it is no longer
+blind to this class.
+
+What decided the design is the control that could have gone wrong: two
+versions of one expenses policy naming **different** booking agents must
+still be compared. A mention is not a party, so a policy corpus gets no
+scope at all. A suppressed contradiction means somebody is told the wrong
+policy with a citation attached, which is worse than the noise this removes.
+
+The original note, kept because the reasoning still holds: fifteen contracts
+with fifteen different counterparties have no business agreeing with each
+other, and nothing in the
 detector knows that. A folder of one company's own policies is the case this
 works on; a folder of per-vendor or per-country documents needs a notion of scope
 that does not exist yet.

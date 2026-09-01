@@ -21,12 +21,18 @@ module is the free first pass, not the whole answer.
 from __future__ import annotations
 
 import re
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from ..retrieval.base import Document, tokenize
 from .salience import salience_from
+from .scope import comparable, counterparties
+
+#: An unscoped document compares with everything, which is what an absent
+#: entry means: no scope was established, and an unestablished scope must
+#: never be the reason a contradiction goes unreported.
+EVERYTHING: frozenset[str] = frozenset()
 
 if TYPE_CHECKING:  # pragma: no cover - import cycle at runtime
     from .deontic import DeonticClaim
@@ -299,6 +305,7 @@ def compare_numeric_claims(
     min_overlap: float = 0.34,
     min_shared_words: int = 3,
     cache: ClaimCache | None = None,
+    scopes: Mapping[str, frozenset[str]] | None = None,
 ) -> tuple[list[Conflict], dict[tuple[str, str], int]]:
     """Compare every pair of documents on the figures they both assert.
 
@@ -319,6 +326,7 @@ def compare_numeric_claims(
     measures, and applying the weighting twice punished a small corpus where a
     single genuinely shared subject word is all there is to go on.
     """
+    scopes = counterparties(documents) if scopes is None else scopes
     pull = cache.numeric if cache is not None else extract_claims
     by_doc: dict[str, list[Claim]] = {}
     for doc in documents:
@@ -334,6 +342,10 @@ def compare_numeric_claims(
 
     for i, left_id in enumerate(doc_ids):
         for right_id in doc_ids[i + 1 :]:
+            # Two agreements with different companies are not disagreeing;
+            # they are about different worlds. See `scope.py`.
+            if not comparable(scopes.get(left_id, EVERYTHING), scopes.get(right_id, EVERYTHING)):
+                continue
             for left in by_doc[left_id]:
                 for right in by_doc[right_id]:
                     if left.unit != right.unit:
@@ -459,8 +471,15 @@ def compare_documents(
     from .deontic import conflicts_between, extract_deontic_claims
 
     cache = cache if cache is not None else ClaimCache()
+    # Worked out once for the corpus and shared by both detectors: which party
+    # is *yours* is a property of the folder, not of a pair.
+    scopes = counterparties(documents)
     conflicts, agreements = compare_numeric_claims(
-        documents, min_overlap=min_overlap, min_shared_words=min_shared_words, cache=cache
+        documents,
+        min_overlap=min_overlap,
+        min_shared_words=min_shared_words,
+        cache=cache,
+        scopes=scopes,
     )
 
     by_doc = {doc.document_id: cache.deontic(doc, extract_deontic_claims) for doc in documents}
@@ -474,6 +493,8 @@ def compare_documents(
 
     for i, left_id in enumerate(doc_ids):
         for right_id in doc_ids[i + 1 :]:
+            if not comparable(scopes.get(left_id, EVERYTHING), scopes.get(right_id, EVERYTHING)):
+                continue
             for left, right, score in conflicts_between(
                 by_doc[left_id],
                 by_doc[right_id],

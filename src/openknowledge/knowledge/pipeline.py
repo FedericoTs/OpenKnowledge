@@ -26,6 +26,7 @@ from ..retrieval.base import Document, Retriever
 from .claims import ClaimCache, compare_documents
 from .crosscheck import crosscheck_answers
 from .generate import draft_from_document
+from .scope import out_of_scope_pairs
 from .store import KnowledgeStore, Proposal
 from .variants import group_by_document_pair
 
@@ -45,6 +46,11 @@ class IngestReport:
     answers_contradicted: int = 0
     conflicts_open: int = 0
     conflicts_cleared: int = 0
+    #: Document pairs never compared because they are agreements with
+    #: different counterparties. Reported rather than silent: an admin reading
+    #: "no contradictions" should know whether the corpus agrees or whether
+    #: half of it was never compared. See `scope.py`.
+    pairs_out_of_scope: int = 0
     drafts_created: int = 0
     drafts_rejected: int = 0
     drafts_superseded: int = 0
@@ -108,6 +114,12 @@ def scan_documents(
         deontic_strictness=deontic_strictness,
         cache=claims,
     )
+    report.pairs_out_of_scope = out_of_scope_pairs(documents)
+    if report.pairs_out_of_scope:
+        report.notes.append(
+            f"{report.pairs_out_of_scope} document pairs were not compared: they are "
+            "agreements with different counterparties"
+        )
     detected: set[str] = set()
     for pair in group_by_document_pair(conflicts, agreements):
         # Two documents disagreeing on two dozen shared figures are not two
