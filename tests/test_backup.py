@@ -261,3 +261,25 @@ def test_a_restored_database_is_usable_not_just_present(tmp_path: Path) -> None:
     with sqlite3.connect(there.db_path) as conn:
         assert conn.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
         assert conn.execute("SELECT COUNT(*) FROM pinned_answers").fetchone()[0] == 50
+
+
+@pytest.mark.parametrize(
+    "databases",
+    ["not a mapping", 42, None, ["openknowledge.db"], {"openknowledge.db": "fine"}],
+)
+def test_a_manifest_of_any_shape_is_handled_not_trusted(tmp_path: Path, databases) -> None:
+    """The manifest is a file somebody handed us, so its shape is a claim.
+
+    Anything that is not a collection of names reads as no names, which
+    surfaces as a refusal or an empty restore - both true, neither a
+    traceback in front of somebody trying to get their install back.
+    """
+    archive = tmp_path / "odd.zip"
+    with zipfile.ZipFile(archive, "w") as zf:
+        zf.writestr("manifest.json", json.dumps({"format": FORMAT, "databases": databases}))
+
+    there = _settings(tmp_path / "there")
+    try:
+        restore_backup(archive, there)
+    except BackupError as exc:
+        assert "and does not" in str(exc)

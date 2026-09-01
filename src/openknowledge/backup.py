@@ -184,6 +184,22 @@ def write_backup(settings: Settings, out: Path, *, include_documents: bool = Tru
     )
 
 
+def _names(manifest: dict[str, object], key: str) -> tuple[str, ...]:
+    """A list of names out of a manifest, whatever it actually contains.
+
+    The manifest is a file somebody handed us, so its shape is a claim rather
+    than a fact. Anything that is not a collection of names reads as no names,
+    which surfaces as "says it carries X and does not" or as an empty list of
+    secrets - both of which are true and neither of which is a traceback.
+    """
+    value = manifest.get(key)
+    if isinstance(value, dict):
+        return tuple(str(k) for k in value)
+    if isinstance(value, (list, tuple)):
+        return tuple(str(v) for v in value)
+    return ()
+
+
 def read_manifest(archive: Path) -> dict[str, object]:
     """The archive's own account of itself, refused if it is not one of ours."""
     try:
@@ -230,8 +246,9 @@ def restore_backup(archive: Path, settings: Settings, *, force: bool = False) ->
         with zipfile.ZipFile(archive) as zf:
             zf.extractall(staged)
 
-        carried = [n for n in manifest.get("databases", {}) if (staged / "data" / n).is_file()]
-        missing = [n for n in manifest.get("databases", {}) if n not in carried]
+        promised = _names(manifest, "databases")
+        carried = [n for n in promised if (staged / "data" / n).is_file()]
+        missing = [n for n in promised if n not in carried]
         if missing:
             raise BackupError(
                 f"{archive} says it carries {', '.join(missing)} and does not. "
@@ -256,10 +273,10 @@ def restore_backup(archive: Path, settings: Settings, *, force: bool = False) ->
     finally:
         shutil.rmtree(staged, ignore_errors=True)
 
-    secrets = manifest.get("secrets_not_included") or []
+    secrets = _names(manifest, "secrets_not_included")
     return RestoreSummary(
         databases=tuple(carried),
         documents=restored_documents,
-        secrets_to_reenter=tuple(str(s) for s in secrets),
+        secrets_to_reenter=secrets,
         from_version=str(manifest.get("created_by_version", "")),
     )
