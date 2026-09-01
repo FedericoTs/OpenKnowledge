@@ -59,6 +59,8 @@ def stack(tmp_path: Path) -> Iterator[tuple[str, FakeIdp]]:
         oidc_issuer=idp.issuer,
         oidc_client_id=CLIENT_ID,
         oidc_client_secret="s3cret",
+        oidc_admin_group="g-admins",
+        oidc_curator_group="g-curators",
         upload_enabled=True,
         local_enabled=False,
         embedding_enabled=False,
@@ -118,3 +120,60 @@ def test_a_browser_signs_in_uses_the_app_and_signs_out(stack) -> None:
             assert errors == [], f"page errors: {errors}"
         finally:
             browser.close()
+
+
+def test_the_manage_page_shows_a_curator_only_what_they_may_change(stack) -> None:
+    """The role split lives half in JavaScript: nothing in Python notices if
+    the governance panels stop being hidden, and a curator would meet three
+    separate 403s instead of one sentence.
+
+    It checks both roles against the same page, because the failure that
+    matters is not "the curator saw an error" - it is "the curator saw the
+    access rules", which only shows up next to what an admin sees.
+    """
+    sync_playwright = pytest.importorskip(
+        "playwright.sync_api", reason="playwright is not installed"
+    ).sync_playwright
+    executable = _chromium()
+    if executable is None:
+        pytest.skip("no chromium available")
+    base, idp = stack
+
+    def manage_page_for(browser, groups: tuple[str, ...]) -> dict[str, str]:
+        idp.auto_identity = {"subject": "p", "name": "Pat Curator", "groups": groups}
+        context = browser.new_context()
+        page = context.new_page()
+        errors: list[str] = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.goto(base + "/manage")
+        page.wait_for_selector("#who-line b", timeout=15000)
+        page.wait_for_function(
+            "document.getElementById('status').textContent.includes('via your sign-in group')",
+            timeout=15000,
+        )
+        seen = {
+            "status": page.inner_text("#status"),
+            "access": page.inner_text("#access"),
+            "settings": page.inner_text("#settings"),
+            "log": page.inner_text("#admin-log"),
+        }
+        assert errors == [], f"page errors: {errors}"
+        context.close()
+        return seen
+
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch(executable_path=executable, args=["--no-sandbox"])
+        try:
+            admin = manage_page_for(browser, ("g-admins",))
+            curator = manage_page_for(browser, ("g-curators",))
+        finally:
+            browser.close()
+
+    assert "Admin" in admin["status"]
+    assert "retrieval_k" in admin["settings"], "an admin sees the settings themselves"
+    assert "Unlock to load" not in admin["log"], "and the log loaded"
+
+    assert "curator" in curator["status"].lower()
+    for panel in ("access", "settings", "log"):
+        assert "an administrator does" in curator[panel], f"{panel} was not withheld"
+    assert "retrieval_k" not in curator["settings"]

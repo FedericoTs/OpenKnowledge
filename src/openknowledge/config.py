@@ -307,6 +307,12 @@ class Settings(BaseSettings):
     #: surface without the shared token - grant and revoke admins in the
     #: directory, like everything else about them. Empty means token-only.
     oidc_admin_group: str = ""
+    #: Members of this group curate knowledge - documents, pins, drafts,
+    #: conflicts - without holding governance: they cannot change who may
+    #: read a folder, edit settings, apply an update, or read the admin log.
+    #: The split exists because the people who know the answers are rarely
+    #: the people who should hold the access rules.
+    oidc_curator_group: str = ""
     #: The URL people reach this server at, for building the OAuth redirect
     #: URI behind proxies. Empty derives it from each request, which is fine
     #: for localhost testing; Entra refuses http:// redirects anywhere else.

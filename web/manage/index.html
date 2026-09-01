@@ -135,7 +135,7 @@
     <div id="gaps"><p class="locked-note">Unlock to load.</p></div>
   </section>
 
-  <section data-admin-section>
+  <section data-admin-section data-governance-section>
     <h2>Access</h2>
     <p class="hint">
       Who may read each folder. A rule names its readers as
@@ -166,7 +166,7 @@
     <div id="conflicts"><p class="locked-note">Unlock to load.</p></div>
   </section>
 
-  <section data-admin-section>
+  <section data-admin-section data-governance-section>
     <h2>Settings</h2>
     <p class="hint">
       Applied on save and persisted for the next start. <b>live</b> takes effect
@@ -177,6 +177,16 @@
       <button id="save-settings" data-admin hidden>Save changes</button>
       <span id="settings-status" class="quiet"></span>
     </div>
+  </section>
+
+  <section data-admin-section data-governance-section>
+    <h2>Admin log</h2>
+    <p class="hint">
+      Every change an admin or curator made, newest first — pins, access
+      rules, deletions, settings, restores. Append-only through this app:
+      nothing here can undo its own record.
+    </p>
+    <div id="admin-log"><p class="locked-note">Unlock to load.</p></div>
   </section>
 </div>
 
@@ -319,6 +329,43 @@ $('reindex').onclick = async () => {
 };
 
 // ---- admin sections --------------------------------------------------------
+async function refreshAdminLog() {
+  const box = $('admin-log');
+  try {
+    const body = await api('/admin/log?limit=50');
+    box.textContent = '';
+    if (!body.entries.length) {
+      box.appendChild(el('p', 'empty', 'Nothing has been changed yet.'));
+      return;
+    }
+    const table = el('table');
+    table.appendChild(el('thead')).innerHTML =
+      '<tr><th>When</th><th>Who</th><th>Change</th><th></th></tr>';
+    const tbody = table.appendChild(el('tbody'));
+    for (const e of body.entries) {
+      const tr = tbody.appendChild(el('tr'));
+      tr.appendChild(el('td', 'quiet', new Date(e.at * 1000).toLocaleString()));
+      const who = tr.appendChild(el('td'));
+      who.appendChild(el('span', e.actor_kind === 'person' ? null : 'quiet', e.actor));
+      tr.appendChild(el('td', null, e.action));
+      tr.appendChild(el('td', 'quiet', e.target || ''));
+    }
+    box.appendChild(table);
+    const nameless = body.entries.length - body.attributed;
+    if (nameless) {
+      // The one thing a log cannot do is invent an identity nobody captured.
+      // Say so, and say what would fix it.
+      box.appendChild(el('p', 'hint', body.signed_in
+        ? nameless + ' of these were made with the shared admin token, which names nobody.'
+        : nameless + ' of these name nobody: without sign-in, the shared admin token is '
+          + 'all the server knows. Turn on sign-in and every later change names a person.'));
+    }
+  } catch (e) {
+    box.textContent = '';
+    box.appendChild(el('p', 'locked-note', 'Could not load the admin log: ' + e.message));
+  }
+}
+
 async function refreshAccess() {
   const box = $('access');
   try {
@@ -669,7 +716,7 @@ async function unlock(token) {
   $('forget').hidden = false;
   $('token-input').value = '';
   refreshCosts(); refreshGaps(); refreshAccess(); refreshProposals();
-  refreshConflicts(); refreshSettings();
+  refreshConflicts(); refreshSettings(); refreshAdminLog();
   return true;
 }
 $('unlock').onclick = () => {
@@ -714,8 +761,23 @@ fetch('/auth/me').then(r => r.ok ? r.json() : null).then(async (who) => {
       $('unlock-section').hidden = true;
       say('Admin, via your sign-in group.', true);
       refreshCosts(); refreshGaps(); refreshAccess(); refreshProposals();
-  refreshConflicts(); refreshSettings();
+      refreshConflicts(); refreshSettings(); refreshAdminLog();
     } catch (e) { /* fall back to the token flow */ }
+  } else if (who.curator && !state.token) {
+    // A curator shapes the answers, not who may read them. Rather than let
+    // the governance panels each fail with their own 403, say once what this
+    // account is and leave those sections legible.
+    $('unlock-section').hidden = true;
+    say('Knowledge curator, via your sign-in group.', true);
+    refreshCosts(); refreshGaps(); refreshProposals(); refreshConflicts();
+    for (const section of document.querySelectorAll('[data-governance-section] > div[id]')) {
+      section.textContent = '';
+      section.appendChild(el('p', 'locked-note',
+        'Curators do not manage this — an administrator does.'));
+    }
+    for (const button of document.querySelectorAll('[data-governance-section] button')) {
+      button.hidden = true;
+    }
   }
 }).catch(() => {});
 </script>

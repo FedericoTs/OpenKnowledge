@@ -122,6 +122,58 @@ def _cmd_ask(args: argparse.Namespace) -> int:
     return 0 if answer.tier is not Tier.REFUSED else 1
 
 
+def _cmd_admin_log(args: argparse.Namespace) -> int:
+    """Who changed what, in order. The audit trail, read from the console."""
+    import time
+
+    engine = _engine()
+    since = time.time() - args.days * 86400 if args.days > 0 else 0.0
+    entries = engine.knowledge.admin_actions(limit=args.limit, since=since)
+
+    if args.json:
+        print(
+            json.dumps(
+                [
+                    {
+                        "at": e.at,
+                        "actor": e.actor.name,
+                        "actor_id": e.actor.id,
+                        "actor_kind": e.actor.kind,
+                        "action": e.action,
+                        "target": e.target,
+                        "detail": e.detail,
+                    }
+                    for e in entries
+                ],
+                indent=2,
+            )
+        )
+        return 0
+
+    if not entries:
+        window = f"the last {args.days} days" if args.days > 0 else "this install's history"
+        print(f"No admin changes recorded in {window}.")
+        return 0
+
+    for e in entries:
+        when = time.strftime("%Y-%m-%d %H:%M", time.localtime(e.at))
+        target = f"  {e.target}" if e.target else ""
+        print(f"{when}  {e.actor.name:<22}  {e.action}{target}")
+
+    nameless = sum(1 for e in entries if e.actor.kind != "person")
+    if nameless:
+        print()
+        print(
+            f"{nameless} of these name no person: they were made with the shared "
+            "admin token or at this console, which no amount of logging can "
+            "attribute after the fact."
+        )
+        settings = load_settings()
+        if settings.auth_mode != "oidc":
+            print("Turn on sign-in (docs/ENTRA-SIGNIN.md) and every later change names someone.")
+    return 0
+
+
 def _cmd_backup(args: argparse.Namespace) -> int:
     """Everything this install would hate to lose, in one file."""
     from .backup import BackupError, write_backup
@@ -887,6 +939,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--limit", type=int, default=50)
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=_cmd_gaps)
+
+    p = sub.add_parser("admin-log", help="who changed what: the admin audit trail")
+    p.add_argument("--limit", type=int, default=50)
+    p.add_argument("--days", type=int, default=0, help="only the last N days (default: all)")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=_cmd_admin_log)
 
     p = sub.add_parser("backup", help="write pins, rules, history and documents to one file")
     p.add_argument("--out", help="where to write it (default: openknowledge-backup-<date>.zip)")

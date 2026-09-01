@@ -1,0 +1,32 @@
+{
+  "what": "An admin log that names who changed what, a curator role that holds knowledge without holding governance, and the closing of a hole this work found on its way there.",
+  "the_hole": {
+    "found": "Driving the new attribution end to end meant signing in as somebody who was not an admin, to see what the log recorded. It recorded nothing, because the request succeeded: a signed-in employee in no groups sent DELETE /documents/handbook.md and got 200, the file gone from disk and the corpus one document smaller. `require_uploads` gates on the upload switch, not on who is asking, so readable meant deletable for everyone in the company.",
+    "the_second_route": "The same hole wearing an upload's clothes: POST /documents over an existing filename replaced its contents. A delete and an add, and nothing checked either.",
+    "fixed": "With sign-in on, removing a document - or uploading over one that exists - now needs the curator or admin role, and the refusal says so. Contributing a NEW document still needs only the uploads switch, because contribution is what that switch is for. With sign-in off nothing changed: there is no identity to check, reaching the port was always full control, and a role check against an identity that does not exist would be theatre.",
+    "pinned_by": "test_an_employee_cannot_delete_a_document, test_an_employee_cannot_overwrite_a_document, test_an_employee_can_still_contribute_a_new_document, test_with_sign_in_off_nothing_changed"
+  },
+  "attribution": {
+    "what_was_missing": "folder_access recorded folder, principals and updated_at - what changed, never who. Nothing anywhere recorded who deleted a document, approved a draft, resolved a contradiction or changed a setting. 'Somebody walled off the HR folder last Tuesday' had no answer.",
+    "now": "Thirteen mutating admin actions write to an admin_actions table in knowledge.db: at, actor id, actor name, actor kind, action, target, detail. A signed-in person is named by their directory subject id, so the row survives a rename and points at an account somebody can disable.",
+    "what_it_will_not_pretend": "A change made with the shared admin token is recorded as 'shared admin token' and names nobody. No amount of logging recovers an identity a shared secret never carried. The endpoint returns `attributed` alongside the entries, the /manage panel and the CLI both say how many name nobody, and with sign-in off they say what would fix it.",
+    "secrets": "A settings change records WHICH settings changed and never what they became: an editable value can be a base URL with a password in it, and this table travels in every backup. Pinned by planting a credential in embedding_base_url and asserting it appears nowhere in the log.",
+    "append_only": "Nothing in the API deletes from the log, so an admin cannot quietly undo their own change through the app. That is a property of the surface, not of the file - anyone with the server's disk can edit the table like any other - and the docs say exactly that rather than overclaiming.",
+    "the_asymmetry_kept": "Admin actions are attributed; questions are not. The gaps report still cannot name anyone who asked (test_the_report_cannot_name_anyone), and the ledger still has no column for it. Who governs is recorded; who is curious is not."
+  },
+  "roles": {
+    "split": "OK_OIDC_CURATOR_GROUP. Curators pin answers, approve drafts, resolve contradictions, re-index, run learn, read costs and gaps, and delete or replace documents. Admins additionally change who may read a folder, change settings, apply updates and read the admin log.",
+    "why": "The people who know the answers are rarely the people who should hold the access rules.",
+    "compatible": "Every admin is a curator, and an install that never sets a curator group behaves exactly as it did - require_curator with no group configured IS require_admin. Pinned.",
+    "refusals_name_the_reason": "A signed-in non-admin used to get 401 'invalid admin token', which sent people hunting for a credential that was never theirs. Now: 403 'this account is not an administrator; admin access is granted by the admin group'."
+  },
+  "measured": {
+    "the_matrix": "Driven through real HTTP against the fake IdP, three people on one server: admin / curator / employee. Admin: yes to all seven checks. Curator: 403 on the admin log, access rules and settings; yes to pinning, re-indexing, the review queue and deleting a document. Employee: refused all seven.",
+    "the_log_reads_back": "After the drive: 'Cara Nadeau [person] document.delete old.md', 'Alice Moreau [person] access.set hr'. Names, not roles guessed from actions.",
+    "restore_records_itself": "A restore is the largest change anyone can make to a company's knowledge in one command, and would otherwise leave no trace. It is written into the restored database after the move, so it survives: 'the server console  restore  carry.zip'. Verified by carrying an install between two data directories on the CLI.",
+    "the_browser": "/manage checked in Chromium for both roles. Admin sees the settings table and a loaded Admin log panel; curator sees 'Curators do not manage this - an administrator does.' in all three governance panels, and no page errors either time. The test was confirmed to FAIL when the selector it depends on is renamed - a browser test that passes against a broken page proves nothing."
+  },
+  "gate": "No retrieval, prompt, chunking or grounding change: a new table, a role dependency, thirteen log-writing lines, a UI panel and docs. The cache key policy string is untouched. The golden sets gate answers, and no answer moved, so they were not run.",
+  "pinned_by": "tests/test_admin_log.py (44 tests), one added to tests/test_backup.py, one added to tests/test_auth_browser.py. 1,057 tests pass.",
+  "still_open": "The shared admin token remains one secret for all admins - the log records that honestly rather than fixing it. Per-role tokens would need a token table, and the answer for a company is sign-in, not more tokens."
+}

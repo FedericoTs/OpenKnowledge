@@ -283,3 +283,29 @@ def test_a_manifest_of_any_shape_is_handled_not_trusted(tmp_path: Path, database
         restore_backup(archive, there)
     except BackupError as exc:
         assert "and does not" in str(exc)
+
+
+def test_the_admin_log_travels_and_says_it_was_restored(tmp_path: Path) -> None:
+    """Who changed what is part of what an install would hate to lose - and
+    the restore itself is the largest change anyone can make in one command,
+    so it writes itself into the log it just replaced."""
+    from openknowledge.knowledge.store import Actor
+
+    here, there = _settings(tmp_path / "here"), _settings(tmp_path / "there")
+    with KnowledgeStore(here.knowledge_db_path) as knowledge:
+        knowledge.record_action(
+            Actor(id="alice-oid", name="Alice Moreau", kind="person"), "access.set", "hr"
+        )
+
+    archive = tmp_path / "carry.zip"
+    write_backup(here, archive)
+    restore_backup(archive, there)
+
+    with KnowledgeStore(there.knowledge_db_path) as knowledge:
+        entries = knowledge.admin_actions()
+
+    assert [(e.actor.name, e.action) for e in entries] == [
+        ("the server console", "restore"),
+        ("Alice Moreau", "access.set"),
+    ]
+    assert entries[0].target == "carry.zip"

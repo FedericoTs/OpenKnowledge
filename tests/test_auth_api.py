@@ -225,7 +225,13 @@ def test_auth_me_renders_the_session_and_nothing_else(client, idp) -> None:
     assert client.get("/auth/me").json() == {"signed_in": False}
     sign_in(client, idp, subject="alice", groups=("g-hr",))
     body = client.get("/auth/me").json()
-    assert body == {"signed_in": True, "name": "Test Person", "admin": False}
+    assert body == {
+        "signed_in": True,
+        "name": "Test Person",
+        "admin": False,
+        "curator": False,
+        "role": "reader",
+    }
 
 
 def test_the_admin_group_is_the_admin_credential(tmp_path, idp) -> None:

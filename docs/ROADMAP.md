@@ -354,6 +354,45 @@ column, so it can say a question was asked forty times and never who asked it
 - a knowledge base that reports what its people are looking for should not
 also be a log of who looked. A test asserts that column stays absent.
 
+### Who changed what, and who may
+
+Every other decision this product records says *what* was decided. The
+`folder_access` table held a folder, its readers and a timestamp, and no
+column for the person who set it. Nothing anywhere recorded who deleted a
+document, approved a draft, resolved a contradiction or changed a setting.
+"Somebody walled off the HR folder last Tuesday" had no answer.
+
+Thirteen mutating admin actions now write to an admin log kept beside the
+other human decisions, and read back at `openknowledge admin-log`, `GET
+/admin/log`, or the *Admin log* panel on `/manage`. A signed-in person is
+named by their directory subject id, so a row survives a rename and points
+at an account somebody can disable. A change made with the shared admin
+token is recorded as naming nobody, and the log says so on every surface
+that shows it: no amount of logging recovers an identity a shared secret
+never carried, and pretending otherwise would be worse than the gap.
+
+`OK_OIDC_CURATOR_GROUP` splits the admin surface in two, because the people
+who know the answers are rarely the people who should hold the access
+rules. Curators shape what the assistant says — pins, drafts,
+contradictions, documents, re-indexing. Admins additionally decide who may
+read a folder, what the settings are, when to update, and who has been
+doing all of the above. Every admin is a curator; an install that sets no
+curator group behaves exactly as it did.
+
+Building it found a hole. Driving attribution end to end meant signing in
+as somebody who was *not* an admin — and their `DELETE /documents/...`
+returned 200 with the file gone, because the documents endpoints gated on
+the uploads switch rather than on who was asking, so readable meant
+deletable for everyone in the company. Uploading over an existing filename
+was the same hole by another route. Both now need the curator role when
+sign-in is on; contributing a *new* document still does not, because
+contribution is what that switch is for. With sign-in off nothing changed:
+reaching the port was always full control there, and a role check against
+an identity that does not exist is theatre.
+
+The asymmetry with the gaps report above is deliberate and now holds from
+both ends. Who governs is recorded by name. Who is curious is not.
+
 ### Known gaps in the Windows upgrade
 
 - **Inno removes nothing the new build dropped.** An upgrade replaces every file

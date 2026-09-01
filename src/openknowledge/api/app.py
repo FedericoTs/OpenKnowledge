@@ -41,6 +41,7 @@ from ..canonical import canonicalize_query
 from ..config import Settings, load_settings
 from ..contacts import ContactError, ContactStore, clean
 from ..desktop import setup as first_run
+from ..knowledge.store import Actor
 from ..paths import state_paths
 from ..providers.base import Message
 from .engine import Engine, build_engine
@@ -78,6 +79,17 @@ def get_engine(request: Request) -> Engine:
     return engine
 
 
+def _in_group(request: Request, group: str) -> bool:
+    """Is this request a signed-in member of that directory group?"""
+    if not group:
+        return False
+    settings: Settings = request.app.state.settings
+    if settings.auth_mode != "oidc":
+        return False
+    session = getattr(request.state, "session", None)
+    return session is not None and f"group:{group}" in session.principals
+
+
 def _session_is_admin(request: Request) -> bool:
     """A signed-in member of the configured admin group is an admin.
 
@@ -86,12 +98,7 @@ def _session_is_admin(request: Request) -> bool:
     OK_OIDC_ADMIN_GROUP grants the admin surface to the person, revocable
     in the directory like everything else about them.
     """
-    settings: Settings = request.app.state.settings
-    group = settings.oidc_admin_group if settings.auth_mode == "oidc" else ""
-    if not group:
-        return False
-    session = getattr(request.state, "session", None)
-    return session is not None and f"group:{group}" in session.principals
+    return _in_group(request, request.app.state.settings.oidc_admin_group)
 
 
 def require_admin(
@@ -104,8 +111,18 @@ def require_admin(
         return
     settings: Settings = request.app.state.settings
     expected = settings.admin_token
+    supplied = (authorization or "").removeprefix("Bearer ").strip()
+    # Constant-time compare so the token cannot be recovered byte by byte.
+    if expected and supplied and secrets.compare_digest(supplied, expected):
+        return
+
+    # Each refusal below answers what this caller actually presented, in
+    # that order: no token exists to hold, a token that did not match, a
+    # session that is not an admin's. One message for all three sent
+    # curators hunting for a credential that was never theirs.
+    by_group = settings.auth_mode == "oidc" and bool(settings.oidc_admin_group)
     if not expected:
-        if settings.auth_mode == "oidc" and settings.oidc_admin_group:
+        if by_group:
             raise HTTPException(
                 403, "admin access is granted by the admin group; this account is not in it"
             )
@@ -113,14 +130,77 @@ def require_admin(
             503,
             "Admin API is disabled because no admin token is set. Set OK_ADMIN_TOKEN to enable it.",
         )
-    supplied = (authorization or "").removeprefix("Bearer ").strip()
-    # Constant-time compare so the token cannot be recovered byte by byte.
-    if not supplied or not secrets.compare_digest(supplied, expected):
+    if supplied:
         raise HTTPException(401, "invalid admin token")
+    if getattr(request.state, "session", None) is not None:
+        raise HTTPException(
+            403,
+            "this account is not an administrator"
+            + ("; admin access is granted by the admin group" if by_group else ""),
+        )
+    raise HTTPException(401, "invalid admin token")
+
+
+def require_curator(
+    request: Request,
+    authorization: Annotated[str | None, Header()] = None,
+) -> None:
+    """The knowledge surface: documents, pins, drafts, conflicts.
+
+    Every admin is a curator. A member of ``oidc_curator_group`` is a
+    curator and nothing more - they shape the answers, not who may read
+    them. With no curator group configured this is exactly ``require_admin``,
+    so an install that never sets one behaves as it always did.
+    """
+    if _in_group(request, request.app.state.settings.oidc_curator_group):
+        return
+    require_admin(request, authorization)
 
 
 EngineDep = Annotated[Engine, Depends(get_engine)]
 AdminOnly = Depends(require_admin)
+#: Curators and admins both. Governance endpoints keep ``AdminOnly``.
+CuratorOnly = Depends(require_curator)
+
+
+def _may_curate(request: Request) -> bool:
+    """May this caller change what the corpus already says?
+
+    Deleting is not the mirror of uploading. An upload adds something the
+    corpus did not have; a delete - or an upload over an existing name -
+    takes away something people were relying on, and cannot be undone from
+    the app. So where the server knows who is asking, only curators and
+    admins may do it.
+
+    Where it does not know - the desktop app, a trusted LAN with no
+    directory - nothing changes. Reaching the port was always full control
+    there, and a role check against an identity that does not exist would
+    be theatre.
+
+    It answers by asking ``require_curator`` itself, so the set of people
+    who may reshape the corpus cannot drift from the set who may curate it.
+    """
+    if request.app.state.settings.auth_mode != "oidc":
+        return True
+    try:
+        require_curator(request, request.headers.get("authorization"))
+    except HTTPException:
+        return False
+    return True
+
+
+def _actor(request: Request) -> Actor:
+    """Who is making this change, for the admin log.
+
+    A session means the directory named this person and the row can point at
+    an account. Anything else that got past ``require_admin`` held the shared
+    token, which names nobody - and the log says exactly that rather than
+    inventing an admin.
+    """
+    session = getattr(request.state, "session", None)
+    if session is not None:
+        return Actor(id=session.subject, name=session.name, kind="person")
+    return Actor.token()
 
 
 def _asker_principals(request: Request, supplied: list[str] | None) -> frozenset[str] | None:
@@ -603,6 +683,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except updates.UpdateError as exc:
             raise HTTPException(502, str(exc)) from exc
         updates.HANDOFF.request(installer)
+        engine.knowledge.record_action(
+            _actor(request), "update.apply", result.latest or "", {"from": __version__}
+        )
         return {
             "applying": result.latest,
             "message": (
@@ -733,6 +816,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         target_dir = root / into if into else root
         target_dir.mkdir(parents=True, exist_ok=True)
 
+        may_curate = _may_curate(request)
         stored: list[dict[str, Any]] = []
         skipped: list[dict[str, str]] = []
         for upload in files:
@@ -762,6 +846,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 continue
             target = target_dir / name
             replaced = target.exists()
+            if replaced and not may_curate:
+                skipped.append(
+                    {
+                        "name": name,
+                        "reason": "a document with this name is already here, and "
+                        "replacing one is an administrator's job; upload it under a "
+                        "different name, or ask an admin",
+                    }
+                )
+                continue
             target.write_bytes(data)
             stored.append(
                 {
@@ -789,6 +883,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "corpus_version": version,
                 "conflicts_open": (engine.last_scan.conflicts_open if engine.last_scan else 0),
             }
+            engine.knowledge.record_action(
+                _actor(request),
+                "document.upload",
+                into or "/",
+                {"names": [str(e["name"]) for e in stored], "skipped": len(skipped)},
+            )
         return {"stored": stored, "skipped": skipped, "corpus": corpus}
 
     @app.delete("/documents/{name:path}", dependencies=[Depends(require_uploads)])
@@ -806,8 +906,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         target = Path(engine.settings.documents_dir) / safe
         if not target.is_file():
             raise HTTPException(status_code=404, detail=f"no document called {safe!r}")
+        if not _may_curate(request):
+            raise HTTPException(
+                status_code=403,
+                detail="removing a document is an administrator's job; ask an admin",
+            )
         target.unlink()
         documents, chunks, version, evicted = engine.reindex()
+        engine.knowledge.record_action(_actor(request), "document.delete", safe)
         return {
             "deleted": safe,
             "corpus": {
@@ -893,7 +999,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return ChatResponse.from_answer(answer)
 
     # -- admin ---------------------------------------------------------------
-    @app.get("/admin/costs", dependencies=[AdminOnly])
+    @app.get("/admin/costs", dependencies=[CuratorOnly])
     async def costs(engine: EngineDep, days: int = 0) -> dict[str, Any]:
         """What the bot actually costs, measured rather than estimated.
 
@@ -903,7 +1009,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         since = time.time() - days * 86400 if days > 0 else None
         return {"days": days, **engine.store.cost_report(since=since)}
 
-    @app.get("/admin/gaps", dependencies=[AdminOnly])
+    @app.get("/admin/gaps", dependencies=[CuratorOnly])
     async def knowledge_gaps(engine: EngineDep, days: int = 30, limit: int = 50) -> dict[str, Any]:
         """What people asked that the documents could not answer.
 
@@ -921,7 +1027,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         gaps = engine.store.knowledge_gaps(since=since, limit=limit)
         return {"days": days, "gaps": gaps, "total": len(gaps)}
 
-    @app.get("/admin/questions", dependencies=[AdminOnly])
+    @app.get("/admin/questions", dependencies=[CuratorOnly])
     async def questions(engine: EngineDep, limit: int = 20) -> dict[str, Any]:
         """Most-asked questions: the shortlist worth pinning."""
         return {
@@ -937,7 +1043,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             ],
         }
 
-    @app.get("/admin/pins", dependencies=[AdminOnly])
+    @app.get("/admin/pins", dependencies=[CuratorOnly])
     async def list_pins(engine: EngineDep) -> list[dict[str, Any]]:
         return [
             {
@@ -949,8 +1055,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             for p in engine.store.list_pins()
         ]
 
-    @app.post("/admin/pins", dependencies=[AdminOnly], status_code=201)
-    async def create_pin(req: PinRequest, engine: EngineDep) -> dict[str, Any]:
+    @app.post("/admin/pins", dependencies=[CuratorOnly], status_code=201)
+    async def create_pin(req: PinRequest, engine: EngineDep, request: Request) -> dict[str, Any]:
         phrasings = [req.question, *req.aliases]
         canonicals = [c for c in (canonicalize_query(p) for p in phrasings) if c]
         if not canonicals:
@@ -959,6 +1065,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         citations = citations_for(engine.retriever, tuple(req.cite))
         for canonical in canonicals:
             engine.store.pin(canonical, req.answer, citations=citations, author=req.author)
+        engine.knowledge.record_action(
+            _actor(request),
+            "pin.create",
+            canonicals[0],
+            {"aliases": canonicals[1:], "cited": [c.document_id for c in citations]},
+        )
         return {
             "question": canonicals[0],
             "aliases": canonicals[1:],
@@ -966,14 +1078,22 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "pinned": True,
         }
 
-    @app.delete("/admin/pins", dependencies=[AdminOnly])
-    async def delete_pin(question: str, engine: EngineDep) -> dict[str, Any]:
+    @app.delete("/admin/pins", dependencies=[CuratorOnly])
+    async def delete_pin(question: str, engine: EngineDep, request: Request) -> dict[str, Any]:
         canonical = canonicalize_query(question)
-        return {"question": canonical, "removed": engine.store.unpin(canonical)}
+        removed = engine.store.unpin(canonical)
+        if removed:
+            engine.knowledge.record_action(_actor(request), "pin.delete", canonical)
+        return {"question": canonical, "removed": removed}
 
-    @app.post("/admin/reindex", dependencies=[AdminOnly], response_model=ReindexResponse)
-    async def reindex(engine: EngineDep) -> ReindexResponse:
+    @app.post("/admin/reindex", dependencies=[CuratorOnly], response_model=ReindexResponse)
+    async def reindex(engine: EngineDep, request: Request) -> ReindexResponse:
         documents, chunks, version, evicted = engine.reindex()
+        engine.knowledge.record_action(
+            _actor(request),
+            "reindex",
+            detail={"documents": documents, "chunks": chunks, "corpus_version": version},
+        )
         return ReindexResponse(
             documents=documents,
             chunks=chunks,
@@ -1008,7 +1128,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.put("/admin/access/{folder:path}", dependencies=[AdminOnly])
     async def set_folder_access(
-        folder: str, req: AccessRequest, engine: EngineDep
+        folder: str, req: AccessRequest, engine: EngineDep, request: Request
     ) -> dict[str, Any]:
         safe = _safe_document_path(folder)
         if safe is None:
@@ -1016,7 +1136,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         principals = validate_principals(req.principals)
         if isinstance(principals, str):
             raise HTTPException(status_code=422, detail=principals)
+        was = engine.knowledge.folder_rules().get(safe)
         engine.knowledge.set_folder_access(safe, principals)
+        engine.knowledge.record_action(
+            _actor(request),
+            "access.set",
+            safe,
+            {"principals": sorted(principals), "was": sorted(was) if was else None},
+        )
         documents, chunks, version, evicted = engine.reindex()
         return {
             "folder": safe,
@@ -1030,12 +1157,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         }
 
     @app.delete("/admin/access/{folder:path}", dependencies=[AdminOnly])
-    async def clear_folder_access(folder: str, engine: EngineDep) -> dict[str, Any]:
+    async def clear_folder_access(
+        folder: str, engine: EngineDep, request: Request
+    ) -> dict[str, Any]:
         safe = _safe_document_path(folder)
         if safe is None:
             raise HTTPException(status_code=400, detail="unusable folder name")
+        was = engine.knowledge.folder_rules().get(safe)
         if not engine.knowledge.clear_folder_access(safe):
             raise HTTPException(status_code=404, detail=f"no rule for {safe!r}")
+        engine.knowledge.record_action(
+            _actor(request), "access.clear", safe, {"was": sorted(was) if was else None}
+        )
         documents, chunks, version, evicted = engine.reindex()
         return {
             "folder": safe,
@@ -1044,10 +1177,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         }
 
     # -- knowledge lifecycle -------------------------------------------------
-    @app.post("/admin/learn", dependencies=[AdminOnly])
-    async def learn(req: LearnRequest, engine: EngineDep) -> dict[str, Any]:
+    @app.post("/admin/learn", dependencies=[CuratorOnly])
+    async def learn(req: LearnRequest, engine: EngineDep, request: Request) -> dict[str, Any]:
         """Draft answers for changed documents. This one spends tokens."""
         report = await engine.learn(max_documents=req.max_documents)
+        engine.knowledge.record_action(
+            _actor(request),
+            "learn",
+            detail={
+                "documents_changed": len(report.added) + len(report.changed) + len(report.removed),
+                "drafts_created": report.drafts_created,
+                "conflicts_open": report.conflicts_open,
+            },
+        )
         return {
             "summary": report.summary(),
             "added": list(report.added),
@@ -1063,7 +1205,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "notes": report.notes,
         }
 
-    @app.get("/admin/proposals", dependencies=[AdminOnly])
+    @app.get("/admin/proposals", dependencies=[CuratorOnly])
     async def proposals(engine: EngineDep, limit: int = 50) -> dict[str, Any]:
         """Drafted answers awaiting review, ranked by what approving them saves."""
         from ..knowledge import rank_by_demand
@@ -1089,20 +1231,30 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             ],
         }
 
-    @app.post("/admin/proposals/{proposal_id}/approve", dependencies=[AdminOnly])
-    async def approve(proposal_id: str, req: ReviewRequest, engine: EngineDep) -> dict[str, Any]:
+    @app.post("/admin/proposals/{proposal_id}/approve", dependencies=[CuratorOnly])
+    async def approve(
+        proposal_id: str, req: ReviewRequest, engine: EngineDep, request: Request
+    ) -> dict[str, Any]:
         if not engine.approve(proposal_id, reviewer=req.reviewer):
             raise HTTPException(404, "no draft awaiting review with that id")
+        engine.knowledge.record_action(
+            _actor(request), "proposal.approve", proposal_id, {"reviewer": req.reviewer}
+        )
         return {"id": proposal_id, "approved": True, "pinned": True}
 
-    @app.post("/admin/proposals/{proposal_id}/reject", dependencies=[AdminOnly])
-    async def reject(proposal_id: str, req: ReviewRequest, engine: EngineDep) -> dict[str, Any]:
+    @app.post("/admin/proposals/{proposal_id}/reject", dependencies=[CuratorOnly])
+    async def reject(
+        proposal_id: str, req: ReviewRequest, engine: EngineDep, request: Request
+    ) -> dict[str, Any]:
         rejected = engine.knowledge.reject(proposal_id, reviewer=req.reviewer, note=req.note)
         if rejected is None:
             raise HTTPException(404, "no draft awaiting review with that id")
+        engine.knowledge.record_action(
+            _actor(request), "proposal.reject", proposal_id, {"reviewer": req.reviewer}
+        )
         return {"id": proposal_id, "rejected": True}
 
-    @app.get("/admin/conflicts", dependencies=[AdminOnly])
+    @app.get("/admin/conflicts", dependencies=[CuratorOnly])
     async def conflicts(engine: EngineDep) -> list[dict[str, Any]]:
         """Documents that disagree. Questions touching these are refused."""
         return [
@@ -1124,14 +1276,22 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             for c in engine.knowledge.open_conflicts()
         ]
 
-    @app.post("/admin/conflicts/{key}/resolve", dependencies=[AdminOnly])
-    async def resolve(key: str, req: ResolveRequest, engine: EngineDep) -> dict[str, Any]:
+    @app.post("/admin/conflicts/{key}/resolve", dependencies=[CuratorOnly])
+    async def resolve(
+        key: str, req: ResolveRequest, engine: EngineDep, request: Request
+    ) -> dict[str, Any]:
         resolution = req.note or (f"authoritative: {req.keep}" if req.keep else "resolved")
         resolved = engine.knowledge.resolve_conflict(
             key, resolution=resolution, resolver=req.reviewer
         )
         if resolved is None:
             raise HTTPException(404, "no open conflict with that key")
+        engine.knowledge.record_action(
+            _actor(request),
+            "conflict.resolve",
+            key,
+            {"resolution": resolution, "keep": req.keep},
+        )
         return {
             "key": key,
             "resolved": True,
@@ -1140,6 +1300,39 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "Recorded. This does not edit your documents - remove or correct the "
                 "superseded text so retrieval stops seeing it."
             ),
+        }
+
+    @app.get("/admin/log", dependencies=[AdminOnly])
+    async def admin_log(engine: EngineDep, limit: int = 100, days: int = 0) -> dict[str, Any]:
+        """Every admin change, newest first - the audit trail.
+
+        Named ``log`` rather than ``audit`` because ``openknowledge audit``
+        already means something else in this product: it checks documents for
+        contradictions. This one checks people.
+
+        ``attributed`` is the number of entries that name a person rather
+        than the shared token. With sign-in off it is zero and stays zero -
+        no amount of logging can recover an identity a shared secret never
+        carried - which is the honest way to ask for sign-in.
+        """
+        since = time.time() - days * 86400 if days > 0 else 0.0
+        entries = engine.knowledge.admin_actions(limit=min(max(limit, 1), 1000), since=since)
+        return {
+            "entries": [
+                {
+                    "at": round(e.at, 3),
+                    "actor": e.actor.name,
+                    "actor_id": e.actor.id,
+                    "actor_kind": e.actor.kind,
+                    "action": e.action,
+                    "target": e.target,
+                    "detail": e.detail,
+                }
+                for e in entries
+            ],
+            "total": engine.knowledge.admin_action_count(),
+            "attributed": sum(1 for e in entries if e.actor.kind == "person"),
+            "signed_in": engine.settings.auth_mode == "oidc",
         }
 
     @app.get("/admin/settings", dependencies=[AdminOnly])
@@ -1200,6 +1393,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         written = write_env(
             state.env_file,
             {f"OK_{key.upper()}": to_env_value(value) for key, value in validated.items()},
+        )
+        # Names, never values: an editable setting can be an API key, and a
+        # log that records what was set is a log that leaks it into every
+        # backup taken afterwards.
+        request.app.state.engine.knowledge.record_action(
+            _actor(request),
+            "settings.update",
+            detail={"settings": sorted(validated), "engine_rebuilt": rebuilt},
         )
         return {
             "applied": validated,

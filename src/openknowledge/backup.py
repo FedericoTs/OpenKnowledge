@@ -273,6 +273,7 @@ def restore_backup(archive: Path, settings: Settings, *, force: bool = False) ->
     finally:
         shutil.rmtree(staged, ignore_errors=True)
 
+    _record_the_restore(data_dir, archive, manifest)
     secrets = _names(manifest, "secrets_not_included")
     return RestoreSummary(
         databases=tuple(carried),
@@ -280,3 +281,35 @@ def restore_backup(archive: Path, settings: Settings, *, force: bool = False) ->
         secrets_to_reenter=secrets,
         from_version=str(manifest.get("created_by_version", "")),
     )
+
+
+def _record_the_restore(data_dir: Path, archive: Path, manifest: dict[str, object]) -> None:
+    """Write the restore into the admin log it just replaced.
+
+    Written after the move, into the restored database rather than the one
+    that was there before - so the entry survives, and the log reads in the
+    order a reader needs: everything the backup carried, then the line
+    saying this database arrived from a file. A restore is the largest
+    change anyone can make to a company's knowledge in one command, and it
+    is the one change that would otherwise leave no trace at all.
+    """
+    from .knowledge.store import Actor, KnowledgeStore
+
+    if "knowledge.db" not in _names(manifest, "databases"):
+        return
+    try:
+        with KnowledgeStore(data_dir / "knowledge.db") as store:
+            store.record_action(
+                Actor.console(),
+                "restore",
+                archive.name,
+                {
+                    "taken_at": manifest.get("created_at"),
+                    "taken_by_version": manifest.get("created_by_version"),
+                },
+            )
+    except sqlite3.Error:
+        # The restore itself succeeded; a database too damaged to log to is
+        # a problem the next command will report far more clearly than a
+        # traceback from the logging line would.
+        return

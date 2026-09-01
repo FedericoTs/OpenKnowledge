@@ -137,7 +137,19 @@ def install_auth(app: FastAPI, settings: Settings) -> None:
         admin = bool(
             settings.oidc_admin_group and f"group:{settings.oidc_admin_group}" in session.principals
         )
-        return JSONResponse({"signed_in": True, "name": session.name, "admin": admin})
+        curator = admin or bool(
+            settings.oidc_curator_group
+            and f"group:{settings.oidc_curator_group}" in session.principals
+        )
+        return JSONResponse(
+            {
+                "signed_in": True,
+                "name": session.name,
+                "admin": admin,
+                "curator": curator,
+                "role": "admin" if admin else "curator" if curator else "reader",
+            }
+        )
 
     @app.middleware("http")
     async def gate(

@@ -56,18 +56,25 @@ run fetch the models, then serve the network instead of loopback: set
 ## The security posture, plainly
 
 - **Serving the network is a decision, not a default.** The default bind is
-  loopback; `0.0.0.0` is explicit, and should stay inside the LAN or VPN.
-  Do not port-forward this to the internet — there is no login yet.
-- **Admin actions** (settings, review queue, conflicts, pins) already
-  require the admin token — `openknowledge token` on the server prints it;
-  give it to admins only.
-- **Uploads** are a switch (`upload_enabled`): on, anyone on the LAN can
-  add documents through the browser; off, documents come only from the
-  server's folder. Pick deliberately.
-- **Reading is currently open to whoever can reach the port.** Until
-  sign-in lands (below), network reachability *is* the access control —
-  the same trust model as an internal wiki without SSO. If that is not
-  acceptable, keep it VPN-only.
+  loopback; `0.0.0.0` is explicit. Without sign-in it should stay inside
+  the LAN or VPN.
+- **Sign-in is the line everything else follows.** With `OK_AUTH_MODE=oidc`
+  (see [ENTRA-SIGNIN.md](ENTRA-SIGNIN.md)) the server knows who is asking,
+  and folder rules, roles and the admin log all become real. With sign-in
+  off, network reachability *is* the access control — the same trust model
+  as an internal wiki without SSO — and everything below about roles does
+  not apply, because there is no identity to apply it to.
+- **Admin actions** (settings, access rules, updates) require the admin
+  token — `openknowledge token` on the server prints it — or membership of
+  `OK_OIDC_ADMIN_GROUP`. A second group, `OK_OIDC_CURATOR_GROUP`, curates
+  knowledge without holding governance.
+- **Uploads** are a switch (`upload_enabled`): on, anyone signed in may
+  contribute a *new* document. Deleting one, or uploading over an existing
+  name, needs the curator or admin role — those take away something people
+  were relying on, and cannot be undone from the app.
+- **Every admin change is logged**, with who made it: `openknowledge
+  admin-log`, or the *Admin log* panel on `/manage`. Changes made with the
+  shared token name nobody, which is what sign-in fixes.
 
 ## What each person sees
 

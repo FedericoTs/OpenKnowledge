@@ -98,6 +98,7 @@ OK_OIDC_CLIENT_ID=<app registration id>
 OK_OIDC_CLIENT_SECRET=<client secret>
 OK_PUBLIC_URL=https://knowledge.example.com   # builds the redirect URI
 OK_OIDC_ADMIN_GROUP=<group object id>   # optional: this group is admin
+OK_OIDC_CURATOR_GROUP=<group object id> # optional: this group curates only
 OK_OIDC_GROUPS_CLAIM=groups             # default
 OK_SESSION_HOURS=8                      # default
 ```
@@ -113,6 +114,59 @@ personal servers never see any of this.
 | `/healthz` | open — monitoring needs no identity |
 | everything else — widget, `/chat`, streaming, documents, `/manage`, `/setup` | 302 to sign-in (pages) / 401 (API) |
 | admin API | admin group in session, or the admin token as today |
+
+### Two roles, because they are two jobs
+
+The people who know the answers are rarely the people who should hold the
+access rules. `OK_OIDC_CURATOR_GROUP` splits them:
+
+| | admin | curator | everyone else |
+|---|---|---|---|
+| pin an answer, approve a draft, resolve a contradiction | yes | yes | no |
+| re-index, run `learn`, read costs and gaps | yes | yes | no |
+| delete or replace a document | yes | yes | no |
+| upload a *new* document | yes | yes | if uploads are on |
+| change who may read a folder | yes | no | no |
+| change settings, apply an update | yes | no | no |
+| read the admin log | yes | no | no |
+
+Every admin is a curator. Leave `OK_OIDC_CURATOR_GROUP` empty and the
+curator surface *is* the admin surface — an install that never sets one
+behaves exactly as it did before the split existed.
+
+Two things are worth being precise about. **Deleting is not the mirror of
+uploading**: an upload adds something the corpus did not have, a delete —
+or an upload over an existing name — takes away something people were
+relying on, and cannot be undone from the app. So with sign-in on, both
+need a role, while contributing a new document stays governed by the
+uploads switch alone. And **with sign-in off, none of this applies**:
+there is no identity to check against, reaching the port was always full
+control, and a role check against an identity that does not exist would be
+theatre. The desktop app is unchanged.
+
+### The admin log
+
+Every admin and curator change is recorded: what, when, and who — by their
+directory subject id, so the entry survives a rename and points at an
+account someone can disable. Read it at `GET /admin/log`, in the *Admin
+log* panel on `/manage`, or on the server with:
+
+```sh
+openknowledge admin-log --days 30
+```
+
+Changes made with the shared admin token are recorded as
+`shared admin token` and name nobody. That is not a gap the log can close
+— a shared secret never carried an identity — and it is the plainest
+argument for turning sign-in on. Entries record *which* settings changed
+and never what they were set to, because a base URL can carry a password
+and the log travels in every backup.
+
+The log is append-only through the app: nothing in the API deletes from
+it, so an admin cannot quietly undo their own change. That is a property
+of the surface, not of the file — anyone with the server's disk can edit
+the table like any other. It is the threat model a company server has,
+stated rather than overclaimed.
 
 The widget's only change: show who is signed in, offer sign-out, and
 treat a 401 as "go sign in". The marketing site keeps its own

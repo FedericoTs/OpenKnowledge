@@ -83,6 +83,18 @@ CREATE TABLE IF NOT EXISTS folder_access (
     principals TEXT NOT NULL,
     updated_at REAL NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS admin_actions (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    at         REAL NOT NULL,
+    actor      TEXT NOT NULL,
+    actor_name TEXT NOT NULL,
+    actor_kind TEXT NOT NULL,
+    action     TEXT NOT NULL,
+    target     TEXT NOT NULL DEFAULT '',
+    detail     TEXT NOT NULL DEFAULT '{}'
+);
+CREATE INDEX IF NOT EXISTS idx_admin_actions_at ON admin_actions(at);
 """
 
 
@@ -142,6 +154,47 @@ class StoredConflict:
             f"[{self.left_document}] says {self.left_raw}, "
             f"[{self.right_document}] says {self.right_raw}"
         )
+
+
+@dataclass(frozen=True, slots=True)
+class Actor:
+    """Who performed an admin action, as far as the server can honestly tell.
+
+    ``kind`` is the part that matters when reading the log back. A ``person``
+    signed in through the directory and is named by their stable subject id,
+    so the row survives a rename and points at an account someone can
+    disable. A ``token`` is the shared admin token: it says an authorised
+    caller did this and nothing more, because a shared secret cannot
+    distinguish the people holding it. The log does not pretend otherwise -
+    it records ``token`` and lets the reader draw the obvious conclusion
+    about turning sign-in on.
+    """
+
+    id: str
+    name: str
+    kind: str  # 'person' | 'token' | 'console'
+
+    @staticmethod
+    def token() -> Actor:
+        return Actor(id="admin-token", name="shared admin token", kind="token")
+
+    @staticmethod
+    def console() -> Actor:
+        """Someone at the server's own command line. Attributed no further:
+        reaching the CLI already means holding the machine."""
+        return Actor(id="console", name="the server console", kind="console")
+
+
+@dataclass(frozen=True, slots=True)
+class AdminAction:
+    """One entry in the admin log."""
+
+    id: int
+    at: float
+    actor: Actor
+    action: str
+    target: str
+    detail: dict[str, object]
 
 
 def proposal_id(canonical_query: str, origin_documents: tuple[str, ...], variant: str = "") -> str:
@@ -568,3 +621,86 @@ class KnowledgeStore:
             cursor = self._conn.execute("DELETE FROM folder_access WHERE folder = ?", (folder,))
             self._conn.commit()
         return cursor.rowcount > 0
+
+    # -- the admin log -------------------------------------------------------
+    # Every change an admin makes, in order, with who made it. Kept with the
+    # other human decisions because that is what it records: not what the
+    # machine inferred, but what a person chose.
+    #
+    # Append-only through the API - nothing exposes a delete, and nothing
+    # should. That is a property of the surface, not of the file: anyone with
+    # the server's disk can edit this table like any other. The honest claim
+    # is "an admin cannot quietly undo their own change through the app",
+    # which is the threat model a company server actually has.
+
+    def record_action(
+        self,
+        actor: Actor,
+        action: str,
+        target: str = "",
+        detail: dict[str, object] | None = None,
+    ) -> None:
+        """Write one entry. Never raises into the caller's request.
+
+        A failed log write must not fail the admin action itself: losing the
+        record of a change is bad, refusing the change because the record
+        would not write is worse - it turns an audit trail into an outage.
+        The write is small and local, so this is close to unreachable; it is
+        here so that "close to" is not load-bearing.
+        """
+        try:
+            with self._lock:
+                self._conn.execute(
+                    "INSERT INTO admin_actions"
+                    " (at, actor, actor_name, actor_kind, action, target, detail)"
+                    " VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        ordered_now(),
+                        actor.id,
+                        actor.name,
+                        actor.kind,
+                        action,
+                        target,
+                        json.dumps(detail or {}, default=str, sort_keys=True),
+                    ),
+                )
+                self._conn.commit()
+        except sqlite3.Error:
+            return
+
+    def admin_actions(self, limit: int = 100, since: float = 0.0) -> tuple[AdminAction, ...]:
+        """The most recent entries, newest first."""
+        rows = self._conn.execute(
+            "SELECT id, at, actor, actor_name, actor_kind, action, target, detail"
+            " FROM admin_actions WHERE at >= ?"
+            " ORDER BY at DESC, id DESC LIMIT ?",
+            (since, max(1, limit)),
+        ).fetchall()
+        return tuple(
+            AdminAction(
+                id=int(row["id"]),
+                at=float(row["at"]),
+                actor=Actor(id=row["actor"], name=row["actor_name"], kind=row["actor_kind"]),
+                action=row["action"],
+                target=row["target"],
+                detail=_loaded_detail(row["detail"]),
+            )
+            for row in rows
+        )
+
+    def admin_action_count(self) -> int:
+        row = self._conn.execute("SELECT COUNT(*) AS n FROM admin_actions").fetchone()
+        return int(row["n"])
+
+
+def _loaded_detail(raw: str) -> dict[str, object]:
+    """A detail blob as a dict, whatever the column actually holds.
+
+    A restored or hand-edited database can put anything here; a log viewer
+    that raises on one malformed row hides every row after it.
+    """
+    try:
+        value = json.loads(raw)
+    except (TypeError, ValueError):
+        return {}
+    return value if isinstance(value, dict) else {}
