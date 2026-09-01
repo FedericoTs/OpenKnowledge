@@ -253,6 +253,105 @@ def test_the_widget_still_routes_both_decisions_through_the_helpers() -> None:
     assert "retractionsWorthKeeping(pending, event.response.answer)" in source
 
 
+def test_the_page_says_which_build_it_is_before_anyone_touches_it(declining_app) -> None:
+    """The third field defect of this kind, and the one that hid a fix.
+
+    ``refreshUpdateChip()`` and the fetch that fills the version label had
+    drifted inside ``removeDocument``'s try block, so they ran only after
+    somebody deleted a document. On a fresh page the footer was blank and the
+    update chip was empty - which is the second reason "I still don't see the
+    update button" was true, the first being installs that never received a
+    new version at all. Both looked identical from the outside.
+    """
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as pw:
+        browser, page = _page(pw, declining_app)
+        try:
+            page.wait_for_function(
+                "document.getElementById('build-version').textContent.trim() !== ''",
+                timeout=15000,
+            )
+            version = page.inner_text("#build-version")
+            chip = page.inner_text("#update-chip")
+        finally:
+            browser.close()
+
+    assert version.startswith("OpenKnowledge v"), version
+    assert chip.strip(), "the update chip never ran"
+
+
+def _blanked(source: str) -> str:
+    """The source with quoted text and comments replaced by spaces.
+
+    Length-preserving, so an offset found in the original still points at
+    the same place here. That is the whole trick: find the statement in the
+    real text, count braces in the blanked text.
+    """
+    out = list(source)
+    i, n, quote = 0, len(source), ""
+    while i < n:
+        c = source[i]
+        if quote:
+            out[i] = " "
+            if c == "\\" and i + 1 < n:
+                out[i + 1] = " "
+                i += 2
+                continue
+            if c == quote:
+                quote = ""
+        elif c in "'\"`":
+            quote = c
+            out[i] = " "
+        elif source[i : i + 2] == "//":
+            while i < n and source[i] != "\n":
+                out[i] = " "
+                i += 1
+            continue
+        elif source[i : i + 2] == "/*":
+            stop = source.find("*/", i)
+            stop = n if stop < 0 else stop + 2
+            for j in range(i, stop):
+                out[j] = " "
+            i = stop
+            continue
+        i += 1
+    return "".join(out)
+
+
+def _nesting_of(source: str, needle: str) -> list[int]:
+    """How deeply nested each occurrence of ``needle`` is: unclosed braces
+    between the start of the file and that occurrence.
+
+    Written for one question and no more: the widget's script is flat, and
+    the defect this guards against is a statement that fell inside a
+    function while still starting at column zero. A call can legitimately
+    appear at several depths - what matters is whether one of them runs at
+    load, which is depth zero.
+    """
+    blanked = _blanked(source)
+    depths, at = [], source.find(needle)
+    assert at >= 0, f"{needle!r} is not in the widget at all"
+    while at >= 0:
+        depths.append(blanked.count("{", 0, at) - blanked.count("}", 0, at))
+        at = source.find(needle, at + 1)
+    return depths
+
+
+def test_the_boot_calls_are_at_the_top_level() -> None:
+    """The guard that runs where no browser is installed.
+
+    The defect above was scope, not logic: two statements that fell inside
+    ``removeDocument``'s try block while still starting at column zero. A
+    check for "appears in the source", or for the indentation, passes against
+    the bug - both were true of it. Nesting depth is the thing that was
+    wrong, so nesting depth is what this asserts.
+    """
+    source = WIDGET.read_text(encoding="utf-8")
+    assert 0 in _nesting_of(source, "refreshUpdateChip();"), "nothing boots the update chip at load"
+    assert 0 in _nesting_of(source, "fetch('healthz')"), "nothing fetches the version at load"
+
+
 def test_a_retraction_of_nothing_is_not_shown(dying_app) -> None:
     """The second receipt owed for nothing, photographed live.
 

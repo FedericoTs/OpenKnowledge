@@ -393,6 +393,29 @@ an identity that does not exist is theatre.
 The asymmetry with the gaps report above is deliberate and now holds from
 both ends. Who governs is recorded by name. Who is curious is not.
 
+### The update button, cause two
+
+"I still don't see the update button after several releases" had two
+independent causes, and fixing either alone would have left the report
+standing. The first was the installer: Inno removes nothing a new build
+stopped shipping, so PyInstaller's version-named `.dist-info` directories
+piled up and an upgraded install reported the old version — eighteen
+releases published, none ever received.
+
+The second was in the page. `refreshUpdateChip()` and the fetch that fills
+the version label had drifted inside `removeDocument`'s try block — still
+at column zero, but inside the function — so a fresh load showed a blank
+footer and an empty chip, and the version appeared only after somebody
+deleted a document. Both are fixed.
+
+The guard against the second is worth reading. CI installs no browser, so
+the browserless check is the one that has to hold, and its first version
+asserted the boot call appears at column zero — which was *true of the
+bug*. Scope was what was wrong, so it now computes brace nesting depth
+over source with strings and comments blanked, and asserts an occurrence
+runs at depth zero. Confirmed by putting the bug back and watching it go
+red.
+
 ### Known gaps in the Windows upgrade
 
 - **Inno removes nothing the new build dropped.** An upgrade replaces every file

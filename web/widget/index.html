@@ -511,22 +511,32 @@ async function removeDocument(name) {
   try {
     const res = await fetch('/documents/' + encodeURIComponent(name), { method: 'DELETE' });
     if (needsSignIn(res)) return;
-    if (!res.ok) throw new Error('HTTP ' + res.status);
+    if (!res.ok) {
+      // The server knows why - "removing a document is an administrator's
+      // job" reads as an answer; "HTTP 403" reads as a broken button.
+      let why = 'HTTP ' + res.status;
+      try { why = (await res.json()).detail || why; } catch (e) { /* keep the status */ }
+      throw new Error(why);
+    }
     systemNote(name + ' — removed. Answers that cited it are no longer served.');
     refreshCorpus();
-refreshUpdateChip();
-
-// Which build this is, stated plainly and independently of everything above.
-fetch('healthz').then(r => r.ok ? r.json() : null).then(h => {
-  const el2 = document.getElementById('build-version');
-  if (el2 && h && h.version) el2.textContent = `OpenKnowledge v${h.version}`;
-}).catch(() => {});
   } catch (err) {
     systemNote('Could not remove ' + name + ': ' + err.message, true);
   }
 }
 
 refreshCorpus();
+refreshUpdateChip();
+
+// Which build this is, stated plainly and independently of everything above.
+// These two ran inside removeDocument's try block, so the version label and
+// the update chip appeared only after somebody deleted a document - which is
+// the second reason "I still don't see the update button" was true, the first
+// being installs that never received a new version at all.
+fetch('healthz').then(r => r.ok ? r.json() : null).then(h => {
+  const el2 = document.getElementById('build-version');
+  if (el2 && h && h.version) el2.textContent = `OpenKnowledge v${h.version}`;
+}).catch(() => {});
 
 // Who is signed in, when sign-in is on. The endpoint does not exist with
 // sign-in off (404), and the row stays hidden - this page renders identity,
