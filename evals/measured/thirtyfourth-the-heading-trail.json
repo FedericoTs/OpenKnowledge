@@ -1,0 +1,22 @@
+{
+  "what": "Contextual chunk embedding was already built, and measuring it produced a null result: the heading trail is 13.7% of every embedded passage on the aveline corpus and moves no case up the ranking.",
+  "the_item_was_already_done": {
+    "what_the_roadmap_asked": "'The remaining half of the contextual-retrieval idea is prepending each chunk's heading trail before embedding it - the chunker already carries the trail for a different reason.'",
+    "what_is_actually_there": "`_passage` in retrieval/base.py writes the trail as the first line of each chunk's text, and the embedder embeds chunk.text. So the trail is already in the vector - and in the BM25 index too, which is more than the item asked for. It arrived as a side effect of the 'heading said once' change; the roadmap entry predated it and was never struck through.",
+    "checked_not_assumed": "68 of 68 chunks on the aveline corpus begin with their own heading trail; 67 of 68 contain the document title, because the trail's first element is the H1. Building the item as written would have prepended the trail a second time and inflated every embedded passage."
+  },
+  "so_it_was_measured_instead": {
+    "instrument": "tools/measure_context.py - the rank of each labelled case's required citation, with the trail in the embedded text and with it removed.",
+    "dense_only_on_purpose": "The first attempt ranked through the shipped hybrid retriever and showed all 14 cases at rank 1 both ways, which measured nothing: BM25 does not care where in a passage a word sits, and on an 11-document corpus whose questions name their subject it finds the document regardless. Ranking by cosine alone is the only way the trail's contribution is visible at all.",
+    "result": "68 chunks, 14 cases with a required citation. With the trail: median rank 1.0, mean 1.143, top-1 12/14, top-3 14/14. Trail stripped: median 1.0, mean 1.143, top-1 12/14, top-3 14/14. Zero cases better, zero worse, fourteen unchanged.",
+    "the_experiment_was_real": "Checked, because a null result from a no-op experiment looks identical to a null result from a real one: all 68 chunks differ between the two variants, and 13.7% of the embedded words are the trail. Something was removed; nothing moved."
+  },
+  "what_this_does_and_does_not_say": {
+    "does_not_say_the_trail_is_worthless": "Fourteen cases on sixty-eight chunks, with the required document already at rank 1 in twelve of them, cannot show an improvement - there is nowhere up to go. The corpus is the limiting factor.",
+    "does_say": "This corpus cannot justify the 13.7%, and any future claim that the trail helps retrieval needs a corpus that can discriminate. That is the labelled real corpus the roadmap already lists, and it needs somebody's real folder.",
+    "and_the_trail_has_another_job": "Its stated purpose in `_passage` is that a passage retrieved alone still says what it is about, which is a grounding and citation property rather than a ranking one. This measurement says nothing about that, and the golden sets already exercise it."
+  },
+  "the_ceiling_that_shaped_this": "Both golden sets sit at 100%, so they can prove a retrieval change breaks nothing and cannot show one helps. That is worth stating plainly: 'gated by the golden sets' means regression-proof, not measured-as-better. Showing improvement needs either harder cases or an instrument like this one, and this one has just demonstrated that the available corpora saturate too.",
+  "gate": "No code change to retrieval, prompting, chunking or grounding - the finding is that the change was already made. tools/measure_context.py is a new measurement tool and touches nothing the product runs.",
+  "still_open": "Re-run measure_context.py on a corpus large enough to discriminate. Until then the trail's 13.7% is a design decision with a stated rationale and no supporting number."
+}

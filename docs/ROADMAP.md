@@ -247,10 +247,26 @@ Honest status. "Built" means implemented and covered by tests in this repository
 5. **Grow the golden set.** The harness is built; the shipped set covers the sample
    documents only. Real corpus, real questions, and above all more safety cases — they
    are the cheapest insurance in the project.
-6. **Contextual chunk embedding.** Hybrid retrieval shipped; the remaining half of
-   the contextual-retrieval idea is prepending each chunk's heading trail before
-   embedding it - the chunker already carries the trail for a different reason.
-   Worth measuring against the golden set like everything else.
+6. ~~**Contextual chunk embedding.**~~ **Already built, and now measured.** The
+   chunker states each passage's heading trail once at the top of the passage
+   (`_passage` in `retrieval/base.py`), so it is already part of what gets
+   embedded - and of what BM25 indexes, which is more than this item asked
+   for. It arrived as a side effect of the "heading said once" work; this
+   entry simply predated it. Checked rather than assumed: **68 of 68** chunks
+   on the aveline corpus begin with their trail.
+
+   What was never established is whether it earns the space. `tools/measure_context.py`
+   answers that - the rank of each labelled case's required citation, with the
+   trail in the embedded text and without, by cosine alone so BM25 cannot
+   answer for it. On aveline the trail is **13.7% of every embedded passage**
+   and **not one case changes rank**: median 1.0, mean 1.14, top-1 12/14 both
+   ways.
+
+   That is a fact about the corpus at least as much as about the trail. Eleven
+   documents whose questions name their subject leave nothing to disambiguate,
+   and a required document already at rank 1 cannot move up. The measurement
+   is worth re-running on a corpus that can discriminate - which is item 3
+   above, and needs somebody's real folder.
 7. **Signing the Windows installer.** The installer itself now builds and
    smoke-tests in CI — what remains is identity. Azure Trusted Signing
    (~$10/month, reputation attaches to the verified identity) or a classic
