@@ -188,16 +188,26 @@ jobs:
     needs: windows-installer
     if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
     runs-on: windows-latest
+    # Two installs and a 75 MB download; the green run took nineteen seconds.
+    # A silent installer that decides to wait for something has nobody to
+    # answer it, and without this it waits for six hours.
+    timeout-minutes: 15
     steps:
       - uses: actions/download-artifact@v4
         with:
           name: OpenKnowledge-Setup
 
       - name: Upgrade a real previous install, and keep its state
+        id: upgrade
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          # Invoke-WebRequest renders a progress bar even with no console to
+          # render it to, and on a large file that dominates the transfer -
+          # tens of minutes for a download that takes seconds without it.
+          $ProgressPreference = 'SilentlyContinue'
+
           $new = Get-ChildItem OpenKnowledge-Setup-*.exe | Select-Object -First 1
           $newVersion = ($new.Name -replace '^OpenKnowledge-Setup-', '') -replace '\.exe$', ''
           Write-Host "built: $newVersion"
@@ -274,6 +284,16 @@ jobs:
             throw "the upgrade destroyed the user's configuration"
           }
           Write-Host "upgraded $oldVersion -> $after, state intact"
+
+      # Win, lose or hang: a killed step never reaches its own Write-Host, and
+      # Inno's log is the only account of what the installer did.
+      - name: Installer logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: upgrade-installer-logs
+          path: install-*.log
+          if-no-files-found: ignore
 
   # The whole product, from the installer a person would download: silent
   # install, first launch of the installed app (real 2.6 GB model download
