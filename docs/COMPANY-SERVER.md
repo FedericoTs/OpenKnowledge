@@ -86,18 +86,29 @@ not answer, contradictions refused until an admin resolves them in
 single list — add a policy once, everyone can ask about it seconds
 later.
 
-## PDFs, and why the first index used to be the slow one
+## PDFs, and how long the first index takes
 
-A PDF costs far more to read than the same words in markdown, and almost
-all of the difference is a Java process starting up — about **640 ms** of
-the 656 ms a four-page PDF cost, against roughly 51 ms of actual parsing.
-Paid once per file, the first index of a thousand policy PDFs was about
-nine minutes.
+Two PDF parsers ship, and which one you get depends on how you installed:
 
-The parser accepts a batch, so it is handed one: 64 documents per
-invocation. The same thousand PDFs now index in about **twenty-five
-seconds**, and the documents that come out are asserted identical to
-parsing each one alone. Nothing about this needs configuring.
+| | parser | per document | a thousand policy PDFs |
+|---|---|---|---|
+| **Docker** | OpenDataLoader (Java) | **21 ms** | about 25 seconds |
+| **Windows installer** | pdfplumber (pure Python) | **60 ms** | about a minute |
+
+The Docker image installs OpenDataLoader and a JVM, because it reads a
+document's real structure — explicit heading levels, table rows and cells,
+a page number on every element — rather than inferring it from type size
+and ruling lines. The Windows installer bundles no Java, so it uses
+pdfplumber, and always has.
+
+The Java parser used to cost **656 ms** a document, because it started a
+JVM for each one: about 640 ms of process start-up around 51 ms of actual
+parsing. That made a thousand PDFs nine minutes on Docker, and it is why
+the better parser was also the slow one. It is now handed 64 documents per
+invocation instead of one, which makes it about **three times faster than
+pdfplumber** rather than eleven times slower — better structure and less
+waiting, with nothing to configure. The documents that come out are
+asserted identical to parsing each one alone.
 
 Every index after the first is faster still: a file whose bytes have not
 changed is never re-read, and a corpus that has not changed at all starts
@@ -112,9 +123,9 @@ else, which is why it is a separate file and why it is not in the backup:
 the backup already carries the documents themselves.
 
 A PDF the parser cannot read is **named** rather than skipped in silence,
-with the reason it gave — `handbook.pdf: OpenDataLoader: this file is not a
-valid PDF file (corrupted or truncated content).` One unreadable file never
-costs you the rest of the batch.
+with the reason whichever parser you have gave — `handbook.pdf:
+OpenDataLoader: this file is not a valid PDF file (corrupted or truncated
+content).` One unreadable file never costs you the rest of the batch.
 
 ## Changing who may read what
 

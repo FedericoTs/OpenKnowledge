@@ -440,6 +440,16 @@ and warnings, per document and across the whole corpus. A thousand policy
 PDFs go from about nine minutes to about twenty-five seconds. With a warm
 parse cache the same scan starts no JVM at all.
 
+Worth being exact about **who was waiting nine minutes**, because it was
+never everybody. The Java parser is an optional extra: the Docker image
+installs it and a JVM, the Windows installer does not and never has. So a
+Windows install has always used pdfplumber, measured at **59.7 ms** a
+document — a minute for those same thousand PDFs, and no JVM problem to
+have. What changed is the ranking: OpenDataLoader was eleven times slower
+than pdfplumber and chosen anyway, for structure it reports rather than
+infers. Batched it is **20.9 ms** a document, so it is now about three
+times *faster* as well. The better parser is no longer the slow one.
+
 The reading-ahead is driven by the walk and stays **one group ahead**
 rather than parsing everything first: a group holds every document in it in
 memory, and reading a thousand large PDFs before indexing any of them would
