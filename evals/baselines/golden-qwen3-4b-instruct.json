@@ -1,0 +1,17 @@
+{
+  "cases": 13,
+  "accuracy": 1.0,
+  "false_answers": 0,
+  "false_answer_rate": 0.0,
+  "determinism": 1.0,
+  "paraphrase_consistency": 1.0,
+  "cost_per_question_usd": 0.0,
+  "total_cost_usd": 0.0,
+  "free_share": 0.0,
+  "support_separation": null,
+  "tiers": {
+    "local": 8,
+    "refused": 5
+  },
+  "failures": []
+}
