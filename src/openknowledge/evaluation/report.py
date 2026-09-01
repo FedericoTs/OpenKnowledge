@@ -50,8 +50,16 @@ def compare(current: EvalReport, baseline: dict[str, object]) -> Comparison:
     elif current.false_answers < base_false:
         improvements.append(f"false answers {base_false} -> {current.false_answers}")
 
-    base_determinism = num("determinism", 1.0)
-    if current.determinism < base_determinism:
+    # Only when both runs actually asked twice. Comparing a measured figure
+    # against a baseline that recorded an unmeasured 1.0 reports a regression
+    # that never happened; comparing an unmeasured one against anything
+    # reports nothing at all, which is the honest outcome.
+    base_determinism = baseline.get("determinism")
+    if (
+        current.determinism is not None
+        and isinstance(base_determinism, int | float)
+        and current.determinism < base_determinism
+    ):
         regressions.append(f"determinism {base_determinism:.1%} -> {current.determinism:.1%}")
 
     base_cost = num("cost_per_question_usd")
@@ -86,7 +94,12 @@ def format_report(report: EvalReport, *, verbose: bool = False) -> str:
         f"  false answers            {report.false_answers:>8}  "
         f"({report.false_answer_rate:.1%} of must-refuse cases)"
     )
-    lines.append(f"  determinism              {report.determinism:>8.1%}  (same question twice)")
+    if report.determinism is None:
+        lines.append("  determinism           not checked  (--no-determinism)")
+    else:
+        lines.append(
+            f"  determinism              {report.determinism:>8.1%}  (same question twice)"
+        )
     lines.append(
         f"  paraphrase consistency   {report.paraphrase_consistency:>8.1%}"
         "  (same facts, other words)"

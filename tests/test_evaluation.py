@@ -208,6 +208,24 @@ async def test_non_determinism_is_caught(store, retriever, settings) -> None:
     assert any("two different answers" in r for r in report.results[0].failures)
 
 
+async def test_skipping_the_check_records_that_it_was_skipped(store, retriever, settings) -> None:
+    """Through the real runner, not by building a result by hand.
+
+    The per-case flag used to default to True, so a run with the check turned
+    off came back looking exactly like a run where every answer was asked
+    twice and matched. Nothing above this catches that, because the tests that
+    do construct a CaseResult pass the flag themselves.
+    """
+    cascade = build(store, retriever, settings, [GOOD_LEAVE])
+
+    report = await run_eval(cascade, [LEAVE_CASE], check_determinism=False)
+
+    assert report.results[0].deterministic is None
+    assert report.determinism is None
+    assert "not checked" in format_report(report)
+    assert report.passed  # skipped is not failed
+
+
 async def test_paraphrase_drift_is_caught(store, retriever, settings) -> None:
     case = Case(
         id="leave",
@@ -673,3 +691,81 @@ def test_every_shipped_case_rejects_its_own_forbidden_answer() -> None:
             )
             passed, _failures, _false = _score(case, answer)
             assert not passed, f"{case.id} accepts its own forbidden answer"
+
+
+# -- determinism that was never measured -----------------------------------
+#
+# `--no-determinism` asks each question once. The report used to say
+# "determinism 100.0% (same question twice)" anyway, because the per-case flag
+# defaulted to True and nothing distinguished "checked and identical" from
+# "never asked". That number was also written into saved baselines, so a later
+# run that genuinely checked and scored 90% was called a regression against a
+# figure nobody had ever measured.
+
+
+def _result(case: Case, *, deterministic: bool | None) -> CaseResult:
+    return CaseResult(
+        case=case,
+        answer=Answer(text="x", tier=Tier.LOCAL, model_id="m", cache_key="k"),
+        passed=True,
+        deterministic=deterministic,
+    )
+
+
+def test_an_unmeasured_determinism_is_not_reported_as_perfect() -> None:
+    case = Case(id="a", question="Q?", must_say=(("x",),))
+    report = EvalReport(results=[_result(case, deterministic=None)])
+
+    assert report.determinism is None
+    rendered = format_report(report)
+    assert "not checked" in rendered
+    assert "100.0%  (same question twice)" not in rendered
+
+
+def test_an_unmeasured_determinism_is_not_written_to_a_baseline() -> None:
+    """A saved 1.0 is what makes the next run's honest 90% look like a fall."""
+    case = Case(id="a", question="Q?", must_say=(("x",),))
+    report = EvalReport(results=[_result(case, deterministic=None)])
+
+    assert report.to_dict()["determinism"] is None
+
+
+def test_a_run_that_did_not_check_reports_no_determinism_regression() -> None:
+    case = Case(id="a", question="Q?", must_say=(("x",),))
+    skipped = EvalReport(results=[_result(case, deterministic=None)])
+
+    comparison = compare(skipped, {"accuracy": 1.0, "false_answers": 0, "determinism": 1.0})
+
+    assert not any("determinism" in r for r in comparison.regressions)
+
+
+def test_a_baseline_that_did_not_check_is_not_compared_against() -> None:
+    case = Case(id="a", question="Q?", must_say=(("x",),))
+    measured = EvalReport(
+        results=[_result(case, deterministic=True), _result(case, deterministic=False)]
+    )
+    assert measured.determinism == 0.5
+
+    comparison = compare(measured, {"accuracy": 1.0, "false_answers": 0, "determinism": None})
+
+    assert not any("determinism" in r for r in comparison.regressions)
+
+
+def test_two_runs_that_both_checked_are_still_compared() -> None:
+    """The comparison must survive being made honest about the other cases."""
+    case = Case(id="a", question="Q?", must_say=(("x",),))
+    worse = EvalReport(
+        results=[_result(case, deterministic=True), _result(case, deterministic=False)]
+    )
+
+    comparison = compare(worse, {"accuracy": 1.0, "false_answers": 0, "determinism": 1.0})
+
+    assert any("determinism 100.0% -> 50.0%" in r for r in comparison.regressions)
+
+
+def test_skipping_the_check_does_not_fail_the_run_nor_pass_it_falsely() -> None:
+    """The caller asked for it to be skipped, so it is not a failure. It is
+    also not a pass: there is nothing to pass, and the report says so."""
+    case = Case(id="a", question="Q?", must_say=(("x",),))
+    assert EvalReport(results=[_result(case, deterministic=None)]).passed
+    assert not EvalReport(results=[_result(case, deterministic=False)]).passed

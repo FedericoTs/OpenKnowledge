@@ -68,7 +68,10 @@ class CaseResult:
     #: Answered when it should have refused. Tracked separately - this is the
     #: failure mode that makes a bot untrustworthy rather than merely unhelpful.
     false_answer: bool = False
-    deterministic: bool = True
+    #: Whether asking twice gave the same answer, or None when it was not
+    #: asked twice. None and True are different facts and must not be
+    #: reported as the same number - see `EvalReport.determinism`.
+    deterministic: bool | None = None
     paraphrase_consistent: bool = True
     cost_usd: float = 0.0
     support: float | None = None
@@ -106,10 +109,17 @@ class EvalReport:
         return self.false_answers / len(cases) if cases else 0.0
 
     @property
-    def determinism(self) -> float:
-        return (
-            sum(r.deterministic for r in self.results) / len(self.results) if self.results else 0.0
-        )
+    def determinism(self) -> float | None:
+        """How often asking twice gave the same answer, or None if nobody asked.
+
+        None rather than 1.0, because `--no-determinism` asks each question
+        once and a metric that then reports 100% is claiming a measurement it
+        did not take. That number went into saved baselines too, so a later
+        run that genuinely checked and scored 90% was compared against a
+        figure nobody had ever measured.
+        """
+        checked = [r.deterministic for r in self.results if r.deterministic is not None]
+        return sum(checked) / len(checked) if checked else None
 
     @property
     def paraphrase_consistency(self) -> float:
@@ -167,7 +177,11 @@ class EvalReport:
         there was nothing to get right.
         """
         accuracy_ok = not self.answerable or self.accuracy == 1.0
-        return self.false_answers == 0 and accuracy_ok and self.determinism == 1.0
+        # An unchecked determinism does not fail the run - the caller asked
+        # for it to be skipped - but it does not pass it either: there is
+        # nothing to pass.
+        determinism_ok = self.determinism is None or self.determinism == 1.0
+        return self.false_answers == 0 and accuracy_ok and determinism_ok
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -175,7 +189,7 @@ class EvalReport:
             "accuracy": round(self.accuracy, 4),
             "false_answers": self.false_answers,
             "false_answer_rate": round(self.false_answer_rate, 4),
-            "determinism": round(self.determinism, 4),
+            "determinism": None if self.determinism is None else round(self.determinism, 4),
             "paraphrase_consistency": round(self.paraphrase_consistency, 4),
             "cost_per_question_usd": round(self.cost_per_question_usd, 6),
             "total_cost_usd": round(self.total_cost_usd, 6),
@@ -272,7 +286,7 @@ async def run_case(cascade: Cascade, case: Case, *, check_determinism: bool = Tr
     cost = answer.cost_usd
     support = answer.support
 
-    deterministic = True
+    deterministic: bool | None = None
     if check_determinism:
         again = await cascade.answer(case.question, principals=principals, channel="eval")
         cost += again.cost_usd
