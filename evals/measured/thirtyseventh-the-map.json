@@ -1,0 +1,34 @@
+{
+  "what": "The map on /manage and in the audit page: how long its server-side layout takes at a thousand documents, which is where an all-pairs force simulation starts to hurt.",
+  "how": "uv run python tools/measure_graph.py --documents 100 1000 --json, a synthetic corpus with 300 contradictions per thousand documents, two citation sets per document, and 30 unanswered questions. Same machine as every other record here: 4 CPU cores, no GPU.",
+  "the_measurement_that_changed_the_code": "The first version ran 300 passes in float64 at every size and took 17.1 s for a thousand documents. Two changes followed from that number, not from taste: the passes now fall with the corpus (300 up to 150 documents, 200 up to 600, 120 beyond) and the sweep runs in float32, which brought the same thousand to the figure below; and /manage keeps the drawn picture until a document, a conflict, a citation or a gap changes, so the cost is paid once per change rather than once per visit.",
+  "measured": [
+    {
+      "documents": 100,
+      "nodes": 130,
+      "edges": 273,
+      "build_seconds": 0.005,
+      "layout_seconds": 0.266,
+      "render_seconds": 0.001,
+      "total_seconds": 0.272,
+      "svg_kilobytes": 60.6
+    },
+    {
+      "documents": 1000,
+      "nodes": 1030,
+      "edges": 2922,
+      "build_seconds": 0.044,
+      "layout_seconds": 6.233,
+      "render_seconds": 0.009,
+      "total_seconds": 6.285,
+      "svg_kilobytes": 582.9
+    }
+  ],
+  "what_it_means": "At 1,000 documents the whole picture - build, layout, SVG - takes 6.285s on this box and weighs 582.9 kB. That is the first visit after a change; every visit until the next change is served from the kept picture. The layout still dominates and is quadratic in documents, so ten thousand would be a hundred times that and need a different algorithm, not more passes cut. A wall-clock, and it moves with the box.",
+  "what_it_deliberately_does_not_do": "Judge the picture. Whether a force layout of a real corpus reads well is not a number this script can produce; what it can say is that drawing it does not make the page wait more than once.",
+  "platform": {
+    "python": "3.11.15",
+    "machine": "x86_64",
+    "cpus": 4
+  }
+}

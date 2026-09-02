@@ -138,6 +138,21 @@
   </section>
 
   <section data-admin-section>
+    <h2>The map</h2>
+    <p class="hint">
+      Every document as a circle, sized by how often real answers cited it and
+      coloured by folder; hollow when the document says it is retired. A red
+      line is an open contradiction, a dashed red line two versions of one
+      file, a grey arrow a document retiring the one it names, a green line
+      two documents that answered a question together, an orange square a
+      question asked and not answered. Islands nobody cited are the documents
+      no question has needed yet. Nothing here is inferred: every line is a
+      fact from the panels below, and hovering says which.
+    </p>
+    <div id="map"><p class="locked-note">Unlock to load.</p></div>
+  </section>
+
+  <section data-admin-section>
     <h2>Most asked</h2>
     <p class="hint">
       What people asked most in the last 30 days and how each was answered,
@@ -734,6 +749,25 @@ const TIER_WORDS = {
 };
 const MODEL_TIERS = ['local', 'frontier'];
 
+async function refreshMap() {
+  const box = $('map');
+  try {
+    // Not api(): the reply is an SVG document, not JSON. Drawn by the server
+    // from the stores and inlined here, so hover titles work and nothing is
+    // fetched from anywhere else.
+    const res = await fetch('/admin/graph.svg', { headers: authHeaders() });
+    if (!res.ok) {
+      let detail = 'HTTP ' + res.status;
+      try { detail = (await res.json()).detail || detail; } catch (e) { /* keep the status */ }
+      throw new Error(detail);
+    }
+    box.innerHTML = await res.text();
+  } catch (e) {
+    box.textContent = '';
+    box.appendChild(el('p', 'locked-note', e.message));
+  }
+}
+
 async function refreshDemand() {
   const box = $('demand');
   try {
@@ -1158,8 +1192,8 @@ async function unlock(token) {
   $('forget').hidden = false;
   $('token-input').value = '';
   await ready('admin', [
-    refreshHealth(), refreshCosts(), refreshDemand(), refreshGaps(), refreshReports(), refreshPins(),
-    refreshAccess(), refreshProposals(), refreshConflicts(), refreshSettings(), refreshConfig(),
+    refreshHealth(), refreshCosts(), refreshMap(), refreshDemand(), refreshGaps(), refreshReports(),
+    refreshPins(), refreshAccess(), refreshProposals(), refreshConflicts(), refreshSettings(), refreshConfig(),
     refreshBackup(), refreshAdminLog(),
   ]);
   return true;
@@ -1206,8 +1240,8 @@ fetch('/auth/me').then(r => r.ok ? r.json() : null).then(async (who) => {
       $('unlock-section').hidden = true;
       say('Admin, via your sign-in group.', true);
       await ready('admin', [
-        refreshHealth(), refreshCosts(), refreshDemand(), refreshGaps(), refreshReports(), refreshPins(),
-        refreshAccess(), refreshProposals(), refreshConflicts(), refreshSettings(), refreshConfig(),
+        refreshHealth(), refreshCosts(), refreshMap(), refreshDemand(), refreshGaps(), refreshReports(),
+        refreshPins(), refreshAccess(), refreshProposals(), refreshConflicts(), refreshSettings(), refreshConfig(),
         refreshBackup(), refreshAdminLog(),
       ]);
     } catch (e) { /* fall back to the token flow */ }
@@ -1229,8 +1263,8 @@ fetch('/auth/me').then(r => r.ok ? r.json() : null).then(async (who) => {
     }
     say('Knowledge curator, via your sign-in group.', true);
     await ready('curator', [
-      refreshHealth(), refreshCosts(), refreshDemand(), refreshGaps(), refreshReports(), refreshPins(),
-      refreshProposals(), refreshConflicts(),
+      refreshHealth(), refreshCosts(), refreshMap(), refreshDemand(), refreshGaps(), refreshReports(),
+      refreshPins(), refreshProposals(), refreshConflicts(),
     ]);
   }
 }).catch(() => {});

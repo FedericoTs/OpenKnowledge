@@ -877,6 +877,10 @@ def test_the_backup_button_hands_over_a_real_archive(managed_app) -> None:
             with page.expect_download(timeout=30000) as handed:
                 page.click("#backup button:has-text('Download backup')")
             names = zipfile.ZipFile(handed.value.path()).namelist()
+            # Read off the download while Playwright is still running: a
+            # Download touched after the context closes runs on a closed event
+            # loop, and the next browser test in the process pays for it.
+            suggested = handed.value.suggested_filename
             page.wait_for_selector("#backup .quiet:has-text('Saved')", timeout=15000)
             note = page.inner_text("#backup .quiet")
 
@@ -891,7 +895,7 @@ def test_the_backup_button_hands_over_a_real_archive(managed_app) -> None:
     assert errors == [], f"page errors: {errors}"
     assert "manifest.json" in names
     assert "documents/handbook.md" in names, names
-    assert handed.value.suggested_filename.startswith("openknowledge-backup-")
+    assert suggested.startswith("openknowledge-backup-")
     assert "Secrets are not in it" in note
     assert "manifest.json" in slimmer
     assert not any(n.startswith("documents/") for n in slimmer), slimmer
@@ -900,3 +904,27 @@ def test_the_backup_button_hands_over_a_real_archive(managed_app) -> None:
     ).json()
     downloads = [e for e in log["entries"] if e["action"] == "backup.download"]
     assert sorted(e["detail"]["documents"] for e in downloads) == [0, 1]
+
+
+def test_the_map_is_drawn_on_the_page(managed_app) -> None:
+    """The SVG the server draws lands inline, with its hover text intact: a
+    circle per document, and the handbook this server indexed named in one."""
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as pw:
+        browser, page = _page(pw, managed_app)
+        errors: list[str] = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        try:
+            page.goto(managed_app + "/manage")
+            page.fill("#token-input", "t0ken")
+            page.click("#unlock")
+            page.wait_for_selector('body[data-ready="admin"]', timeout=30000)
+            page.wait_for_selector("#map svg circle", timeout=15000)
+            titles = page.eval_on_selector_all(
+                "#map svg circle title", "els => els.map(e => e.textContent)"
+            )
+        finally:
+            browser.close()
+    assert errors == [], f"page errors: {errors}"
+    assert any(t.startswith("Handbook") for t in titles), titles

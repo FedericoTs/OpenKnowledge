@@ -547,6 +547,20 @@ class AnswerStore:
         ).fetchall()
         return [(r["canonical_query"], r["n"]) for r in rows]
 
+    def citation_sets(self, limit: int = 5000) -> list[tuple[str, ...]]:
+        """The documents each remembered answer cited, one tuple per answer.
+
+        Cached answers and pinned ones, newest first. What the map sizes
+        documents by and joins them with: two documents in one answer's
+        citations answered a question together.
+        """
+        rows = self._conn.execute(
+            "SELECT citations FROM answer_cache ORDER BY created_at DESC LIMIT ?", (limit,)
+        ).fetchall()
+        sets = [tuple(c.document_id for c in _load_citations(r["citations"])) for r in rows]
+        sets.extend(tuple(c.document_id for c in p.citations) for p in self.list_pins())
+        return [s for s in sets if s]
+
     def question_demand(self, limit: int = 20, since: float | None = None) -> list[QuestionDemand]:
         """Most-asked questions with how each was answered, most asked first.
 

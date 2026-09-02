@@ -35,6 +35,7 @@ from starlette.concurrency import run_in_threadpool
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from .. import __version__
+from .. import graph as knowledge_graph
 from ..access import effective_principals, validate_principals
 from ..assets import find_asset
 from ..cache import citations_for
@@ -561,6 +562,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     app.state.settings = resolved
     app.state.health = HealthMonitor()
+    app.state.map_cache = {}
     # One per process, and deliberately not part of the engine: a rebuild
     # replaces the engine, and forgetting who has been asking every time a
     # setting changes is how a limit becomes advisory.
@@ -1219,6 +1221,39 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 for e in engine.store.recent_questions(limit)
             ],
         }
+
+    @app.get("/admin/graph.svg", dependencies=[CuratorOnly], include_in_schema=False)
+    async def graph_svg(engine: EngineDep, request: Request) -> Response:
+        """The documents and what connects them, as this viewer may see it.
+
+        Drawn from the stores, not inferred: open contradictions, supersession
+        the documents declare, documents that answered questions together,
+        and the questions nobody's document answered. Filtered the way
+        retrieval filters, so a curator restricted to some folders gets a map
+        of those folders and no line pointing outside them. Laid out here,
+        seeded, so the page needs no script and everyone sees one picture.
+        """
+        viewer = _viewer_principals(request)
+        built = knowledge_graph.from_engine(
+            engine.documents,
+            root=engine.settings.documents_dir,
+            conflicts=engine.knowledge.open_conflicts(),
+            citations=engine.store.citation_sets(),
+            gaps=engine.store.knowledge_gaps(since=engine.store.now() - 30 * 86400, limit=30),
+            viewer=viewer,
+        )
+        # Drawn once per change to what it draws: the graph is cheap to build
+        # and hashable, the layout is the cost, so the picture is kept until
+        # a document, a conflict, a citation or a gap moves.
+        cache: dict[int, str] = request.app.state.map_cache
+        key = hash(built)
+        svg = cache.get(key)
+        if svg is None:
+            positions = await run_in_threadpool(knowledge_graph.layout, built)
+            svg = knowledge_graph.render_svg(built, positions)
+            cache.clear()
+            cache[key] = svg
+        return Response(svg, media_type="image/svg+xml", headers={"Cache-Control": "no-store"})
 
     @app.get("/admin/pins", dependencies=[CuratorOnly])
     async def list_pins(engine: EngineDep) -> list[dict[str, Any]]:

@@ -231,6 +231,18 @@ once every 30 seconds, with a short timeout; a question never waits on it.
 that restarts the process on a failed health check does not restart it because
 the model is down.
 
+*The map*, under the documents, is the corpus as a picture drawn from the
+panels around it: every document a circle sized by how often real answers cited
+it and coloured by folder, hollow when it says it is retired; a red line for an
+open contradiction, a dashed red line for two versions of one file, a grey arrow
+from a document to the one it retired, a green line between two documents that
+answered a question together, an orange square for a question asked and not
+answered. Filtered the way retrieval filters, so a curator restricted to some
+folders sees those folders and nothing pointing outside them. Nothing in it is
+inferred. It is drawn once per change to what it shows and kept until the next;
+the first drawing of a thousand documents took about six seconds here
+(`evals/measured/thirtyseventh-the-map.json`).
+
 *Configuration*, further down and admin-only, is every setting the process is
 running with — read from the process, not from the file, so a `.env` edited
 after the start shows up as *not* in force — with its `OK_*` name, whether it

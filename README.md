@@ -48,6 +48,12 @@ fetched from anywhere.
 
 ![An audit of eleven policy documents: two contradictions, each shown as the two sentences that cannot both be true, and one pair of documents that are two versions of the same file](https://raw.githubusercontent.com/FedericoTs/OpenKnowledge/HEAD/docs/images/audit.png)
 
+The same page maps the folder: every document a circle sized by what it states and
+coloured by folder, red lines where two disagree, dashed where two files are one
+document, grey arrows where one retires another. Nothing in it is inferred.
+
+![The map of the same eleven documents: two red lines for the contradictions, a dashed one joining the two versions of the expenses policy, folders as colours](https://raw.githubusercontent.com/FedericoTs/OpenKnowledge/HEAD/docs/images/map.png)
+
 Then a model on your machine and the chat: see [Quick start](#quick-start).
 
 ![The management page: whether each model endpoint answers, what the install has cost, what people ask most](https://raw.githubusercontent.com/FedericoTs/OpenKnowledge/HEAD/docs/images/manage.png)

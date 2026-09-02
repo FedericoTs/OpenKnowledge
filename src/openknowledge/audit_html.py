@@ -19,6 +19,7 @@ from __future__ import annotations
 import html
 
 from . import __version__
+from . import graph as knowledge_graph
 from .audit import _KIND_LABEL, AuditReport
 
 PROJECT_URL = "https://github.com/FedericoTs/OpenKnowledge"
@@ -156,6 +157,18 @@ def render_html(report: AuditReport) -> str:
                     out.append(f"<blockquote>{_quote(side.sentence, side.raw)}</blockquote>")
                     out.append("</div>")
                 out.append("</div></article>")
+
+    if report.graph is not None and report.graph.nodes:
+        out.append("<h2>The documents, and what connects them</h2>")
+        out.append(
+            '<p class="note">Every readable document is a circle, sized by how many figures and '
+            "rules it states and coloured by folder; a hollow one says it is retired. A red line "
+            "is a contradiction above, a dashed red line two versions of one file, a grey arrow "
+            "a document retiring the one it names. Islands are documents nothing else touches. "
+            "Nothing here is inferred.</p>"
+        )
+        positions = knowledge_graph.layout(report.graph)
+        out.append(knowledge_graph.render_svg(report.graph, positions, weight_word="states"))
 
     if report.variants:
         out.append("<h2>Duplicated documents</h2>")

@@ -21,6 +21,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from . import graph as knowledge_graph
 from .connectors.local_files import LocalFilesConnector, SkippedFile
 from .documents import SUPPORTED_SUFFIXES
 from .knowledge.claims import Conflict, compare_documents, extract_claims
@@ -44,6 +45,9 @@ class AuditReport:
     #: of near-duplicate files reads as one filing problem rather than as
     #: ninety-eight contradictions.
     pairs: tuple[DocumentPair, ...] = ()
+    #: Every readable document and what connects them - see graph.py. Drawn
+    #: into the HTML report; absent from the text and the JSON.
+    graph: knowledge_graph.Graph | None = None
 
     @property
     def clean(self) -> bool:
@@ -118,15 +122,21 @@ def audit_folder(
     # Reported so the run is legible: "0 conflicts" out of 4,000 claims is a
     # clean corpus, out of 3 claims it means nothing was read properly - most
     # likely a folder of scans, which otherwise passes silently.
-    claims = sum(len(extract_claims(doc)) + len(extract_deontic_claims(doc)) for doc in documents)
+    per_document = {
+        doc.document_id: len(extract_claims(doc)) + len(extract_deontic_claims(doc))
+        for doc in documents
+    }
 
     return AuditReport(
         root=str(connector.root),
         documents=len(documents),
-        claims_checked=claims,
+        claims_checked=sum(per_document.values()),
         conflicts=tuple(conflicts),
         unreadable=tuple(connector.skipped),
         pairs=tuple(pairs),
+        graph=knowledge_graph.from_audit(
+            documents, pairs, root=connector.root, claims=per_document
+        ),
     )
 
 
