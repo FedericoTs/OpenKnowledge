@@ -41,6 +41,8 @@ from ..canonical import canonicalize_query
 from ..config import Settings, load_settings
 from ..contacts import ContactError, ContactStore, clean
 from ..desktop import setup as first_run
+from ..health import HealthMonitor
+from ..health import targets as health_targets
 from ..knowledge.store import Actor
 from ..limits import AskerLimiter
 from ..metrics import CONTENT_TYPE, Sample, from_cost_report
@@ -550,6 +552,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         lifespan=lifespan,
     )
     app.state.settings = resolved
+    app.state.health = HealthMonitor()
     # One per process, and deliberately not part of the engine: a rebuild
     # replaces the engine, and forgetting who has been asking every time a
     # setting changes is how a limit becomes advisory.
@@ -1661,6 +1664,29 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "engine_rebuilt": rebuilt,
             "persisted": written,
             "persists_to": str(state.env_file),
+        }
+
+    @app.get("/admin/health", dependencies=[CuratorOnly])
+    async def admin_health(
+        engine: EngineDep, request: Request, fresh: bool = False
+    ) -> dict[str, Any]:
+        """Whether the model endpoints answer - asked of them, cached briefly.
+
+        Curator-visible rather than admin-only because a curator is who
+        watches the refusals pile up, and "the model is down" is the one
+        explanation that needs no governance to act on: somebody restarts it.
+        Distinct from /healthz on purpose: that is the liveness check for
+        whatever supervises this process, and a dependency being down must
+        not make the process look dead. ``fresh`` asks again regardless of
+        the cache - the button on /manage - and is why this is not public.
+        """
+        monitor: HealthMonitor = request.app.state.health
+        readings = await monitor.readings(
+            health_targets(engine.settings, engine.frontier), fresh=fresh
+        )
+        return {
+            "ttl_seconds": monitor.ttl,
+            "endpoints": [r.as_dict() for r in readings],
         }
 
     @app.get("/admin/config", dependencies=[AdminOnly])

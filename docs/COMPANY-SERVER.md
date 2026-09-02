@@ -221,6 +221,16 @@ header. It carries no question text and no identity — a metric with the
 question in it is a log of what people asked, published to whatever scrapes
 it.
 
+*Is it up*, at the top of `/manage`, asks each model endpoint the cheapest
+thing it will answer — Ollama its version, a llama.cpp or vLLM server its model
+list, a paid API its model list with the configured key — and says what came
+back: reachable or not, which runtime, whether the configured model is among
+the ones served, whether the key was accepted, and how long it took. At most
+once every 30 seconds, with a short timeout; a question never waits on it.
+`/healthz` stays a liveness check and carries none of this, so a supervisor
+that restarts the process on a failed health check does not restart it because
+the model is down.
+
 The same ledger, read as a shortlist: *Most asked* on `/manage` ranks the last
 30 days' questions by how often they were asked, with how each was answered —
 which tiers, how many times, what it cost — and whether it is already pinned.

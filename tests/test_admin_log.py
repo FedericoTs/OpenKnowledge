@@ -259,6 +259,7 @@ CURATION = [
     ("GET", "/admin/conflicts", None),
     ("GET", "/admin/costs", None),
     ("GET", "/admin/gaps", None),
+    ("GET", "/admin/health", None),
     ("POST", "/admin/reindex", None),
 ]
 

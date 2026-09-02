@@ -771,3 +771,48 @@ def test_the_most_asked_list_can_pin_from_where_it_counts(managed_app) -> None:
         managed_app + "/admin/pins", headers={"authorization": "Bearer t0ken"}, timeout=20
     ).json()
     assert (pin["question"], pin["answer"]) == ("when does the office close", "At 18:00.")
+
+
+def test_the_health_line_names_the_dead_endpoint(managed_app) -> None:
+    """The failure case, rendered: the server here has a local model
+    configured at Ollama's default address with nothing listening there,
+    embeddings off, escalation off. The line has to say exactly that, paint
+    only the failure red, and ask again when told to.
+    """
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as pw:
+        browser, page = _page(pw, managed_app)
+        errors: list[str] = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        asked: list[str] = []
+        page.on("request", lambda r: asked.append(r.url) if "/admin/health" in r.url else None)
+        try:
+            page.goto(managed_app + "/manage")
+            page.fill("#token-input", "t0ken")
+            page.click("#unlock")
+            page.wait_for_selector('body[data-ready="admin"]', timeout=30000)
+
+            rows = page.eval_on_selector_all(
+                "#health .endpoint", "els => els.map(e => e.innerText)"
+            )
+            assert len(rows) == 3, rows
+            assert rows[0].startswith("Local model"), rows[0]
+            assert "unreachable" in rows[0] and "localhost:11434" in rows[0], rows[0]
+            assert rows[1].startswith("Embeddings") and "off" in rows[1], rows[1]
+            assert rows[2].startswith("Escalation") and "off" in rows[2], rows[2]
+            bad = page.eval_on_selector_all("#health .tag.bad", "els => els.map(e => e.innerText)")
+            assert bad == ["unreachable"], f"only the failure is red: {bad}"
+            assert "checked" in page.inner_text("#health .row")
+
+            page.click("#health button:has-text('Check again')")
+            page.wait_for_selector(
+                "#health button:has-text('Check again'):not([disabled])", timeout=15000
+            )
+            assert "unreachable" in page.inner_text("#health .endpoint")
+        finally:
+            browser.close()
+    assert errors == [], f"page errors: {errors}"
+    # The first load reads the cache; the button is the one thing that asks
+    # the endpoints again, and has to say so in its request.
+    assert [u.endswith("?fresh=1") for u in asked] == [False, True], asked

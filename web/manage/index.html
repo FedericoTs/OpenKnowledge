@@ -62,6 +62,9 @@
   .tag { font-size:11px; font-weight:600; padding:1px 8px; border-radius:999px;
          border:1px solid currentColor; color:var(--muted); white-space:nowrap; }
   .locked-note { color:var(--muted); font-size:13.5px; }
+  .endpoint { margin:4px 0; font-size:13.5px; }
+  .endpoint b { display:inline-block; min-width:110px; }
+  .tag.ok { color:var(--accent); } .tag.bad { color:var(--bad); }
   .figures { display:flex; flex-wrap:wrap; gap:28px; margin:2px 0 10px; }
   .figure b { display:block; font-size:30px; font-weight:680; letter-spacing:-0.5px;
               line-height:1.15; font-variant-numeric:tabular-nums; }
@@ -91,6 +94,18 @@
       <button id="forget" class="ghost" hidden>Forget token</button>
     </div>
     <div id="status"></div>
+  </section>
+
+  <section data-admin-section>
+    <h2>Is it up</h2>
+    <p class="hint">
+      The model endpoints, asked directly: whether each answers, which runtime
+      it is, whether it serves the model this install is configured for, and
+      how long it took to say so. Asked at most every 30 seconds, with a short
+      timeout — a question never waits on this. When the chat is refusing
+      everything, the reason is usually on this line.
+    </p>
+    <div id="health"><p class="locked-note">Unlock to load.</p></div>
   </section>
 
   <section data-admin-section>
@@ -599,6 +614,43 @@ function figure(box, value, label, className) {
   f.appendChild(el('span', null, label));
 }
 
+const ROLE_NAMES = { chat: 'Local model', embedding: 'Embeddings', escalation: 'Escalation' };
+
+async function refreshHealth(fresh) {
+  const box = $('health');
+  try {
+    const body = await api('/admin/health' + (fresh ? '?fresh=1' : ''));
+    box.textContent = '';
+    for (const r of body.endpoints) {
+      const row = box.appendChild(el('p', 'endpoint'));
+      row.appendChild(el('b', null, ROLE_NAMES[r.role] || r.role));
+      // Three states, not two: off is a fact about the configuration, not a
+      // failure, and must not be painted red.
+      const cls = r.ok === true ? 'tag ok' : r.ok === false ? 'tag bad' : 'tag';
+      row.appendChild(el('span', cls, r.state));
+      const parts = [];
+      if (r.model) parts.push(r.model);
+      if (r.host) parts.push('at ' + r.host);
+      if (r.runtime) parts.push(r.runtime + (r.version ? ' ' + r.version : ''));
+      if (r.model_served === true) parts.push('model served');
+      if (r.model_served === false) parts.push('model not served');
+      if (r.configured && r.latency_ms !== null) parts.push(r.latency_ms + ' ms');
+      if (parts.length) row.appendChild(el('span', 'quiet', ' ' + parts.join(' · ')));
+      if (r.detail) row.appendChild(el('span', r.ok === false ? 'warn' : 'quiet', ' — ' + r.detail));
+    }
+    const foot = box.appendChild(el('div', 'row'));
+    const newest = Math.max(...body.endpoints.map(r => r.checked_at));
+    const age = Math.max(0, Math.round(Date.now() / 1000 - newest));
+    foot.appendChild(el('span', 'quiet', 'checked ' + (age < 2 ? 'just now' : age + 's ago')
+      + ' · a reading stands for ' + body.ttl_seconds + 's'));
+    const again = foot.appendChild(el('button', 'ghost small', 'Check again'));
+    again.onclick = () => { again.disabled = true; again.textContent = 'Checking…'; refreshHealth(true); };
+  } catch (e) {
+    box.textContent = '';
+    box.appendChild(el('p', 'locked-note', e.message));
+  }
+}
+
 async function refreshCosts() {
   const box = $('costs');
   try {
@@ -995,7 +1047,7 @@ async function unlock(token) {
   $('forget').hidden = false;
   $('token-input').value = '';
   await ready('admin', [
-    refreshCosts(), refreshDemand(), refreshGaps(), refreshReports(), refreshPins(),
+    refreshHealth(), refreshCosts(), refreshDemand(), refreshGaps(), refreshReports(), refreshPins(),
     refreshAccess(), refreshProposals(), refreshConflicts(), refreshSettings(), refreshAdminLog(),
   ]);
   return true;
@@ -1042,7 +1094,7 @@ fetch('/auth/me').then(r => r.ok ? r.json() : null).then(async (who) => {
       $('unlock-section').hidden = true;
       say('Admin, via your sign-in group.', true);
       await ready('admin', [
-        refreshCosts(), refreshDemand(), refreshGaps(), refreshReports(), refreshPins(),
+        refreshHealth(), refreshCosts(), refreshDemand(), refreshGaps(), refreshReports(), refreshPins(),
         refreshAccess(), refreshProposals(), refreshConflicts(), refreshSettings(), refreshAdminLog(),
       ]);
     } catch (e) { /* fall back to the token flow */ }
@@ -1064,7 +1116,7 @@ fetch('/auth/me').then(r => r.ok ? r.json() : null).then(async (who) => {
     }
     say('Knowledge curator, via your sign-in group.', true);
     await ready('curator', [
-      refreshCosts(), refreshDemand(), refreshGaps(), refreshReports(), refreshPins(),
+      refreshHealth(), refreshCosts(), refreshDemand(), refreshGaps(), refreshReports(), refreshPins(),
       refreshProposals(), refreshConflicts(),
     ]);
   }
