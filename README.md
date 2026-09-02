@@ -65,10 +65,11 @@ contradiction detection with a notion of scope, supersession, streaming chat, br
 uploads, per-folder access rules with Entra ID sign-in, a management page (costs, most
 asked, gaps, wrong answers, pins, health, configuration, backup, admin log) and a Windows
 installer that upgrades itself in CI on every release, a SharePoint mirror that stamps
-each file with the readers SharePoint gives it, and a Teams bot that answers each person
-from the documents their own groups allow. Not yet: the paid tiers measured (needs an API
-key), SharePoint and Teams run against a real tenant (both built and tested against fakes
-of Microsoft's APIs), Google Drive, and a signed installer. See
+each file with the readers SharePoint gives it, a Google Drive mirror that does the same
+with Drive's own grants, and a Teams bot that answers each person from the documents
+their own groups allow. Not yet: the paid tiers measured (needs an API key), SharePoint,
+Drive and Teams run against a real tenant or Workspace (all three built and tested
+against fakes of Microsoft's and Google's APIs), and a signed installer. See
 [ROADMAP](docs/ROADMAP.md).
 
 ---
@@ -561,6 +562,7 @@ src/openknowledge/
 | [RELEASING.md](docs/RELEASING.md) | How a version ships: the installer, the GitHub release, PyPI |
 | [SHAREPOINT.md](docs/SHAREPOINT.md) | Mirroring a site's libraries, with SharePoint's own readers enforced |
 | [TEAMS.md](docs/TEAMS.md) | Answering in Teams, with each person's own groups deciding what they see |
+| [DRIVE.md](docs/DRIVE.md) | Mirroring Google Drive, and how Drive's addresses meet the directory's ids |
 | [adr/](docs/adr/) | Why the load-bearing decisions went the way they did |
 
 ## Licence

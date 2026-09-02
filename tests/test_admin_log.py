@@ -251,6 +251,7 @@ GOVERNANCE = [
     ("GET", "/admin/config", None),
     ("GET", "/admin/backup", None),
     ("POST", "/admin/sharepoint/sync", None),
+    ("POST", "/admin/drive/sync", None),
     ("GET", "/admin/access", None),
     ("PUT", "/admin/access/hr", {"principals": ["group:hr"]}),
     ("DELETE", "/admin/access/hr", None),

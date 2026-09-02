@@ -757,6 +757,50 @@ def _cmd_pricing(_: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_drive(args: argparse.Namespace) -> int:
+    """Mirror the configured shared drives now, or say how the mirror stands."""
+    engine = _engine()
+    if engine.drive is None:
+        print(
+            "The Google Drive mirror is off. Set OK_DRIVE_ENABLED=true and the OK_DRIVE_* "
+            "settings; see docs/DRIVE.md.",
+            file=sys.stderr,
+        )
+        return 1
+    return _report_mirror(
+        engine.drive.status(), engine.sync_drive() if args.action == "sync" else None
+    )
+
+
+def _report_mirror(status: dict, summary: object) -> int:
+    """One printer for every mirror: what a sync did, or where it stands."""
+    if summary is not None:
+        made = summary  # a SyncSummary
+        print(
+            f"{made.drives} source(s): {made.added} added, {made.updated} updated, "  # type: ignore[attr-defined]
+            f"{made.removed} removed, {made.unchanged} unchanged, "  # type: ignore[attr-defined]
+            f"{made.skipped} skipped (unsupported type)"  # type: ignore[attr-defined]
+        )
+        print(
+            f"{made.documents} document(s) mirrored, {made.withheld} withheld "  # type: ignore[attr-defined]
+            f"(readers this connector cannot map), {made.permissions_read} permission "  # type: ignore[attr-defined]
+            f"list(s) read, {made.took_seconds:.1f}s"  # type: ignore[attr-defined]
+        )
+        for error in made.errors:  # type: ignore[attr-defined]
+            print(f"error: {error}", file=sys.stderr)
+        return 1 if made.errors else 0  # type: ignore[attr-defined]
+    last = status["last_sync_at"]
+    when = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(float(last))) if last else "never"
+    print(f"source: {status.get('site') or status.get('subject')}")
+    print(f"last sync: {when}")
+    print(f"{status['documents']} document(s) mirrored, {status['withheld']} withheld")
+    if status["refusal"]:
+        print(f"not running: {status['refusal']}")
+    elif status["last_error"]:
+        print(f"last error: {status['last_error']}")
+    return 0
+
+
 def _cmd_sharepoint(args: argparse.Namespace) -> int:
     """Mirror the configured libraries now, or say how the mirror stands."""
     engine = _engine()
@@ -1218,6 +1262,13 @@ def build_parser() -> argparse.ArgumentParser:
     q.set_defaults(func=_cmd_sharepoint)
     q = sharepoint_sub.add_parser("status", help="when the mirror last ran and what it holds")
     q.set_defaults(func=_cmd_sharepoint)
+
+    p = sub.add_parser("drive", help="mirror Google Drive shared drives into the documents folder")
+    drive_sub = p.add_subparsers(dest="action", required=True)
+    q = drive_sub.add_parser("sync", help="ask Drive what changed, download it, re-index")
+    q.set_defaults(func=_cmd_drive)
+    q = drive_sub.add_parser("status", help="when the mirror last ran and what it holds")
+    q.set_defaults(func=_cmd_drive)
 
     p = sub.add_parser("model", help="which local model answers, and how big its window is")
     model_sub = p.add_subparsers(dest="action", required=True)

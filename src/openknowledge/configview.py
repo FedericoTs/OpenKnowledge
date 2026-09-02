@@ -57,6 +57,7 @@ GROUPS: tuple[tuple[str, tuple[str, ...], tuple[str, ...]], ...] = (
     ),
     ("SharePoint", ("sharepoint_",), ()),
     ("Teams", ("teams_",), ()),
+    ("Google Drive", ("drive_",), ()),
     (
         "Serving",
         ("upload_", "asker_", "tls_", "contact_", "trusted_"),

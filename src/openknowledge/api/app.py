@@ -27,7 +27,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Annotated, Any
+from typing import TYPE_CHECKING, Annotated, Any
 
 from fastapi import (
     BackgroundTasks,
@@ -51,16 +51,6 @@ from ..access import effective_principals, validate_principals
 from ..assets import find_asset
 from ..cache import citations_for
 from ..canonical import canonicalize_query
-from ..channels.base import InboundMessage
-from ..channels.teams import (
-    Connector,
-    Conversation,
-    GroupLookup,
-    TeamsChannel,
-    TeamsConfig,
-    TeamsError,
-    TokenValidator,
-)
 from ..config import Settings, load_settings
 from ..configview import describe as describe_settings
 from ..contacts import ContactError, ContactStore, clean
@@ -95,6 +85,10 @@ from .schemas import (
     ResolveRequest,
     ReviewRequest,
 )
+
+if TYPE_CHECKING:  # imported for types only; see _build_teams for why
+    from ..channels.base import InboundMessage
+    from ..channels.teams import Connector, Conversation, GroupLookup, TeamsChannel, TokenValidator
 
 log = logging.getLogger(__name__)
 
@@ -521,9 +515,22 @@ def _build_teams(settings: Settings) -> _Teams | None:
     A missing app id or password is a configuration error worth refusing at
     startup rather than at the first message: a bot endpoint that accepts
     activities it cannot validate is worse than no endpoint.
+
+    Imported here rather than at the top of the module because validating a
+    Bot Service token needs PyJWT, which is the ``auth`` extra. A base
+    install has no PyJWT and no bot; importing it eagerly made the container
+    exit at startup, which is what the docker job caught.
     """
     if not settings.teams_enabled:
         return None
+    from ..channels.teams import (  # noqa: PLC0415 - needs the auth extra
+        Connector,
+        GroupLookup,
+        TeamsChannel,
+        TeamsConfig,
+        TokenValidator,
+    )
+
     missing = [
         name
         for name, value in (
@@ -611,6 +618,28 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
         return asyncio.create_task(loop())
 
+    def _sync_drive_periodically(app: FastAPI) -> asyncio.Task[None] | None:
+        """The Drive mirror on a timer, exactly as the SharePoint one runs."""
+        if app.state.engine.drive is None:
+            return None
+        seconds = app.state.settings.drive_poll_seconds
+        if seconds <= 0:
+            return None
+
+        async def loop() -> None:
+            while True:
+                try:
+                    engine = app.state.engine
+                    summary = await asyncio.to_thread(engine.drive.run)
+                    if summary.changed:
+                        engine.reindex()
+                        log.info("drive: %s", summary.as_dict())
+                except Exception:  # noqa: BLE001 - a sync must never end the server
+                    log.exception("drive sync failed; will try again")
+                await asyncio.sleep(seconds)
+
+        return asyncio.create_task(loop())
+
     def _sync_sharepoint_periodically(app: FastAPI) -> asyncio.Task[None] | None:
         """Ask Graph what changed, on a timer, and re-index when something did.
 
@@ -648,9 +677,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         _warm_the_model_in_the_background(app.state.settings)
         watcher = _watch_the_documents_folder(app)
         syncer = _sync_sharepoint_periodically(app)
+        drive_syncer = _sync_drive_periodically(app)
         try:
             yield
         finally:
+            if drive_syncer is not None:
+                drive_syncer.cancel()
             if watcher is not None:
                 watcher.cancel()
             if syncer is not None:
@@ -957,6 +989,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             # The mirror's own account of itself, so the page can say when
             # the library was last read and how many files are withheld.
             "sharepoint": engine.sharepoint.status() if engine.sharepoint is not None else None,
+            "drive": engine.drive.status() if engine.drive is not None else None,
         }
 
     @app.post("/documents", status_code=201, dependencies=[Depends(require_uploads)])
@@ -985,10 +1018,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             if safe_folder is None:
                 raise HTTPException(status_code=400, detail="unusable folder name")
             into = safe_folder
-        if engine.sharepoint is not None and engine.sharepoint.owns(into):
+        mirrored_by = engine.mirror_owns(into)
+        if mirrored_by:
             raise HTTPException(
                 status_code=409,
-                detail="that folder is the SharePoint mirror; add the file in SharePoint instead",
+                detail=f"that folder is mirrored from {mirrored_by}; add the file there instead",
             )
         if not _folder_readable(into, engine.knowledge.folder_rules(), _viewer_principals(request)):
             raise HTTPException(
@@ -1080,12 +1114,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         safe = _safe_document_path(name)
         if safe is None:
             raise HTTPException(status_code=400, detail="unusable file name")
-        if engine.sharepoint is not None and engine.sharepoint.owns(safe):
+        mirrored_by = engine.mirror_owns(safe)
+        if mirrored_by:
             # The next sync would put it back; the honest place to remove it
             # is where it lives.
             raise HTTPException(
                 status_code=409,
-                detail="that file is mirrored from SharePoint; remove it there and it will go",
+                detail=f"that file is mirrored from {mirrored_by}; remove it there and it will go",
             )
         parent = safe.rpartition("/")[0]
         if not _folder_readable(
@@ -1116,6 +1151,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         }
 
     if resolved.teams_enabled:
+        from ..channels.teams import TeamsError  # noqa: PLC0415 - needs the auth extra
 
         async def _answer_in_teams(
             teams: _Teams, message: InboundMessage, where: Conversation, engine: Engine
@@ -1991,6 +2027,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         summary = await run_in_threadpool(engine.sync_sharepoint)
         assert summary is not None
         engine.knowledge.record_action(_actor(request), "sharepoint.sync", detail=summary.as_dict())
+        return summary.as_dict()
+
+    @app.post("/admin/drive/sync", dependencies=[AdminOnly])
+    async def drive_sync_now(engine: EngineDep, request: Request) -> dict[str, Any]:
+        """Ask Drive what changed now rather than at the next tick."""
+        if engine.drive is None:
+            raise HTTPException(status_code=404, detail="the Drive mirror is not configured")
+        summary = await run_in_threadpool(engine.sync_drive)
+        assert summary is not None
+        engine.knowledge.record_action(_actor(request), "drive.sync", detail=summary.as_dict())
         return summary.as_dict()
 
     @app.get("/admin/config", dependencies=[AdminOnly])

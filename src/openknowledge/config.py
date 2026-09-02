@@ -163,6 +163,28 @@ class Settings(BaseSettings):
     sharepoint_graph_url: str = "https://graph.microsoft.com/v1.0"
     sharepoint_login_url: str = "https://login.microsoftonline.com"
 
+    # -- Google Drive (docs/DRIVE.md) --------------------------------------
+    #: Mirror shared drives into <documents>/gdrive/, each file stamped with
+    #: the readers Drive says it has. Off by default.
+    drive_enabled: bool = False
+    #: From the service account's JSON key file.
+    drive_client_email: str = ""
+    drive_private_key: str | None = None
+    #: The person to impersonate through domain-wide delegation. Empty means
+    #: act as the service account, which then sees only what was shared with it.
+    drive_subject: str = ""
+    #: The Workspace domain a "whole domain" grant must name to count as
+    #: "anyone signed in". Another domain's people are not this company's.
+    drive_domain: str = ""
+    #: Shared drive ids to mirror; empty means every one the account can see.
+    drive_ids: list[str] = Field(default_factory=list)
+    drive_poll_seconds: int = Field(default=300, ge=0)
+    drive_permissions_refresh_seconds: int = Field(default=3600, ge=60)
+    #: With sign-in off no reader can be enforced. Same refusal as SharePoint.
+    drive_require_signin: bool = True
+    drive_api_url: str = "https://www.googleapis.com/drive/v3"
+    drive_token_url: str = "https://oauth2.googleapis.com/token"
+
     # -- Microsoft Teams (docs/TEAMS.md) -----------------------------------
     #: Answer in Teams as a bot. Off by default, and when off the bot endpoint
     #: is not registered at all rather than registered and refusing.

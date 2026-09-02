@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from openknowledge.connectors import Connector, GoogleDriveConnector, LocalFilesConnector
+from openknowledge.connectors import Connector, LocalFilesConnector
 
 
 @pytest.fixture
@@ -94,9 +94,17 @@ def test_content_hash_tracks_edits(corpus: Path) -> None:
     assert hash_of("notes") != before
 
 
-def test_unimplemented_connectors_say_what_they_need() -> None:
-    with pytest.raises(NotImplementedError, match="service account"):
-        GoogleDriveConnector().fetch()
+def test_every_connector_this_package_exports_is_built() -> None:
+    """There used to be a `cloud_stubs` module holding connectors that were
+    specified and not written, so the shape of the work was visible. Both are
+    written now - SharePoint and Google Drive mirror into the documents folder
+    and stamp each file with its readers - so the placeholder is gone, and
+    this stands where its test did: nothing here raises NotImplementedError."""
+    import openknowledge.connectors as package
+
+    for name in package.__all__:
+        exported = getattr(package, name)
+        assert not getattr(exported, "setup_hint", None), f"{name} is still a placeholder"
 
 
 def test_an_email_from_line_is_not_a_title(tmp_path: Path) -> None:

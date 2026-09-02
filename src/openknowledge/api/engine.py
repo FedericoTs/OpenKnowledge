@@ -14,6 +14,7 @@ from ..cascade.budget import Budget
 from ..cascade.ladder import Ladder, Rung
 from ..config import Settings
 from ..connectors import LocalFilesConnector
+from ..connectors.drive import DriveClient, DriveConfig, DriveSync
 from ..connectors.sharepoint import (
     GraphClient,
     GraphConfig,
@@ -59,6 +60,10 @@ class Engine:
     #: documents folder and stamps their readers; the local connector reads
     #: them like any other file.
     sharepoint: SharePointSync | None = None
+    #: The Google Drive mirror, when one is configured. Same contract as the
+    #: SharePoint one: it writes files into the documents folder and stamps
+    #: their readers, and the local connector reads them like any other file.
+    drive: DriveSync | None = None
     #: Last fetched corpus, so `learn` does not re-read every file from disk.
     documents: list[Document] = field(default_factory=list)
     #: What the last reindex reported as new or changed.
@@ -122,12 +127,39 @@ class Engine:
         None when no mirror is configured. Free apart from the downloads: the
         sync calls Graph, the re-index calls no model.
         """
-        if self.sharepoint is None:
+        return self._sync(self.sharepoint)
+
+    def sync_drive(self) -> SyncSummary | None:
+        """The same, for the Google Drive mirror."""
+        return self._sync(self.drive)
+
+    def _sync(self, mirror: SharePointSync | DriveSync | None) -> SyncSummary | None:
+        if mirror is None:
             return None
-        summary = self.sharepoint.run()
+        summary = mirror.run()
         if summary.changed:
             self.reindex()
         return summary
+
+    def mirror_principals(self) -> dict[str, frozenset[str]]:
+        """Readers every configured mirror stamped, merged.
+
+        Two mirrors cannot claim the same path - each owns its own folder
+        under the documents root - so a merge is a union and never a choice
+        between two answers about who may read something.
+        """
+        found: dict[str, frozenset[str]] = {}
+        for mirror in (self.sharepoint, self.drive):
+            if mirror is not None:
+                found.update(mirror.principals_map())
+        return found
+
+    def mirror_owns(self, relative_path: str) -> str | None:
+        """Which mirror, if any, put this file here - by the name a person knows."""
+        for mirror in (self.sharepoint, self.drive):
+            if mirror is not None and mirror.owns(relative_path):
+                return mirror.label
+        return None
 
     def reindex(self) -> tuple[int, int, str, int]:
         """Re-read the corpus. Free: this never calls a model.
@@ -482,11 +514,57 @@ def _build_sharepoint(settings: Settings) -> SharePointSync | None:
     )
 
 
+def _mirror_refusal(settings: Settings, missing: list[str], require_signin: bool) -> str | None:
+    """Why a mirror must not run, in the words an operator can act on."""
+    if missing:
+        return f"the mirror is on but {' and '.join(missing)} is unset"
+    if settings.auth_mode != "oidc" and require_signin:
+        return (
+            "sign-in is off, so no reader could be enforced and every mirrored document "
+            "would be readable by whoever reaches the widget; turn on OK_AUTH_MODE=oidc, "
+            "or turn the require-sign-in setting off to mirror anyway"
+        )
+    return None
+
+
+def _build_drive(settings: Settings) -> DriveSync | None:
+    """The Drive mirror, when it is switched on - refusing when it could leak."""
+    if not settings.drive_enabled:
+        return None
+    missing = [
+        name
+        for name, value in (
+            ("OK_DRIVE_CLIENT_EMAIL", settings.drive_client_email),
+            ("OK_DRIVE_PRIVATE_KEY", settings.drive_private_key),
+            ("OK_DRIVE_DOMAIN", settings.drive_domain),
+        )
+        if not value
+    ]
+    config = DriveConfig(
+        client_email=settings.drive_client_email,
+        private_key=settings.drive_private_key or "",
+        subject=settings.drive_subject,
+        domain=settings.drive_domain,
+        drive_ids=tuple(settings.drive_ids),
+        api_url=settings.drive_api_url,
+        token_url=settings.drive_token_url,
+    )
+    Path(settings.data_dir).mkdir(parents=True, exist_ok=True)
+    return DriveSync(
+        DriveClient(config),
+        documents_dir=settings.documents_dir,
+        store=SyncStore(Path(settings.data_dir) / "drive.db"),
+        permissions_refresh_seconds=settings.drive_permissions_refresh_seconds,
+        refusal=_mirror_refusal(settings, missing, settings.drive_require_signin),
+    )
+
+
 def build_engine(settings: Settings) -> Engine:
     store = AnswerStore(settings.db_path)
     knowledge = KnowledgeStore(settings.knowledge_db_path)
     retriever = _build_retriever(settings)
     sharepoint = _build_sharepoint(settings)
+    drive = _build_drive(settings)
     connector = LocalFilesConnector(
         settings.documents_dir,
         pdf_backend=settings.pdf_backend,
@@ -494,8 +572,8 @@ def build_engine(settings: Settings) -> Engine:
         # admin decisions that change at runtime, and each re-index reads
         # the ones in force.
         folder_rules=knowledge.folder_rules,
-        # Likewise the readers SharePoint stamped on the files it mirrored.
-        file_principals=sharepoint.principals_map if sharepoint is not None else None,
+        # Likewise the readers each mirror stamped on the files it wrote.
+        file_principals=None,
         # Parsing dominates every scan on the formats a company actually has:
         # 780ms for one small PDF against 6ms for the same words in markdown,
         # almost all of it a Java process starting up. Persisted, so a restart
@@ -529,6 +607,10 @@ def build_engine(settings: Settings) -> Engine:
         local=local,
         frontier=frontier,
         sharepoint=sharepoint,
+        drive=drive,
     )
+    # Bound after the engine exists so one callable covers every mirror, and
+    # so a mirror added later is read without rebuilding the connector.
+    connector.file_principals = engine.mirror_principals
     engine.reindex()
     return engine

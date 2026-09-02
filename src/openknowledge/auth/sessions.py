@@ -19,6 +19,7 @@ Two tables, both boring on purpose:
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import secrets
@@ -41,6 +42,7 @@ CREATE TABLE IF NOT EXISTS sessions (
     subject     TEXT NOT NULL,
     name        TEXT NOT NULL,
     groups_json TEXT NOT NULL DEFAULT '[]',
+    email       TEXT NOT NULL DEFAULT '',
     created_at  REAL NOT NULL,
     expires_at  REAL NOT NULL
 );
@@ -68,6 +70,7 @@ class Session:
     name: str
     groups: tuple[str, ...]
     expires_at: float
+    email: str = ""
 
     @property
     def principals(self) -> frozenset[str]:
@@ -77,10 +80,17 @@ class Session:
         ``user:{id}`` and ``group:{id}`` say someone in particular. Minted
         here and only here - the server never accepts these from the wire
         while sign-in is on.
+
+        A verified email is minted as a second ``user:`` principal, because
+        not every source names people by directory id: Google Drive grants
+        read to an address. An address and a directory id can never collide,
+        so both live in one namespace safely, and a person matches only
+        their own verified address.
         """
-        return frozenset(
-            {"authenticated", f"user:{self.subject}", *(f"group:{g}" for g in self.groups)}
-        )
+        found = {"authenticated", f"user:{self.subject}", *(f"group:{g}" for g in self.groups)}
+        if self.email:
+            found.add(f"user:{self.email}")
+        return frozenset(found)
 
 
 class SessionStore:
@@ -98,6 +108,11 @@ class SessionStore:
         self._lock = threading.RLock()
         with self._lock:
             self._conn.executescript(_SCHEMA)
+            # A database written before sessions carried an email has the
+            # table without the column. Adding it is idempotent and keeps a
+            # running install's people signed in across the upgrade.
+            with contextlib.suppress(sqlite3.OperationalError):
+                self._conn.execute("ALTER TABLE sessions ADD COLUMN email TEXT NOT NULL DEFAULT ''")
             # A database created before next_path existed gains the column;
             # CREATE IF NOT EXISTS cannot add it to an existing table.
             columns = {
@@ -121,13 +136,14 @@ class SessionStore:
         now = _now()
         with self._lock:
             self._conn.execute(
-                "INSERT INTO sessions (token_hash, subject, name, groups_json,"
-                " created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?)",
+                "INSERT INTO sessions (token_hash, subject, name, groups_json, email,"
+                " created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
                 (
                     _hashed(token),
                     identity.subject,
                     identity.name,
                     json.dumps(list(identity.groups)),
+                    identity.email,
                     now,
                     now + ttl_seconds,
                 ),
@@ -152,6 +168,7 @@ class SessionStore:
             name=row["name"],
             groups=tuple(json.loads(row["groups_json"])),
             expires_at=row["expires_at"],
+            email=row["email"],
         )
 
     def delete(self, token: str) -> None:

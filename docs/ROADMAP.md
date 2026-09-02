@@ -295,8 +295,18 @@ Honest status. "Built" means implemented and covered by tests in this repository
    the share the mapping cannot express, how Graph throttles a few thousand files —
    see [SHAREPOINT.md](SHAREPOINT.md). Group expansion of classic SharePoint site
    groups is not built; modern sites' Entra-backed groups map directly.
-9. **Google Drive connector.** Same shape: service account with domain-wide delegation,
-   `files.list`, and permission mapping including inherited folder ACLs.
+9. **Google Drive connector — built against a fake, not yet against a Workspace.**
+   Service account with domain-wide delegation, `changes.list` per shared drive
+   (changes only after the first walk), Google-native files exported as .docx/.xlsx/.pptx
+   so the parsers get real structure, permissions asked per file and re-asked on a clock.
+   The mapping is the interesting part: Drive names people by email where the directory
+   names them by id, so a user grant becomes `user:<email>`, a group grant
+   `group:<group-email>`, a whole-domain grant `authenticated` only when it names the
+   configured domain — and sign-in now mints `user:<verified email>` so the two
+   vocabularies meet. A grant that cannot be expressed is dropped and a file with no
+   mappable reader is withheld. Group-email grants depend on the sign-in emitting group
+   emails, which Entra does not; see [DRIVE.md](DRIVE.md). What is owed is the first run
+   against a real Workspace.
 10. **Teams channel — built against a fake, not yet against a tenant.** A bot endpoint
    that proves every inbound activity (signature, issuer, audience, expiry, and the
    `serviceUrl` claim against the activity's own, so a token cannot be replayed with the

@@ -73,6 +73,13 @@ class Identity:
     subject: str
     name: str
     groups: tuple[str, ...]
+    #: The person's verified email, when the provider vouches for one. Kept
+    #: because some sources name people by address rather than by directory
+    #: id - Google Drive grants read to alice@contoso.com, not to a GUID -
+    #: and a principal minted from a verified claim is the only honest way
+    #: for the two vocabularies to meet. Empty when the claim is absent or
+    #: the provider says it is unverified.
+    email: str = ""
 
 
 class OidcClient:
@@ -262,7 +269,13 @@ class OidcClient:
             raise OidcError(f"the {self.groups_claim!r} claim is not a list")
         groups = tuple(str(g) for g in raw_groups)
         name = str(claims.get("name") or claims.get("preferred_username") or subject)
-        return Identity(subject=str(subject), name=name, groups=groups)
+        # Only a claim the provider vouches for. An unverified address is
+        # something the person typed, and minting a principal from it would
+        # let anyone read another person's documents by claiming their email.
+        email = str(claims.get("email") or "").strip().lower()
+        if claims.get("email_verified") is False:
+            email = ""
+        return Identity(subject=str(subject), name=name, groups=groups, email=email)
 
 
 def _b64url(data: bytes) -> str:

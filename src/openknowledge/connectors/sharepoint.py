@@ -32,21 +32,25 @@ first such run is the measurement this module still owes (ROADMAP item 8).
 
 from __future__ import annotations
 
-import json
 import logging
 import os
-import re
-import sqlite3
 import threading
 import time
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import unquote
 
 import httpx
 
 from ..documents import is_supported
+from .mirror import (
+    WITHHELD,
+    ItemRow,
+    SyncStore,
+    SyncSummary,
+    safe_segment,
+)
 
 log = logging.getLogger(__name__)
 
@@ -54,13 +58,9 @@ GRAPH_URL = "https://graph.microsoft.com/v1.0"
 LOGIN_URL = "https://login.microsoftonline.com"
 #: The folder under the documents root that the mirror owns.
 MIRROR_FOLDER = "sharepoint"
-#: Stamped on a file whose readers could not be mapped: nobody holds it, so
-#: the file is indexed and shown to no one rather than to everyone.
-WITHHELD = "sharepoint:unmapped"
 #: Retry-After when Graph throttles and does not say how long.
 _DEFAULT_BACKOFF = 2.0
 _MAX_BACKOFF = 60.0
-_BAD_SEGMENT = re.compile(r'[<>:"|?*\x00-\x1f]')
 
 
 class GraphError(RuntimeError):
@@ -280,200 +280,22 @@ def principals_from(permissions: list[dict]) -> tuple[frozenset[str], int]:
     return frozenset(mapped), unmapped
 
 
-# -- what the sync remembers -----------------------------------------------------------
-
-_SCHEMA = """
-CREATE TABLE IF NOT EXISTS drives (
-    drive_id   TEXT PRIMARY KEY,
-    name       TEXT NOT NULL,
-    folder     TEXT NOT NULL,
-    delta_link TEXT,
-    synced_at  REAL
-);
-CREATE TABLE IF NOT EXISTS items (
-    item_id        TEXT PRIMARY KEY,
-    drive_id       TEXT NOT NULL,
-    relative_path  TEXT NOT NULL,
-    etag           TEXT NOT NULL,
-    principals     TEXT NOT NULL,
-    unmapped       INTEGER NOT NULL DEFAULT 0,
-    permissions_at REAL NOT NULL
-);
-CREATE TABLE IF NOT EXISTS status (
-    key   TEXT PRIMARY KEY,
-    value TEXT NOT NULL
-);
-"""
-
-
-@dataclass(frozen=True, slots=True)
-class ItemRow:
-    item_id: str
-    drive_id: str
-    relative_path: str
-    etag: str
-    principals: frozenset[str]
-    unmapped: int
-    permissions_at: float
-
-
-class SyncStore:
-    """Delta links, mirrored items and their principals, in one SQLite file."""
-
-    def __init__(self, path: str | Path = ":memory:") -> None:
-        self._conn = sqlite3.connect(str(path), check_same_thread=False)
-        self._conn.row_factory = sqlite3.Row
-        self._conn.executescript(_SCHEMA)
-        self._lock = threading.Lock()
-
-    def close(self) -> None:
-        self._conn.close()
-
-    def drive(self, drive_id: str) -> sqlite3.Row | None:
-        return self._conn.execute("SELECT * FROM drives WHERE drive_id = ?", (drive_id,)).fetchone()
-
-    def set_drive(
-        self, drive_id: str, name: str, folder: str, delta_link: str | None, now: float
-    ) -> None:
-        with self._lock:
-            self._conn.execute(
-                "INSERT INTO drives (drive_id, name, folder, delta_link, synced_at)"
-                " VALUES (?, ?, ?, ?, ?)"
-                " ON CONFLICT(drive_id) DO UPDATE SET name = excluded.name,"
-                " folder = excluded.folder, delta_link = excluded.delta_link,"
-                " synced_at = excluded.synced_at",
-                (drive_id, name, folder, delta_link, now),
-            )
-            self._conn.commit()
-
-    def items_for(self, drive_id: str) -> dict[str, ItemRow]:
-        rows = self._conn.execute("SELECT * FROM items WHERE drive_id = ?", (drive_id,)).fetchall()
-        return {r["item_id"]: self._row(r) for r in rows}
-
-    def upsert(self, row: ItemRow) -> None:
-        with self._lock:
-            self._conn.execute(
-                "INSERT INTO items (item_id, drive_id, relative_path, etag, principals, unmapped,"
-                " permissions_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
-                " ON CONFLICT(item_id) DO UPDATE SET drive_id = excluded.drive_id,"
-                " relative_path = excluded.relative_path, etag = excluded.etag,"
-                " principals = excluded.principals, unmapped = excluded.unmapped,"
-                " permissions_at = excluded.permissions_at",
-                (
-                    row.item_id,
-                    row.drive_id,
-                    row.relative_path,
-                    row.etag,
-                    json.dumps(sorted(row.principals)),
-                    row.unmapped,
-                    row.permissions_at,
-                ),
-            )
-            self._conn.commit()
-
-    def remove(self, item_id: str) -> None:
-        with self._lock:
-            self._conn.execute("DELETE FROM items WHERE item_id = ?", (item_id,))
-            self._conn.commit()
-
-    def forget_drive(self, drive_id: str) -> None:
-        with self._lock:
-            self._conn.execute("DELETE FROM items WHERE drive_id = ?", (drive_id,))
-            self._conn.execute("DELETE FROM drives WHERE drive_id = ?", (drive_id,))
-            self._conn.commit()
-
-    def principals_map(self) -> dict[str, frozenset[str]]:
-        rows = self._conn.execute("SELECT relative_path, principals FROM items").fetchall()
-        return {r["relative_path"]: frozenset(json.loads(r["principals"])) for r in rows}
-
-    def counts(self) -> tuple[int, int, int]:
-        """Documents mirrored, withheld, and grants left unmapped."""
-        row = self._conn.execute(
-            "SELECT COUNT(*) AS n, SUM(principals LIKE ?) AS withheld, SUM(unmapped) AS unmapped"
-            " FROM items",
-            (f'%"{WITHHELD}"%',),
-        ).fetchone()
-        return int(row["n"]), int(row["withheld"] or 0), int(row["unmapped"] or 0)
-
-    def set_status(self, key: str, value: object) -> None:
-        with self._lock:
-            self._conn.execute(
-                "INSERT INTO status (key, value) VALUES (?, ?)"
-                " ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-                (key, json.dumps(value)),
-            )
-            self._conn.commit()
-
-    def get_status(self, key: str) -> object:
-        row = self._conn.execute("SELECT value FROM status WHERE key = ?", (key,)).fetchone()
-        return json.loads(row["value"]) if row else None
-
-    @staticmethod
-    def _row(r: sqlite3.Row) -> ItemRow:
-        return ItemRow(
-            item_id=r["item_id"],
-            drive_id=r["drive_id"],
-            relative_path=r["relative_path"],
-            etag=r["etag"],
-            principals=frozenset(json.loads(r["principals"])),
-            unmapped=int(r["unmapped"]),
-            permissions_at=float(r["permissions_at"]),
-        )
-
-
 # -- the sync --------------------------------------------------------------------------
-
-
-@dataclass
-class SyncSummary:
-    """What one run did, so it can be printed rather than trusted."""
-
-    drives: int = 0
-    added: int = 0
-    updated: int = 0
-    removed: int = 0
-    unchanged: int = 0
-    skipped: int = 0
-    permissions_read: int = 0
-    documents: int = 0
-    withheld: int = 0
-    unmapped_grants: int = 0
-    errors: list[str] = field(default_factory=list)
-    took_seconds: float = 0.0
-
-    @property
-    def changed(self) -> bool:
-        return bool(self.added or self.updated or self.removed)
-
-    def as_dict(self) -> dict[str, object]:
-        return {
-            "drives": self.drives,
-            "added": self.added,
-            "updated": self.updated,
-            "removed": self.removed,
-            "unchanged": self.unchanged,
-            "skipped": self.skipped,
-            "permissions_read": self.permissions_read,
-            "documents": self.documents,
-            "withheld": self.withheld,
-            "unmapped_grants": self.unmapped_grants,
-            "errors": list(self.errors),
-            "took_seconds": round(self.took_seconds, 3),
-        }
-
-
-def _safe_segment(name: str) -> str:
-    cleaned = _BAD_SEGMENT.sub("_", name).strip().rstrip(".")
-    return cleaned or "_"
 
 
 class SharePointSync:
     """Mirror the configured libraries into the documents folder.
 
+    ``label`` is what a person is told when they try to change a mirrored
+    file through the app: "remove it in SharePoint" is actionable, "remove it
+    at its source" is not.
+
     ``refusal`` is a sentence the wiring sets when the sync must not run - the
     one case today being sign-in off, where no principal can be enforced and a
     mirrored library would be readable by whoever reaches the widget.
     """
+
+    label = "SharePoint"
 
     def __init__(
         self,
@@ -558,7 +380,7 @@ class SharePointSync:
     def _sync_drive(self, drive: dict, summary: SyncSummary) -> None:
         drive_id = str(drive["id"])
         name = str(drive.get("name") or drive_id)
-        folder = f"{MIRROR_FOLDER}/{_safe_segment(name)}"
+        folder = f"{MIRROR_FOLDER}/{safe_segment(name)}"
         known_drive = self.store.drive(drive_id)
         link = known_drive["delta_link"] if known_drive is not None else None
         try:
@@ -657,7 +479,7 @@ class SharePointSync:
             return None
         if not is_supported(name):
             return None
-        return "/".join([folder, *(_safe_segment(part) for part in segments)])
+        return "/".join([folder, *(safe_segment(part) for part in segments)])
 
     def _write(self, target: Path, data: bytes) -> None:
         target.parent.mkdir(parents=True, exist_ok=True)
