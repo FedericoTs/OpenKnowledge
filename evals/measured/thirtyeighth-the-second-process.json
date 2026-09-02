@@ -1,0 +1,138 @@
+{
+  "what": "Whether the server's SQLite stores survive being used concurrently - by its own thread pool, and by the second process that a CLI `costs`, a backup or a second worker creates.",
+  "how": "uv run python tools/measure_locking.py --seconds 5 --json. Four readers and two writers hammering one AnswerStore for five seconds per case, with a further connection on the same file where the case says so. The cases marked (before) issue the same three ledger queries straight at the connection, which is what the store's reads did until this measurement; the rest go through the store, whose reads now take the same lock its writes always took. Same machine as every other record here: 4 CPU cores, no GPU.",
+  "the_measurement_that_changed_the_code": "A reading of the code said the reads were unguarded and the first harness produced 2,889 errors *with* the supposed fix, which meant the harness was the thing under test. Two premises were wrong and both took one line to check: Python's sqlite3.connect already sets busy_timeout=5000, so 'no busy timeout anywhere' was simply false; and journal_mode=WAL is a property of the file, so setting it on one open connection while another holds the file in rollback mode causes the storm it was supposed to prevent. Corrected, the failure is real but needs two conditions at once - a connection shared between threads AND a second connection on the same file - which is why nothing had ever caught it. 37 methods across five stores now take the lock; tests/test_store_locking.py holds it, and reads the source rather than only stressing it, because the sabotage run showed the stress test catches recent_questions and misses cost_report.",
+  "measured": [
+    {
+      "case": "one connection, reads only",
+      "connections": 1,
+      "wal": false,
+      "locked_reads": true,
+      "other_processes": 0,
+      "writes": 0,
+      "reads": 32621,
+      "ops_per_second": 6524.2,
+      "errors": {},
+      "error_total": 0,
+      "error_rate": 0.0,
+      "wrong_answers": 0
+    },
+    {
+      "case": "one connection, reads and writes",
+      "connections": 1,
+      "wal": false,
+      "locked_reads": true,
+      "other_processes": 0,
+      "writes": 908,
+      "reads": 4116,
+      "ops_per_second": 1004.8,
+      "errors": {},
+      "error_total": 0,
+      "error_rate": 0.0,
+      "wrong_answers": 0
+    },
+    {
+      "case": "...with reads going past the lock (before)",
+      "connections": 1,
+      "wal": false,
+      "locked_reads": false,
+      "other_processes": 0,
+      "writes": 1298,
+      "reads": 496,
+      "ops_per_second": 358.8,
+      "errors": {},
+      "error_total": 0,
+      "error_rate": 0.0,
+      "wrong_answers": 0
+    },
+    {
+      "case": "one connection, and a second process writing",
+      "connections": 2,
+      "wal": false,
+      "locked_reads": true,
+      "other_processes": 1,
+      "writes": 2493,
+      "reads": 5,
+      "ops_per_second": 499.6,
+      "errors": {},
+      "error_total": 0,
+      "error_rate": 0.0,
+      "wrong_answers": 0
+    },
+    {
+      "case": "...with reads going past the lock (before)",
+      "connections": 2,
+      "wal": false,
+      "locked_reads": false,
+      "other_processes": 1,
+      "writes": 601,
+      "reads": 1604,
+      "ops_per_second": 441.0,
+      "errors": {
+        "database is locked": 3614,
+        "cursor interference": 2022,
+        "OperationalError: not an error": 36,
+        "DatabaseError: not an error": 19
+      },
+      "error_total": 5691,
+      "error_rate": 0.7207,
+      "wrong_answers": 0
+    },
+    {
+      "case": "...that, in WAL mode",
+      "connections": 2,
+      "wal": true,
+      "locked_reads": false,
+      "other_processes": 1,
+      "writes": 2737,
+      "reads": 1352,
+      "ops_per_second": 817.8,
+      "errors": {
+        "database is locked": 3586,
+        "cursor interference": 1826,
+        "OperationalError: not an error": 35,
+        "DatabaseError: not an error": 23
+      },
+      "error_total": 5470,
+      "error_rate": 0.5722,
+      "wrong_answers": 0
+    },
+    {
+      "case": "one connection per thread, one file",
+      "connections": 6,
+      "wal": false,
+      "locked_reads": true,
+      "other_processes": 0,
+      "writes": 2949,
+      "reads": 11,
+      "ops_per_second": 592.0,
+      "errors": {},
+      "error_total": 0,
+      "error_rate": 0.0,
+      "wrong_answers": 0
+    },
+    {
+      "case": "one connection per thread, one file, WAL",
+      "connections": 6,
+      "wal": true,
+      "locked_reads": true,
+      "other_processes": 0,
+      "writes": 4353,
+      "reads": 3476,
+      "ops_per_second": 1565.8,
+      "errors": {},
+      "error_total": 0,
+      "error_rate": 0.0,
+      "wrong_answers": 0
+    }
+  ],
+  "what_it_means": "With a second process on the file, 72% of every operation failed before the fix and none did after. The failures were not only 'database is locked' (3,614): 2,022 were cursors reporting 'another row available' and 55 were errors whose message had been scrambled to 'not an error' by a second thread clearing the connection's error state mid-report - so even the retry path was unreliable. Three runs put the pre-fix error rate between 54% and 82%; it was never zero and never small. The lock also made the server faster: 1,004.8 operations a second against 358.8, because threads contending on one connection were costing more than serialising them does. Nothing was ever silently wrong - across every case, zero reads returned a smaller ledger count than an earlier read, so the failures were loud.",
+  "what_it_deliberately_does_not_do": "Two things. It does not make WAL look like the fix, because it is not one: in WAL mode the same pre-fix code still failed 57% of the time. WAL earns its place elsewhere - two connections on one file, no sharing, ran 1,565.8 operations a second against 592.0 - so it is worth having and is not what makes concurrent use correct. And it does not claim these are capacity numbers for a real deployment: every operation here is a ledger query with no model call and no retrieval behind it, so the ops/s are a ratio between configurations, not a supported user count.",
+  "platform": {
+    "python": "3.11.15",
+    "sqlite": "3.45.1",
+    "sqlite_threading": "THREADSAFE=1 (serialized)",
+    "machine": "x86_64",
+    "cpus": 4
+  }
+}

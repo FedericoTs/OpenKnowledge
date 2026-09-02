@@ -150,19 +150,22 @@ class ParseCache:
         self.close()
 
     def get(self, key: str) -> ParsedDocument | None:
-        try:
-            row = self._conn.execute("SELECT parsed FROM parses WHERE key = ?", (key,)).fetchone()
-        except sqlite3.Error:
-            return None
-        if row is None:
-            self.misses += 1
-            return None
-        parsed = _from_json(row["parsed"])
-        if parsed is None:
-            self.misses += 1
-            return None
-        self.hits += 1
-        return parsed
+        with self._lock:
+            try:
+                row = self._conn.execute(
+                    "SELECT parsed FROM parses WHERE key = ?", (key,)
+                ).fetchone()
+            except sqlite3.Error:
+                return None
+            if row is None:
+                self.misses += 1
+                return None
+            parsed = _from_json(row["parsed"])
+            if parsed is None:
+                self.misses += 1
+                return None
+            self.hits += 1
+            return parsed
 
     def put(self, key: str, parsed: ParsedDocument) -> None:
         """Remember a parse. A failure here costs speed, never correctness."""
@@ -199,8 +202,9 @@ class ParseCache:
         return len(stale)
 
     def __len__(self) -> int:
-        try:
-            row = self._conn.execute("SELECT COUNT(*) AS n FROM parses").fetchone()
-        except sqlite3.Error:
-            return 0
-        return int(row["n"])
+        with self._lock:
+            try:
+                row = self._conn.execute("SELECT COUNT(*) AS n FROM parses").fetchone()
+            except sqlite3.Error:
+                return 0
+            return int(row["n"])

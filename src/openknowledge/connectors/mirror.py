@@ -76,13 +76,17 @@ class SyncStore:
         self._conn = sqlite3.connect(str(path), check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         self._conn.executescript(_SCHEMA)
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
 
     def close(self) -> None:
-        self._conn.close()
+        with self._lock:
+            self._conn.close()
 
     def drive(self, drive_id: str) -> sqlite3.Row | None:
-        return self._conn.execute("SELECT * FROM drives WHERE drive_id = ?", (drive_id,)).fetchone()
+        with self._lock:
+            return self._conn.execute(
+                "SELECT * FROM drives WHERE drive_id = ?", (drive_id,)
+            ).fetchone()
 
     def set_drive(
         self, drive_id: str, name: str, folder: str, delta_link: str | None, now: float
@@ -99,8 +103,11 @@ class SyncStore:
             self._conn.commit()
 
     def items_for(self, drive_id: str) -> dict[str, ItemRow]:
-        rows = self._conn.execute("SELECT * FROM items WHERE drive_id = ?", (drive_id,)).fetchall()
-        return {r["item_id"]: self._row(r) for r in rows}
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT * FROM items WHERE drive_id = ?", (drive_id,)
+            ).fetchall()
+            return {r["item_id"]: self._row(r) for r in rows}
 
     def upsert(self, row: ItemRow) -> None:
         with self._lock:
@@ -135,17 +142,19 @@ class SyncStore:
             self._conn.commit()
 
     def principals_map(self) -> dict[str, frozenset[str]]:
-        rows = self._conn.execute("SELECT relative_path, principals FROM items").fetchall()
-        return {r["relative_path"]: frozenset(json.loads(r["principals"])) for r in rows}
+        with self._lock:
+            rows = self._conn.execute("SELECT relative_path, principals FROM items").fetchall()
+            return {r["relative_path"]: frozenset(json.loads(r["principals"])) for r in rows}
 
     def counts(self) -> tuple[int, int, int]:
         """Documents mirrored, withheld, and grants left unmapped."""
-        row = self._conn.execute(
-            "SELECT COUNT(*) AS n, SUM(principals LIKE ? OR principals LIKE ?) AS withheld,"
-            " SUM(unmapped) AS unmapped FROM items",
-            (f'%"{WITHHELD}"%', f'%"{LEGACY_WITHHELD}"%'),
-        ).fetchone()
-        return int(row["n"]), int(row["withheld"] or 0), int(row["unmapped"] or 0)
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT COUNT(*) AS n, SUM(principals LIKE ? OR principals LIKE ?) AS withheld,"
+                " SUM(unmapped) AS unmapped FROM items",
+                (f'%"{WITHHELD}"%', f'%"{LEGACY_WITHHELD}"%'),
+            ).fetchone()
+            return int(row["n"]), int(row["withheld"] or 0), int(row["unmapped"] or 0)
 
     def set_status(self, key: str, value: object) -> None:
         with self._lock:
@@ -157,8 +166,9 @@ class SyncStore:
             self._conn.commit()
 
     def get_status(self, key: str) -> object:
-        row = self._conn.execute("SELECT value FROM status WHERE key = ?", (key,)).fetchone()
-        return json.loads(row["value"]) if row else None
+        with self._lock:
+            row = self._conn.execute("SELECT value FROM status WHERE key = ?", (key,)).fetchone()
+            return json.loads(row["value"]) if row else None
 
     @staticmethod
     def _row(r: sqlite3.Row) -> ItemRow:

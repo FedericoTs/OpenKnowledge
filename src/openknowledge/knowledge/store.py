@@ -407,26 +407,31 @@ class KnowledgeStore:
         )
 
     def get(self, proposal_id_: str) -> Proposal | None:
-        row = self._conn.execute("SELECT * FROM proposals WHERE id = ?", (proposal_id_,)).fetchone()
-        return self._row_to_proposal(row) if row else None
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT * FROM proposals WHERE id = ?", (proposal_id_,)
+            ).fetchone()
+            return self._row_to_proposal(row) if row else None
 
     def draft_for(self, canonical_query: str) -> Proposal | None:
         """The servable draft for a question, if there is one."""
-        row = self._conn.execute(
-            "SELECT * FROM proposals WHERE canonical_query = ? AND status = ?"
-            " ORDER BY support_ratio DESC LIMIT 1",
-            (canonical_query, ProposalStatus.DRAFT),
-        ).fetchone()
-        return self._row_to_proposal(row) if row else None
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT * FROM proposals WHERE canonical_query = ? AND status = ?"
+                " ORDER BY support_ratio DESC LIMIT 1",
+                (canonical_query, ProposalStatus.DRAFT),
+            ).fetchone()
+            return self._row_to_proposal(row) if row else None
 
     def pending(self, limit: int = 50) -> list[Proposal]:
         """Drafts awaiting review, most valuable first."""
-        rows = self._conn.execute(
-            "SELECT * FROM proposals WHERE status = ?"
-            " ORDER BY priority DESC, support_ratio DESC, created_at ASC LIMIT ?",
-            (ProposalStatus.DRAFT, limit),
-        ).fetchall()
-        return [self._row_to_proposal(r) for r in rows]
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT * FROM proposals WHERE status = ?"
+                " ORDER BY priority DESC, support_ratio DESC, created_at ASC LIMIT ?",
+                (ProposalStatus.DRAFT, limit),
+            ).fetchall()
+            return [self._row_to_proposal(r) for r in rows]
 
     def _review(
         self, proposal_id_: str, status: ProposalStatus, reviewer: str | None, note: str | None
@@ -472,13 +477,14 @@ class KnowledgeStore:
         return stale
 
     def _all(self, status: ProposalStatus | None = None) -> list[Proposal]:
-        if status is None:
-            rows = self._conn.execute("SELECT * FROM proposals").fetchall()
-        else:
-            rows = self._conn.execute(
-                "SELECT * FROM proposals WHERE status = ?", (status,)
-            ).fetchall()
-        return [self._row_to_proposal(r) for r in rows]
+        with self._lock:
+            if status is None:
+                rows = self._conn.execute("SELECT * FROM proposals").fetchall()
+            else:
+                rows = self._conn.execute(
+                    "SELECT * FROM proposals WHERE status = ?", (status,)
+                ).fetchall()
+            return [self._row_to_proposal(r) for r in rows]
 
     def all_proposals(self, status: ProposalStatus | None = None) -> list[Proposal]:
         """Every proposal, optionally filtered by status."""
@@ -499,10 +505,11 @@ class KnowledgeStore:
         ]
 
     def counts(self) -> dict[str, int]:
-        rows = self._conn.execute(
-            "SELECT status, COUNT(*) AS n FROM proposals GROUP BY status"
-        ).fetchall()
-        return {r["status"]: r["n"] for r in rows}
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT status, COUNT(*) AS n FROM proposals GROUP BY status"
+            ).fetchall()
+            return {r["status"]: r["n"] for r in rows}
 
     # -- conflicts --------------------------------------------------------
     def record_conflict(self, conflict: Conflict) -> StoredConflict:
@@ -569,10 +576,11 @@ class KnowledgeStore:
         )
 
     def open_conflicts(self) -> list[StoredConflict]:
-        rows = self._conn.execute(
-            "SELECT * FROM conflicts WHERE status = 'open' ORDER BY overlap DESC, key"
-        ).fetchall()
-        return [self._row_to_conflict(r) for r in rows]
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT * FROM conflicts WHERE status = 'open' ORDER BY overlap DESC, key"
+            ).fetchall()
+            return [self._row_to_conflict(r) for r in rows]
 
     def resolve_conflict(
         self, key: str, *, resolution: str, resolver: str | None = None
@@ -584,9 +592,9 @@ class KnowledgeStore:
                 (resolution, time.time(), resolver, key),
             )
             self._conn.commit()
-        if not cur.rowcount:
-            return None
-        row = self._conn.execute("SELECT * FROM conflicts WHERE key = ?", (key,)).fetchone()
+            if not cur.rowcount:
+                return None
+            row = self._conn.execute("SELECT * FROM conflicts WHERE key = ?", (key,)).fetchone()
         return self._row_to_conflict(row)
 
     def drop_conflicts_for_documents(self, present: frozenset[str]) -> int:
@@ -644,12 +652,13 @@ class KnowledgeStore:
         now = time.time()
         incoming = {d.document_id: d for d in documents}
 
-        known = {
-            row["document_id"]: row["content_hash"]
-            for row in self._conn.execute(
-                "SELECT document_id, content_hash FROM document_versions"
-            ).fetchall()
-        }
+        with self._lock:
+            known = {
+                row["document_id"]: row["content_hash"]
+                for row in self._conn.execute(
+                    "SELECT document_id, content_hash FROM document_versions"
+                ).fetchall()
+            }
 
         added = frozenset(incoming) - frozenset(known)
         removed = frozenset(known) - frozenset(incoming)
@@ -682,10 +691,13 @@ class KnowledgeStore:
     # because the index is disposable and the decision is not.
 
     def folder_rules(self) -> dict[str, frozenset[str]]:
-        return {
-            row["folder"]: frozenset(json.loads(row["principals"]))
-            for row in self._conn.execute("SELECT folder, principals FROM folder_access").fetchall()
-        }
+        with self._lock:
+            return {
+                row["folder"]: frozenset(json.loads(row["principals"]))
+                for row in self._conn.execute(
+                    "SELECT folder, principals FROM folder_access"
+                ).fetchall()
+            }
 
     def set_folder_access(self, folder: str, principals: frozenset[str]) -> None:
         with self._lock:
@@ -780,22 +792,24 @@ class KnowledgeStore:
         return stored
 
     def _report_by(self, canonical_query: str, digest: str) -> AnswerReport | None:
-        row = self._conn.execute(
-            "SELECT * FROM answer_reports WHERE canonical_query = ? AND answer_hash = ?",
-            (canonical_query, digest),
-        ).fetchone()
-        return _as_report(row) if row is not None else None
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT * FROM answer_reports WHERE canonical_query = ? AND answer_hash = ?",
+                (canonical_query, digest),
+            ).fetchone()
+            return _as_report(row) if row is not None else None
 
     def answer_reports(self, *, status: str = "open", limit: int = 50) -> tuple[AnswerReport, ...]:
         """Reported answers, most-reported first. ``status=''`` for all."""
-        sql = "SELECT * FROM answer_reports"
-        args: list[object] = []
-        if status:
-            sql += " WHERE status = ?"
-            args.append(status)
-        sql += " ORDER BY reports DESC, last_at DESC LIMIT ?"
-        args.append(max(1, limit))
-        return tuple(_as_report(row) for row in self._conn.execute(sql, args).fetchall())
+        with self._lock:
+            sql = "SELECT * FROM answer_reports"
+            args: list[object] = []
+            if status:
+                sql += " WHERE status = ?"
+                args.append(status)
+            sql += " ORDER BY reports DESC, last_at DESC LIMIT ?"
+            args.append(max(1, limit))
+            return tuple(_as_report(row) for row in self._conn.execute(sql, args).fetchall())
 
     def resolve_report(self, report_id: int, *, status: str, resolution: str = "") -> bool:
         """Close a report. ``fixed`` or ``dismissed``; True if one changed."""
@@ -858,27 +872,29 @@ class KnowledgeStore:
 
     def admin_actions(self, limit: int = 100, since: float = 0.0) -> tuple[AdminAction, ...]:
         """The most recent entries, newest first."""
-        rows = self._conn.execute(
-            "SELECT id, at, actor, actor_name, actor_kind, action, target, detail"
-            " FROM admin_actions WHERE at >= ?"
-            " ORDER BY at DESC, id DESC LIMIT ?",
-            (since, max(1, limit)),
-        ).fetchall()
-        return tuple(
-            AdminAction(
-                id=int(row["id"]),
-                at=float(row["at"]),
-                actor=Actor(id=row["actor"], name=row["actor_name"], kind=row["actor_kind"]),
-                action=row["action"],
-                target=row["target"],
-                detail=_loaded_detail(row["detail"]),
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT id, at, actor, actor_name, actor_kind, action, target, detail"
+                " FROM admin_actions WHERE at >= ?"
+                " ORDER BY at DESC, id DESC LIMIT ?",
+                (since, max(1, limit)),
+            ).fetchall()
+            return tuple(
+                AdminAction(
+                    id=int(row["id"]),
+                    at=float(row["at"]),
+                    actor=Actor(id=row["actor"], name=row["actor_name"], kind=row["actor_kind"]),
+                    action=row["action"],
+                    target=row["target"],
+                    detail=_loaded_detail(row["detail"]),
+                )
+                for row in rows
             )
-            for row in rows
-        )
 
     def admin_action_count(self) -> int:
-        row = self._conn.execute("SELECT COUNT(*) AS n FROM admin_actions").fetchone()
-        return int(row["n"])
+        with self._lock:
+            row = self._conn.execute("SELECT COUNT(*) AS n FROM admin_actions").fetchone()
+            return int(row["n"])
 
 
 def _loaded_detail(raw: str) -> dict[str, object]:

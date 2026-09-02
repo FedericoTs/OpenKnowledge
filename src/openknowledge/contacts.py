@@ -94,7 +94,7 @@ class ContactStore:
     """
 
     def __init__(self, path: str | Path = ":memory:") -> None:
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
         if path != ":memory:":
             Path(path).parent.mkdir(parents=True, exist_ok=True)
         self._conn = sqlite3.connect(str(path), check_same_thread=False)
@@ -103,7 +103,8 @@ class ContactStore:
         self._conn.commit()
 
     def close(self) -> None:
-        self._conn.close()
+        with self._lock:
+            self._conn.close()
 
     def add(self, fields: dict[str, str], *, source: str = "website") -> int:
         with self._lock:
@@ -124,27 +125,32 @@ class ContactStore:
             return int(cursor.lastrowid or 0)
 
     def recent(self, limit: int = 50) -> list[Contact]:
-        rows = self._conn.execute(
-            "SELECT * FROM contacts ORDER BY ts DESC LIMIT ?", (limit,)
-        ).fetchall()
-        return [
-            Contact(
-                id=r["id"],
-                ts=r["ts"],
-                name=r["name"],
-                email=r["email"],
-                organisation=r["organisation"] or "",
-                interest=r["interest"] or "",
-                message=r["message"] or "",
-                source=r["source"] or "",
-            )
-            for r in rows
-        ]
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT * FROM contacts ORDER BY ts DESC LIMIT ?", (limit,)
+            ).fetchall()
+            return [
+                Contact(
+                    id=r["id"],
+                    ts=r["ts"],
+                    name=r["name"],
+                    email=r["email"],
+                    organisation=r["organisation"] or "",
+                    interest=r["interest"] or "",
+                    message=r["message"] or "",
+                    source=r["source"] or "",
+                )
+                for r in rows
+            ]
 
     def count(self) -> int:
-        return int(self._conn.execute("SELECT COUNT(*) FROM contacts").fetchone()[0])
+        with self._lock:
+            return int(self._conn.execute("SELECT COUNT(*) FROM contacts").fetchone()[0])
 
     def submissions_since(self, since: float) -> int:
         """Used to rate-limit. A public write endpoint without one is an invitation."""
-        row = self._conn.execute("SELECT COUNT(*) FROM contacts WHERE ts >= ?", (since,)).fetchone()
-        return int(row[0])
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT COUNT(*) FROM contacts WHERE ts >= ?", (since,)
+            ).fetchone()
+            return int(row[0])

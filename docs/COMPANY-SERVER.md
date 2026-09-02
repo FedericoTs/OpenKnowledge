@@ -203,6 +203,43 @@ enforce their own, so the effective limit is doubled — set it accordingly,
 or keep the deployment to one server, which is the shape this guide
 describes.
 
+## Two things touching the same files at once
+
+The server answers on a thread pool, and each of its SQLite databases is one
+connection shared by all of those threads. That is allowed — SQLite here is
+built `THREADSAFE=1` and keeps its own mutex per connection — right up until
+something *else* opens the same file. `openknowledge costs` while the server
+runs is a second connection. So is a backup, and so is a second worker.
+
+Measured, that combination used to fail badly. Four readers and two writers
+for five seconds, with one further connection writing to the same file:
+
+| | operations/second | failed |
+|---|---:|---:|
+| reads going straight at the connection (before) | 441 | **72%** |
+| the same, in WAL mode | 818 | **57%** |
+| reads taking the store's lock (now) | 500 | **0** |
+
+Not only `database is locked` (3,614 of them): 2,022 were cursors reporting
+"another row available", and 55 were errors whose message had been scrambled
+to "not an error" by a second thread clearing the connection's error state
+while the first was reading it — so the retry path was as unreliable as the
+query. Nothing was ever silently *wrong*: across every case, no read returned
+a smaller ledger count than an earlier one, so the failures were loud.
+
+The fix is that every use of a shared connection now happens under the
+store's own lock, reads included. It also made the server faster — 1,004
+operations a second against 358 in the single-process case — because threads
+contending on one connection cost more than serialising them does. WAL is
+worth having for other reasons (two connections, no sharing: 1,566 a second
+against 592) and is *not* what makes this correct, so it has not been turned
+on as if it were. `evals/measured/thirtyeighth-the-second-process.json`;
+rerun it with `uv run python tools/measure_locking.py --seconds 5`.
+
+Running a CLI command against a live server's state folder is fine. Running
+two *servers* against one state folder is not something this has measured —
+keep it to one, as the rate-limit section above also asks.
+
 ## Watching it
 
 ```sh
