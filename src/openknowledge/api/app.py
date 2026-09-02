@@ -25,10 +25,21 @@ import threading
 import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated, Any
 
-from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Request, UploadFile
+from fastapi import (
+    BackgroundTasks,
+    Depends,
+    FastAPI,
+    File,
+    Form,
+    Header,
+    HTTPException,
+    Request,
+    UploadFile,
+)
 from fastapi.responses import FileResponse, HTMLResponse, Response, StreamingResponse
 from starlette.background import BackgroundTask
 from starlette.concurrency import run_in_threadpool
@@ -40,6 +51,16 @@ from ..access import effective_principals, validate_principals
 from ..assets import find_asset
 from ..cache import citations_for
 from ..canonical import canonicalize_query
+from ..channels.base import InboundMessage
+from ..channels.teams import (
+    Connector,
+    Conversation,
+    GroupLookup,
+    TeamsChannel,
+    TeamsConfig,
+    TeamsError,
+    TokenValidator,
+)
 from ..config import Settings, load_settings
 from ..configview import describe as describe_settings
 from ..contacts import ContactError, ContactStore, clean
@@ -479,6 +500,61 @@ def _remove_quietly(path: Path) -> None:
         path.unlink()
 
 
+@dataclass(frozen=True, slots=True)
+class _Teams:
+    """Everything the bot endpoint needs, built once."""
+
+    channel: TeamsChannel
+    validator: TokenValidator
+    connector: Connector
+    lookup: GroupLookup
+
+    async def aclose(self) -> None:
+        await self.validator.aclose()
+        await self.connector.aclose()
+        await self.lookup.aclose()
+
+
+def _build_teams(settings: Settings) -> _Teams | None:
+    """The bot, when it is switched on and has what it needs.
+
+    A missing app id or password is a configuration error worth refusing at
+    startup rather than at the first message: a bot endpoint that accepts
+    activities it cannot validate is worse than no endpoint.
+    """
+    if not settings.teams_enabled:
+        return None
+    missing = [
+        name
+        for name, value in (
+            ("OK_TEAMS_APP_ID", settings.teams_app_id),
+            ("OK_TEAMS_APP_PASSWORD", settings.teams_app_password),
+            ("OK_TEAMS_TENANT_ID", settings.teams_tenant_id),
+        )
+        if not value
+    ]
+    if missing:
+        raise RuntimeError(
+            f"OK_TEAMS_ENABLED is on but {' and '.join(missing)} is unset. The bot "
+            "endpoint is not registered; see docs/TEAMS.md."
+        )
+    config = TeamsConfig(
+        app_id=settings.teams_app_id,
+        app_password=settings.teams_app_password or "",
+        tenant_id=settings.teams_tenant_id,
+        metadata_url=settings.teams_metadata_url,
+        issuer=settings.teams_issuer,
+        graph_url=settings.teams_graph_url,
+        login_url=settings.teams_login_url,
+    )
+    return _Teams(
+        channel=TeamsChannel(config=config),
+        validator=TokenValidator(config),
+        connector=Connector(config),
+        lookup=GroupLookup(config, ttl=float(settings.teams_groups_ttl_seconds)),
+    )
+
+
 def _warn_if_the_model_is_unreachable(settings: Settings) -> None:
     """Say at startup that the local endpoint is down, not one question later.
 
@@ -584,6 +660,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             close_auth = getattr(app.state, "auth_close", None)
             if close_auth is not None:
                 await close_auth()
+            if app.state.teams is not None:
+                await app.state.teams.aclose()
 
     app = FastAPI(
         title="OpenKnowledge",
@@ -594,6 +672,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.settings = resolved
     app.state.health = HealthMonitor()
     app.state.map_cache = {}
+    app.state.teams = _build_teams(resolved)
     # One per process, and deliberately not part of the engine: a rebuild
     # replaces the engine, and forgetting who has been asking every time a
     # setting changes is how a limit becomes advisory.
@@ -1035,6 +1114,86 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "answers_evicted": evicted,
             },
         }
+
+    if resolved.teams_enabled:
+
+        async def _answer_in_teams(
+            teams: _Teams, message: InboundMessage, where: Conversation, engine: Engine
+        ) -> None:
+            """Produce the answer and deliver it, after the 200 has gone back.
+
+            Outside the request on purpose: a self-hosted model can take a
+            minute, and the Bot Service stops waiting long before that. The
+            asker sees typing, then the answer. Nothing here may raise into
+            the server - a lost reply is a lost reply, not an outage.
+            """
+            try:
+                await teams.connector.typing(where)
+                principals, complete = await teams.channel.principals(message, teams.lookup)
+                answer = await engine.cascade.answer(
+                    message.text, principals=principals, channel=message.channel
+                )
+                await teams.connector.send(where, teams.channel.reply(answer, limited=not complete))
+            except Exception:  # noqa: BLE001 - a bot message must never end the server
+                log.exception("teams: answering failed")
+
+        @app.post("/teams/messages", include_in_schema=False)
+        async def teams_messages(
+            request: Request, engine: EngineDep, background: BackgroundTasks
+        ) -> Response:
+            """The bot endpoint: a public URL that believes nothing it is sent.
+
+            Every activity is proved with the token the Bot Service signed
+            before anything in the body is read, and the tenant on it must be
+            the one this install serves. Both refusals are 401/403 with a
+            reason in the log and nothing useful in the body: this endpoint is
+            reachable by anyone who finds it, and it should not describe the
+            documents behind it to them.
+            """
+            teams: _Teams = request.app.state.teams
+            activity = await request.json()
+            if not isinstance(activity, dict):
+                raise HTTPException(status_code=400, detail="not an activity")
+            try:
+                await teams.validator.claims(request.headers.get("authorization"), activity)
+            except TeamsError as exc:
+                log.warning("teams: refused an activity: %s", exc)
+                raise HTTPException(status_code=401, detail="unauthorised") from exc
+
+            tenant = teams.channel.tenant_of(activity)
+            if tenant != engine.settings.teams_tenant_id:
+                log.warning("teams: refused an activity from tenant %r", tenant)
+                raise HTTPException(status_code=403, detail="this bot does not serve that tenant")
+
+            try:
+                message = teams.channel.parse(activity)
+            except TeamsError:
+                # A join, a reaction, a typing indicator: nothing to answer,
+                # and not an error the sender should see as one.
+                return Response(status_code=200)
+
+            limiter: AskerLimiter = request.app.state.limiter
+            limiter.per_minute = request.app.state.settings.asker_questions_per_minute
+            decision = limiter.check(f"teams:{message.user_id}")
+            where = teams.channel.conversation_of(activity)
+            if not decision.allowed:
+                background.add_task(
+                    teams.connector.send,
+                    where,
+                    {
+                        "type": "message",
+                        "textFormat": "markdown",
+                        "text": (
+                            f"You have asked {decision.asked} questions in the last minute, "
+                            "which is this server's limit per person. Try again in "
+                            f"{decision.retry_after:.0f}s."
+                        ),
+                    },
+                )
+                return Response(status_code=200)
+
+            background.add_task(_answer_in_teams, teams, message, where, engine)
+            return Response(status_code=200)
 
     if resolved.website_enabled:
 

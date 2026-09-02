@@ -1,0 +1,35 @@
+{
+  "$schema": "https://developer.microsoft.com/en-us/json-schemas/teams/v1.17/MicrosoftTeams.schema.json",
+  "manifestVersion": "1.17",
+  "version": "1.0.0",
+  "id": "REPLACE-WITH-YOUR-BOT-APP-ID",
+  "developer": {
+    "name": "REPLACE-WITH-YOUR-COMPANY",
+    "websiteUrl": "https://example.internal/openknowledge",
+    "privacyUrl": "https://example.internal/openknowledge/privacy",
+    "termsOfUseUrl": "https://example.internal/openknowledge/terms"
+  },
+  "name": {
+    "short": "OpenKnowledge",
+    "full": "OpenKnowledge - answers from your own documents"
+  },
+  "description": {
+    "short": "Answers from the company's documents, with the passage it answered from.",
+    "full": "Ask about a policy and get an answer drawn only from the documents your company has published, with the passage it came from attached. It refuses when the documents do not say, and it answers from exactly the documents you are allowed to open."
+  },
+  "icons": {
+    "color": "color.png",
+    "outline": "outline.png"
+  },
+  "accentColor": "#2F6B4F",
+  "bots": [
+    {
+      "botId": "REPLACE-WITH-YOUR-BOT-APP-ID",
+      "scopes": ["personal", "team", "groupChat"],
+      "supportsFiles": false,
+      "isNotificationOnly": false
+    }
+  ],
+  "permissions": ["identity"],
+  "validDomains": []
+}

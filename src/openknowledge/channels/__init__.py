@@ -1,6 +1,15 @@
 """Chat surfaces."""
 
 from .base import Channel, InboundMessage
-from .teams import TeamsChannel
+from .teams import Connector, GroupLookup, TeamsChannel, TeamsConfig, TeamsError, TokenValidator
 
-__all__ = ["Channel", "InboundMessage", "TeamsChannel"]
+__all__ = [
+    "Channel",
+    "Connector",
+    "GroupLookup",
+    "InboundMessage",
+    "TeamsChannel",
+    "TeamsConfig",
+    "TeamsError",
+    "TokenValidator",
+]

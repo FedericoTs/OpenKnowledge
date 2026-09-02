@@ -163,6 +163,26 @@ class Settings(BaseSettings):
     sharepoint_graph_url: str = "https://graph.microsoft.com/v1.0"
     sharepoint_login_url: str = "https://login.microsoftonline.com"
 
+    # -- Microsoft Teams (docs/TEAMS.md) -----------------------------------
+    #: Answer in Teams as a bot. Off by default, and when off the bot endpoint
+    #: is not registered at all rather than registered and refusing.
+    teams_enabled: bool = False
+    #: The Azure Bot registration's app id, which is also the audience every
+    #: inbound token must carry.
+    teams_app_id: str = ""
+    teams_app_password: str | None = None
+    #: The one tenant this bot serves. An activity from any other tenant is
+    #: refused: a bot registration can be added by anybody who finds it, and
+    #: the documents behind this one are not theirs.
+    teams_tenant_id: str = ""
+    #: How long an asker's group memberships are trusted before Graph is asked
+    #: again. The bound on how long a removal from a group takes to bite.
+    teams_groups_ttl_seconds: int = Field(default=900, ge=0)
+    teams_metadata_url: str = "https://login.botframework.com/v1/.well-known/openidconfiguration"
+    teams_issuer: str = "https://api.botframework.com"
+    teams_graph_url: str = "https://graph.microsoft.com/v1.0"
+    teams_login_url: str = "https://login.microsoftonline.com"
+
     # -- dense retrieval ---------------------------------------------------
     #: Add semantic search alongside BM25, fused by reciprocal rank.
     #:

@@ -297,11 +297,16 @@ Honest status. "Built" means implemented and covered by tests in this repository
    groups is not built; modern sites' Entra-backed groups map directly.
 9. **Google Drive connector.** Same shape: service account with domain-wide delegation,
    `files.list`, and permission mapping including inherited folder ACLs.
-10. **Teams channel.** Written against the **Microsoft 365 Agents SDK** — the Bot Framework
-   SDK is archived — with the asker's tenant groups supplying `principals` so access control
-   works from the identity Teams already has. Teams is a standard channel, so messages are
-   free and unmetered.
-
+10. **Teams channel — built against a fake, not yet against a tenant.** A bot endpoint
+   that proves every inbound activity (signature, issuer, audience, expiry, and the
+   `serviceUrl` claim against the activity's own, so a token cannot be replayed with the
+   reply address rewritten), refuses any tenant but the configured one, and takes the
+   asker's principals from their Entra object id via Graph's transitive group membership
+   rather than from anything in the payload. A failed group lookup answers from what
+   every employee may read and says so, rather than answering as everybody. Replies go
+   through the connector API, because a self-hosted model takes longer than the Bot
+   Service waits. What is owed is the first run against a real tenant — see
+   [TEAMS.md](TEAMS.md). Conversation follow-ups and Adaptive Cards are not built.
 11. **The company shape: one server, every laptop a browser.** The topology
    works today and [COMPANY-SERVER.md](COMPANY-SERVER.md) documents it;
    these three make it enterprise-grade, in order:

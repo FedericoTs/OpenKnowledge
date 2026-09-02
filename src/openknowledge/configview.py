@@ -56,6 +56,7 @@ GROUPS: tuple[tuple[str, tuple[str, ...], tuple[str, ...]], ...] = (
         ("anthropic_api_key", "openai_api_key"),
     ),
     ("SharePoint", ("sharepoint_",), ()),
+    ("Teams", ("teams_",), ()),
     (
         "Serving",
         ("upload_", "asker_", "tls_", "contact_", "trusted_"),
