@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from openknowledge.connectors import Connector, LocalFilesConnector, SharePointConnector
+from openknowledge.connectors import Connector, GoogleDriveConnector, LocalFilesConnector
 
 
 @pytest.fixture
@@ -95,8 +95,8 @@ def test_content_hash_tracks_edits(corpus: Path) -> None:
 
 
 def test_unimplemented_connectors_say_what_they_need() -> None:
-    with pytest.raises(NotImplementedError, match="Entra ID"):
-        SharePointConnector().fetch()
+    with pytest.raises(NotImplementedError, match="service account"):
+        GoogleDriveConnector().fetch()
 
 
 def test_an_email_from_line_is_not_a_title(tmp_path: Path) -> None:

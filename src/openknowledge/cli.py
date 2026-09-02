@@ -757,6 +757,45 @@ def _cmd_pricing(_: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_sharepoint(args: argparse.Namespace) -> int:
+    """Mirror the configured libraries now, or say how the mirror stands."""
+    engine = _engine()
+    if engine.sharepoint is None:
+        print(
+            "SharePoint sync is off. Set OK_SHAREPOINT_ENABLED=true and the OK_SHAREPOINT_* "
+            "settings; see docs/SHAREPOINT.md.",
+            file=sys.stderr,
+        )
+        return 1
+    if args.action == "sync":
+        summary = engine.sync_sharepoint()
+        assert summary is not None
+        print(
+            f"{summary.drives} librar{'y' if summary.drives == 1 else 'ies'}: "
+            f"{summary.added} added, {summary.updated} updated, {summary.removed} removed, "
+            f"{summary.unchanged} unchanged, {summary.skipped} skipped (unsupported type)"
+        )
+        print(
+            f"{summary.documents} document(s) mirrored, {summary.withheld} withheld "
+            f"(readers this connector cannot map), {summary.permissions_read} permission "
+            f"list(s) read, {summary.took_seconds:.1f}s"
+        )
+        for error in summary.errors:
+            print(f"error: {error}", file=sys.stderr)
+        return 1 if summary.errors else 0
+    status = engine.sharepoint.status()
+    last = status["last_sync_at"]
+    when = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(float(last))) if last else "never"
+    print(f"site: {status['site']}")
+    print(f"last sync: {when}")
+    print(f"{status['documents']} document(s) mirrored, {status['withheld']} withheld")
+    if status["refusal"]:
+        print(f"not running: {status['refusal']}")
+    elif status["last_error"]:
+        print(f"last error: {status['last_error']}")
+    return 0
+
+
 def _cmd_model(args: argparse.Namespace) -> int:
     """Show, or change, which model answers on the cheap rung.
 
@@ -1172,6 +1211,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--limit", type=int, default=50)
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=_cmd_contacts)
+
+    p = sub.add_parser("sharepoint", help="mirror SharePoint libraries into the documents folder")
+    sharepoint_sub = p.add_subparsers(dest="action", required=True)
+    q = sharepoint_sub.add_parser("sync", help="ask Graph what changed, download it, re-index")
+    q.set_defaults(func=_cmd_sharepoint)
+    q = sharepoint_sub.add_parser("status", help="when the mirror last ran and what it holds")
+    q.set_defaults(func=_cmd_sharepoint)
 
     p = sub.add_parser("model", help="which local model answers, and how big its window is")
     model_sub = p.add_subparsers(dest="action", required=True)

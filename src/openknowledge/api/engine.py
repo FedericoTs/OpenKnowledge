@@ -14,6 +14,13 @@ from ..cascade.budget import Budget
 from ..cascade.ladder import Ladder, Rung
 from ..config import Settings
 from ..connectors import LocalFilesConnector
+from ..connectors.sharepoint import (
+    GraphClient,
+    GraphConfig,
+    SharePointSync,
+    SyncStore,
+    SyncSummary,
+)
 from ..documents.cache import ParseCache
 from ..knowledge import (
     IngestReport,
@@ -48,6 +55,10 @@ class Engine:
     knowledge: KnowledgeStore
     local: ChatProvider | None = None
     frontier: ChatProvider | None = None
+    #: The SharePoint mirror, when one is configured. It writes files into the
+    #: documents folder and stamps their readers; the local connector reads
+    #: them like any other file.
+    sharepoint: SharePointSync | None = None
     #: Last fetched corpus, so `learn` does not re-read every file from disk.
     documents: list[Document] = field(default_factory=list)
     #: What the last reindex reported as new or changed.
@@ -104,6 +115,19 @@ class Engine:
             return False
         self.reindex()
         return True
+
+    def sync_sharepoint(self) -> SyncSummary | None:
+        """Mirror the configured libraries now, and re-index if anything moved.
+
+        None when no mirror is configured. Free apart from the downloads: the
+        sync calls Graph, the re-index calls no model.
+        """
+        if self.sharepoint is None:
+            return None
+        summary = self.sharepoint.run()
+        if summary.changed:
+            self.reindex()
+        return summary
 
     def reindex(self) -> tuple[int, int, str, int]:
         """Re-read the corpus. Free: this never calls a model.
@@ -410,10 +434,59 @@ def _build_semantic(
     return SemanticIndex(store, embedder)
 
 
+def _build_sharepoint(settings: Settings) -> SharePointSync | None:
+    """The mirror, when it is switched on - refusing to run when it could leak.
+
+    Missing settings and sign-in being off are both recorded as a refusal on
+    the sync rather than raised: the server still starts and answers from the
+    folder it has, and the status on /manage says exactly why the mirror is
+    not running.
+    """
+    if not settings.sharepoint_enabled:
+        return None
+    missing = [
+        name
+        for name, value in (
+            ("OK_SHAREPOINT_TENANT_ID", settings.sharepoint_tenant_id),
+            ("OK_SHAREPOINT_CLIENT_ID", settings.sharepoint_client_id),
+            ("OK_SHAREPOINT_CLIENT_SECRET", settings.sharepoint_client_secret),
+            ("OK_SHAREPOINT_SITE", settings.sharepoint_site),
+        )
+        if not value
+    ]
+    refusal: str | None = None
+    if missing:
+        refusal = f"SharePoint sync is on but {' and '.join(missing)} is unset"
+    elif settings.auth_mode != "oidc" and settings.sharepoint_require_signin:
+        refusal = (
+            "sign-in is off, so no reader could be enforced and every mirrored document "
+            "would be readable by whoever reaches the widget; turn on OK_AUTH_MODE=oidc, "
+            "or set OK_SHAREPOINT_REQUIRE_SIGNIN=false to mirror anyway"
+        )
+    config = GraphConfig(
+        tenant_id=settings.sharepoint_tenant_id,
+        client_id=settings.sharepoint_client_id,
+        client_secret=settings.sharepoint_client_secret or "",
+        site=settings.sharepoint_site,
+        drives=tuple(settings.sharepoint_drives),
+        graph_url=settings.sharepoint_graph_url,
+        login_url=settings.sharepoint_login_url,
+    )
+    Path(settings.data_dir).mkdir(parents=True, exist_ok=True)
+    return SharePointSync(
+        GraphClient(config),
+        documents_dir=settings.documents_dir,
+        store=SyncStore(Path(settings.data_dir) / "sharepoint.db"),
+        permissions_refresh_seconds=settings.sharepoint_permissions_refresh_seconds,
+        refusal=refusal,
+    )
+
+
 def build_engine(settings: Settings) -> Engine:
     store = AnswerStore(settings.db_path)
     knowledge = KnowledgeStore(settings.knowledge_db_path)
     retriever = _build_retriever(settings)
+    sharepoint = _build_sharepoint(settings)
     connector = LocalFilesConnector(
         settings.documents_dir,
         pdf_backend=settings.pdf_backend,
@@ -421,6 +494,8 @@ def build_engine(settings: Settings) -> Engine:
         # admin decisions that change at runtime, and each re-index reads
         # the ones in force.
         folder_rules=knowledge.folder_rules,
+        # Likewise the readers SharePoint stamped on the files it mirrored.
+        file_principals=sharepoint.principals_map if sharepoint is not None else None,
         # Parsing dominates every scan on the formats a company actually has:
         # 780ms for one small PDF against 6ms for the same words in markdown,
         # almost all of it a Java process starting up. Persisted, so a restart
@@ -453,6 +528,7 @@ def build_engine(settings: Settings) -> Engine:
         knowledge=knowledge,
         local=local,
         frontier=frontier,
+        sharepoint=sharepoint,
     )
     engine.reindex()
     return engine

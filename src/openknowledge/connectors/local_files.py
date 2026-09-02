@@ -64,6 +64,7 @@ class LocalFilesConnector:
         pdf_backend: str = "auto",
         folder_rules: Callable[[], Mapping[str, frozenset[str]]] | None = None,
         parses: ParseCache | None = None,
+        file_principals: Callable[[], Mapping[str, frozenset[str]]] | None = None,
     ) -> None:
         self.name = "local-files"
         # Resolved eagerly: a relative root cannot be turned into the file:// URI
@@ -75,6 +76,11 @@ class LocalFilesConnector:
         # A callable, not a snapshot: rules are admin decisions that change
         # at runtime, and every re-index must see the current ones.
         self.folder_rules = folder_rules
+        # Readers a source stamped on individual files - the SharePoint mirror
+        # writes what Graph said about each item. Where present they are the
+        # source's own decision and win over a folder rule; a file the source
+        # did not stamp falls back to the rules like any other.
+        self.file_principals = file_principals
         # Parsing is by far the most expensive thing a scan does on the formats
         # a company actually has - 780ms for one small PDF against 6ms for the
         # same words in markdown, almost all of it a Java process starting up.
@@ -183,6 +189,7 @@ class LocalFilesConnector:
         the one that drifts is a document served to the wrong people.
         """
         rules = dict(self.folder_rules()) if self.folder_rules is not None else {}
+        stamped = self._stamped()
         mapping: dict[str, frozenset[str]] = {}
         if not self.root.is_dir():
             return mapping
@@ -192,9 +199,24 @@ class LocalFilesConnector:
             if path.suffix.lower() not in self.suffixes:
                 continue
             relative = path.relative_to(self.root)
-            ruled = effective_principals(relative.parent.as_posix(), rules)
-            mapping[document_id_for(relative)] = ruled or self.allowed_principals
+            mapping[document_id_for(relative)] = self._readers(relative, rules, stamped)
         return mapping
+
+    def _stamped(self) -> Mapping[str, frozenset[str]]:
+        return self.file_principals() if self.file_principals is not None else {}
+
+    def _readers(
+        self,
+        relative: Path,
+        rules: Mapping[str, frozenset[str]],
+        stamped: Mapping[str, frozenset[str]],
+    ) -> frozenset[str]:
+        """Who may read one file: its source's stamp, else the deepest folder rule."""
+        own = stamped.get(relative.as_posix())
+        if own:
+            return own
+        ruled = effective_principals(relative.parent.as_posix(), rules)
+        return ruled or self.allowed_principals
 
     def fetch(self) -> list[Document]:
         self.skipped = []
@@ -206,6 +228,7 @@ class LocalFilesConnector:
             return []
 
         rules = dict(self.folder_rules()) if self.folder_rules is not None else {}
+        stamped = self._stamped()
         documents: list[Document] = []
         paths = sorted(self.root.rglob("*"))
         # The PDFs this walk will reach, in the order it will reach them, so
@@ -245,10 +268,8 @@ class LocalFilesConnector:
                     self.skipped.append(SkippedFile(relative, "no readable text"))
                 continue
 
-            # The deepest folder rule wins; unruled folders fall back to the
-            # connector-wide default (empty means readable by everyone).
-            folder = path.relative_to(self.root).parent.as_posix()
-            ruled = effective_principals(folder, rules)
+            # A stamp from the file's source wins; else the deepest folder rule;
+            # else the connector-wide default (empty means readable by everyone).
             text = parsed.text
             documents.append(
                 Document(
@@ -256,7 +277,7 @@ class LocalFilesConnector:
                     title=_usable_title(parsed.title) or _fallback_title(path),
                     text=text,
                     url=path.as_uri(),
-                    allowed_principals=ruled or self.allowed_principals,
+                    allowed_principals=self._readers(path.relative_to(self.root), rules, stamped),
                     blocks=parsed.blocks,
                     superseded=declares_superseded(text),
                 )

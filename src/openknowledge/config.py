@@ -137,6 +137,32 @@ class Settings(BaseSettings):
     #: Ollama honours this; llama.cpp and vLLM never unload.
     local_keep_alive: str = "30m"
 
+    # -- SharePoint (docs/SHAREPOINT.md) -----------------------------------
+    #: Mirror document libraries from one SharePoint site into
+    #: <documents>/sharepoint/, each file stamped with the readers SharePoint
+    #: says it has. Off by default; nothing is called until it is on.
+    sharepoint_enabled: bool = False
+    sharepoint_tenant_id: str = ""
+    sharepoint_client_id: str = ""
+    sharepoint_client_secret: str | None = None
+    #: Path-addressed, as Graph takes it: contoso.sharepoint.com:/sites/HR
+    sharepoint_site: str = ""
+    #: Library display names to mirror; empty means every library on the site.
+    sharepoint_drives: list[str] = Field(default_factory=list)
+    #: How often the server asks Graph what changed. Zero turns the timer off
+    #: and leaves syncing to `openknowledge sharepoint sync` or the admin API.
+    sharepoint_poll_seconds: int = Field(default=300, ge=0)
+    #: How long a file's readers are trusted before they are asked again. A
+    #: revoked grant is honoured within this bound; the delta feed does not
+    #: report permission changes on their own.
+    sharepoint_permissions_refresh_seconds: int = Field(default=3600, ge=60)
+    #: With sign-in off no reader can be enforced, so a mirrored library would
+    #: be readable by whoever reaches the widget. The sync refuses unless this
+    #: is turned off deliberately.
+    sharepoint_require_signin: bool = True
+    sharepoint_graph_url: str = "https://graph.microsoft.com/v1.0"
+    sharepoint_login_url: str = "https://login.microsoftonline.com"
+
     # -- dense retrieval ---------------------------------------------------
     #: Add semantic search alongside BM25, fused by reciprocal rank.
     #:

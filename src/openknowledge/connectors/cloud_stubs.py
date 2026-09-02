@@ -1,11 +1,11 @@
-"""SharePoint and Google Drive connectors - not implemented yet.
+"""The Google Drive connector - not implemented yet.
 
-Both are placed here deliberately rather than left out, so the shape of the work
-is visible: each is an OAuth app registration plus a paged listing call plus a
-text extraction step, and each must populate ``allowed_principals`` from the
-source's own ACLs. Doing that properly - group expansion, inherited permissions,
-sharing links - is most of the work in both cases, and doing it wrong leaks
-documents. See ROADMAP.md.
+Placed here deliberately rather than left out, so the shape of the work is
+visible: an OAuth registration plus a paged listing call plus a text extraction
+step, and it must populate ``allowed_principals`` from the source's own ACLs.
+Doing that properly - group expansion, inherited permissions, sharing links - is
+most of the work, and doing it wrong leaks documents. SharePoint has been built
+along exactly those lines (``sharepoint.py``); Drive has not. See ROADMAP.md.
 """
 
 from __future__ import annotations
@@ -24,16 +24,6 @@ class NotImplementedConnector:
             f"The {self.name} connector is not implemented yet. {self.setup_hint} "
             "Use LocalFilesConnector, or export the library to a folder for now."
         )
-
-
-class SharePointConnector(NotImplementedConnector):
-    """Microsoft Graph: ``/sites/{id}/drive/root/children``, plus ``/permissions`` per item."""
-
-    name = "sharepoint"
-    setup_hint = (
-        "It needs an Entra ID app registration with Sites.Read.All and admin consent, "
-        "and must map each item's Graph permissions onto allowed_principals."
-    )
 
 
 class GoogleDriveConnector(NotImplementedConnector):

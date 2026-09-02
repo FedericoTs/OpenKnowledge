@@ -349,6 +349,19 @@ async function refreshDocuments() {
     // Kept so a gap can be answered with a citation without another fetch.
     state.documents = (body.files || []).filter(f => !f.skipped);
     box.textContent = '';
+    if (body.sharepoint) {
+      // The mirror's own account: when Graph was last asked, how much is
+      // here, and how many files nobody can read because their readers
+      // could not be mapped. A refusal or an error is said in full.
+      const s = body.sharepoint;
+      const when = s.last_sync_at ? new Date(s.last_sync_at * 1000).toLocaleString() : 'never';
+      let text = 'SharePoint ' + s.site + ': ' + s.documents + ' document' + (s.documents === 1 ? '' : 's')
+        + ' mirrored' + (s.withheld ? ', ' + s.withheld + ' withheld (readers this connector cannot map)' : '')
+        + ' · last sync ' + when;
+      const problem = s.refusal || s.last_error;
+      if (problem) text += ' · ' + problem;
+      box.appendChild(el('p', problem ? 'warn' : 'quiet', text));
+    }
     if (!body.files.length) {
       box.appendChild(el('p', 'empty', 'The documents folder is empty. Add some.'));
       return;

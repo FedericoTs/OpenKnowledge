@@ -284,11 +284,17 @@ Honest status. "Built" means implemented and covered by tests in this repository
    which only the project's owner can do — the steps are in
    [WINDOWS.md](WINDOWS.md). Until then SmartScreen shows "unrecognized app"
    and some AV products distrust young unsigned PyInstaller binaries.
-8. **SharePoint connector.** Microsoft Graph enumeration via `delta` (changes only, never
-   a full rescan), `Sites.Selected` for least privilege, text extraction, and — the real
-   work — mapping item permissions, including group expansion and inheritance, onto
-   `allowed_principals`. Graph itself is free to call; the cost is the M365 licences the
-   company already has.
+8. **SharePoint connector — built against a fake, not yet against a tenant.** Graph
+   `delta` per library (changes only after the first walk), files mirrored into the
+   documents folder and read by the ordinary pipeline, permissions asked per file and
+   re-asked on a clock, mapped onto `allowed_principals` as `user:`/`group:` ids and
+   `authenticated` for organisation links; anything unmappable is dropped and a file
+   with no mappable reader is withheld rather than made public. Refuses to run with
+   sign-in off unless told to. `Sites.Selected` is the documented least privilege.
+   What is owed is the first run against a real tenant — the shapes of real grants,
+   the share the mapping cannot express, how Graph throttles a few thousand files —
+   see [SHAREPOINT.md](SHAREPOINT.md). Group expansion of classic SharePoint site
+   groups is not built; modern sites' Entra-backed groups map directly.
 9. **Google Drive connector.** Same shape: service account with domain-wide delegation,
    `files.list`, and permission mapping including inherited folder ACLs.
 10. **Teams channel.** Written against the **Microsoft 365 Agents SDK** — the Bot Framework

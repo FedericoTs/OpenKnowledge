@@ -535,6 +535,34 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
         return asyncio.create_task(loop())
 
+    def _sync_sharepoint_periodically(app: FastAPI) -> asyncio.Task[None] | None:
+        """Ask Graph what changed, on a timer, and re-index when something did.
+
+        The sync itself runs in a worker thread - it is downloads and HTTP -
+        and the re-index runs on the loop like the folder watcher's does, so
+        the two never rebuild the index at once. Zero seconds turns the timer
+        off; `openknowledge sharepoint sync` and the admin route remain.
+        """
+        if app.state.engine.sharepoint is None:
+            return None
+        seconds = app.state.settings.sharepoint_poll_seconds
+        if seconds <= 0:
+            return None
+
+        async def loop() -> None:
+            while True:
+                try:
+                    engine = app.state.engine
+                    summary = await asyncio.to_thread(engine.sharepoint.run)
+                    if summary.changed:
+                        engine.reindex()
+                        log.info("sharepoint: %s", summary.as_dict())
+                except Exception:  # noqa: BLE001 - a sync must never end the server
+                    log.exception("sharepoint sync failed; will try again")
+                await asyncio.sleep(seconds)
+
+        return asyncio.create_task(loop())
+
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         _provision_admin_token(app.state.settings)
@@ -543,11 +571,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         _warn_if_the_model_is_unreachable(app.state.settings)
         _warm_the_model_in_the_background(app.state.settings)
         watcher = _watch_the_documents_folder(app)
+        syncer = _sync_sharepoint_periodically(app)
         try:
             yield
         finally:
             if watcher is not None:
                 watcher.cancel()
+            if syncer is not None:
+                syncer.cancel()
             app.state.engine.store.close()
             app.state.engine.knowledge.close()
             close_auth = getattr(app.state, "auth_close", None)
@@ -840,7 +871,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                         "tags": sorted(tags.get(_connector_document_id(relative), ())),
                     }
                 )
-        return {"documents_dir": str(root), "folders": folders, "files": rows}
+        return {
+            "documents_dir": str(root),
+            "folders": folders,
+            "files": rows,
+            # The mirror's own account of itself, so the page can say when
+            # the library was last read and how many files are withheld.
+            "sharepoint": engine.sharepoint.status() if engine.sharepoint is not None else None,
+        }
 
     @app.post("/documents", status_code=201, dependencies=[Depends(require_uploads)])
     async def upload_documents(
@@ -868,6 +906,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             if safe_folder is None:
                 raise HTTPException(status_code=400, detail="unusable folder name")
             into = safe_folder
+        if engine.sharepoint is not None and engine.sharepoint.owns(into):
+            raise HTTPException(
+                status_code=409,
+                detail="that folder is the SharePoint mirror; add the file in SharePoint instead",
+            )
         if not _folder_readable(into, engine.knowledge.folder_rules(), _viewer_principals(request)):
             raise HTTPException(
                 status_code=403,
@@ -958,6 +1001,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         safe = _safe_document_path(name)
         if safe is None:
             raise HTTPException(status_code=400, detail="unusable file name")
+        if engine.sharepoint is not None and engine.sharepoint.owns(safe):
+            # The next sync would put it back; the honest place to remove it
+            # is where it lives.
+            raise HTTPException(
+                status_code=409,
+                detail="that file is mirrored from SharePoint; remove it there and it will go",
+            )
         parent = safe.rpartition("/")[0]
         if not _folder_readable(
             parent, engine.knowledge.folder_rules(), _viewer_principals(request)
@@ -1773,6 +1823,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             filename=out.name,
             background=BackgroundTask(_remove_quietly, out),
         )
+
+    @app.post("/admin/sharepoint/sync", dependencies=[AdminOnly])
+    async def sharepoint_sync_now(engine: EngineDep, request: Request) -> dict[str, Any]:
+        """Ask Graph what changed now rather than at the next tick."""
+        if engine.sharepoint is None:
+            raise HTTPException(status_code=404, detail="SharePoint sync is not configured")
+        summary = await run_in_threadpool(engine.sync_sharepoint)
+        assert summary is not None
+        engine.knowledge.record_action(_actor(request), "sharepoint.sync", detail=summary.as_dict())
+        return summary.as_dict()
 
     @app.get("/admin/config", dependencies=[AdminOnly])
     async def config(engine: EngineDep) -> dict[str, Any]:

@@ -64,9 +64,11 @@ cascade, the determinism layer, the grounding gate, hybrid retrieval, drafting a
 contradiction detection with a notion of scope, supersession, streaming chat, browser
 uploads, per-folder access rules with Entra ID sign-in, a management page (costs, most
 asked, gaps, wrong answers, pins, health, configuration, backup, admin log) and a Windows
-installer that upgrades itself in CI on every release. Not yet: the paid tiers measured
-(needs an API key), connectors beyond a folder (SharePoint, Google Drive, Teams), and a
-signed installer. See [ROADMAP](docs/ROADMAP.md).
+installer that upgrades itself in CI on every release, and a SharePoint mirror that
+stamps each file with the readers SharePoint gives it. Not yet: the paid tiers measured
+(needs an API key), the SharePoint connector run against a real tenant (built and tested
+against a fake of Graph), Google Drive and Teams, and a signed installer. See
+[ROADMAP](docs/ROADMAP.md).
 
 ---
 
@@ -556,6 +558,7 @@ src/openknowledge/
 | [EVALUATION.md](docs/EVALUATION.md) | How correctness is measured, and what fails a run |
 | [ROADMAP.md](docs/ROADMAP.md) | What's built, what's next |
 | [RELEASING.md](docs/RELEASING.md) | How a version ships: the installer, the GitHub release, PyPI |
+| [SHAREPOINT.md](docs/SHAREPOINT.md) | Mirroring a site's libraries, with SharePoint's own readers enforced |
 | [adr/](docs/adr/) | Why the load-bearing decisions went the way they did |
 
 ## Licence
