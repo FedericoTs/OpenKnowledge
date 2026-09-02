@@ -241,9 +241,16 @@ Honest status. "Built" means implemented and covered by tests in this repository
    with the real disagreements marked. Until that exists, every claim about detection
    accuracy rests on 21 curated cases, and the contract run is the proof that this is
    not enough. **This now outranks everything below it.**
-4. **Scope.** Per-vendor and per-country documents are not contradicting each other, and
-   the detector cannot tell. Two candidate signals, both free: the named counterparty in
-   each document, and the folder a document sits in. Neither is built.
+4. **Scope — the counterparty half is built** (v0.8.0). Two agreements with different
+   companies are not disagreeing, and the detector now knows it: parties are read from
+   the positions that define them, the party common to the most documents is dropped as
+   your own, and a pair is compared unless both name parties and share none. On a corpus
+   of the shape that broke it, 534 findings across 136 pairs became 3 across 3.
+   **The folder signal is deliberately not built**: two folders are as often a topic
+   split as a scope split, and suppressing across them would hide a real
+   HR-versus-Finance contradiction. What remains is per-country and per-client corpora
+   that do not name parties in contract language — and a precision figure, which needs
+   item 3.
 5. **Grow the golden set.** The harness is built; the shipped set covers the sample
    documents only. Real corpus, real questions, and above all more safety cases — they
    are the cheapest insurance in the project.
