@@ -274,13 +274,16 @@ Honest status. "Built" means implemented and covered by tests in this repository
    and a required document already at rank 1 cannot move up. The measurement
    is worth re-running on a corpus that can discriminate - which is item 3
    above, and needs somebody's real folder.
-7. **Signing the Windows installer.** The installer itself now builds and
-   smoke-tests in CI — what remains is identity. Azure Trusted Signing
-   (~$10/month, reputation attaches to the verified identity) or a classic
-   OV certificate (~$200–400/year, reputation builds per-certificate), then
-   one `signtool` step in `package.yml`. Until then SmartScreen shows
-   "unrecognized app" and some AV products distrust young unsigned
-   PyInstaller binaries on reputation alone. See [WINDOWS.md](WINDOWS.md).
+7. **Signing the Windows installer — the pipeline is built, the identity is not.**
+   `package.yml` signs the two executables and the installer with Azure Artifact
+   Signing (formerly Trusted Signing, ~$10/month, reputation attaches to the
+   verified identity) the moment six repository variables exist, authenticating
+   with the job's own OIDC token; it verifies all three signatures, records the
+   state in the artifact, and the release notes say "Signed by …" or "Not
+   code-signed". What remains is the Azure account and identity validation,
+   which only the project's owner can do — the steps are in
+   [WINDOWS.md](WINDOWS.md). Until then SmartScreen shows "unrecognized app"
+   and some AV products distrust young unsigned PyInstaller binaries.
 8. **SharePoint connector.** Microsoft Graph enumeration via `delta` (changes only, never
    a full rescan), `Sites.Selected` for least privilege, text extraction, and — the real
    work — mapping item permissions, including group expansion and inheritance, onto

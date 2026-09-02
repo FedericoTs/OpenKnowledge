@@ -40,6 +40,17 @@ concurrency:
 jobs:
   windows-installer:
     runs-on: windows-latest
+    # Signing, when the repository variables for it exist (docs/WINDOWS.md):
+    # the job signs in to Azure with its own OIDC identity - no secret stored
+    # anywhere - and Artifact Signing signs the two executables and then the
+    # installer. The federated credential is bound to this environment name,
+    # so the job carries it whether or not signing is configured. Without the
+    # variables every step below still runs and the build is simply unsigned,
+    # and the release notes say so.
+    environment: signing
+    permissions:
+      id-token: write
+      contents: read
     steps:
       - uses: actions/checkout@v4
 
@@ -131,6 +142,29 @@ jobs:
           if ($widget -notmatch "OpenKnowledge") { throw "widget page did not serve" }
           if ($manage -notmatch "Manage") { throw "manage page did not serve" }
 
+      - name: Sign in to Azure for signing
+        if: vars.SIGNING_ACCOUNT != '' && github.event_name != 'pull_request'
+        uses: azure/login@v3
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Sign the executables
+        # Only the two this project builds. llama-server.exe is upstream's
+        # binary and stays as upstream shipped it.
+        if: vars.SIGNING_ACCOUNT != '' && github.event_name != 'pull_request'
+        uses: azure/artifact-signing-action@v2
+        with:
+          endpoint: ${{ vars.SIGNING_ENDPOINT }}
+          signing-account-name: ${{ vars.SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ vars.SIGNING_PROFILE }}
+          files-folder: ${{ github.workspace }}\dist\OpenKnowledge
+          files-folder-filter: exe
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+
       - name: Bundle llama.cpp (win-vulkan)
         shell: pwsh
         run: powershell -ExecutionPolicy Bypass -File packaging/windows/fetch-llama.ps1
@@ -151,6 +185,42 @@ jobs:
             /DAppVersion=${{ steps.version.outputs.version }} `
             packaging\windows\installer.iss
 
+      - name: Sign the installer
+        if: vars.SIGNING_ACCOUNT != '' && github.event_name != 'pull_request'
+        uses: azure/artifact-signing-action@v2
+        with:
+          endpoint: ${{ vars.SIGNING_ENDPOINT }}
+          signing-account-name: ${{ vars.SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ vars.SIGNING_PROFILE }}
+          files-folder: ${{ github.workspace }}\dist\installer
+          files-folder-filter: exe
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+
+      - name: Record whether the installer is signed
+        # Always runs. When signing was configured, an installer whose
+        # signature Windows does not call Valid fails the build here rather
+        # than reaching a download page; when it was not, the build says so
+        # in a file the release notes carry, so nobody reads "verified" and
+        # hears "signed".
+        shell: pwsh
+        run: |
+          $setup = Get-ChildItem dist\installer\OpenKnowledge-Setup-*.exe | Select-Object -First 1
+          $expected = ("${{ vars.SIGNING_ACCOUNT }}" -ne "") -and ("${{ github.event_name }}" -ne "pull_request")
+          $sig = Get-AuthenticodeSignature $setup.FullName
+          if ($expected) {
+            foreach ($file in @($setup.FullName, "dist\OpenKnowledge\openknowledge.exe", "dist\OpenKnowledge\OpenKnowledgeApp.exe")) {
+              $s = Get-AuthenticodeSignature $file
+              if ($s.Status -ne "Valid") { throw "signing was configured but $file has signature status $($s.Status): $($s.StatusMessage)" }
+            }
+            $line = "Signed by $($sig.SignerCertificate.Subject); timestamped by $($sig.TimeStamperCertificate.Subject)."
+          } else {
+            $line = "Not code-signed. SmartScreen shows 'Windows protected your PC'; More info, then Run anyway. Check the SHA-256 below instead. See docs/WINDOWS.md."
+          }
+          $line | Out-File -FilePath dist\installer\SIGNING.txt -Encoding utf8 -NoNewline
+          Write-Host $line
+
       - name: The installer installs, the installed app answers
         shell: pwsh
         run: |
@@ -166,7 +236,9 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: OpenKnowledge-Setup
-          path: dist/installer/OpenKnowledge-Setup-*.exe
+          path: |
+            dist/installer/OpenKnowledge-Setup-*.exe
+            dist/installer/SIGNING.txt
           if-no-files-found: error
 
   # Can an install that already exists receive this build? Every release so
@@ -486,6 +558,20 @@ jobs:
       # progress on the console (visible in this log); the first Windows e2e
       # died in under a second with empty logs, so an early exit now reports
       # the process exit code instead of a bare "never reached serving".
+      - name: The downloaded installer carries the signature the build recorded
+        # What was built is what is about to be installed and published: a
+        # build that recorded a signature must still verify after the round
+        # trip through the artifact store.
+        shell: pwsh
+        run: |
+          $setup = Get-ChildItem OpenKnowledge-Setup-*.exe | Select-Object -First 1
+          $recorded = Get-Content SIGNING.txt -Raw
+          Write-Host $recorded
+          if ($recorded -like "Signed by*") {
+            $sig = Get-AuthenticodeSignature $setup.FullName
+            if ($sig.Status -ne "Valid") { throw "the build recorded a signature but the downloaded installer's is $($sig.Status)" }
+          }
+
       - name: Install, launch, download models, ask, ask again
         id: launch
         shell: pwsh

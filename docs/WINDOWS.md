@@ -129,24 +129,70 @@ inside it disappears; the tag it shipped is recorded in
 
 ## Code signing — the honest part
 
-The installer is **not signed yet**. Windows SmartScreen will show
-"Windows protected your PC" with a "More info → Run anyway" path, and some
-antivirus products treat young, unsigned PyInstaller executables as
-suspicious on reputation alone. That is the correct default posture for
-Windows and the wrong first impression for this project, so:
+The installer is **not signed yet**. Windows SmartScreen shows "Windows
+protected your PC" with a **More info → Run anyway** path, and some antivirus
+products treat young, unsigned PyInstaller executables as suspicious on
+reputation alone. Every release's notes say which it is, because the build
+records it: `SIGNING.txt` travels in the installer artifact, the notes repeat
+it, and a build that was *configured* to sign but produced anything Windows
+does not call a Valid signature fails before it reaches a download page.
 
-- **Azure Trusted Signing** is the intended fix: about **$9.99/month**,
-  certificates issued against a verified identity, and SmartScreen
-  reputation attaches to the identity rather than to each certificate.
-  Signing is one `signtool` invocation in CI once the account exists.
-  (Individual accounts and organizations under 3 years old have had
-  eligibility restrictions; check current terms.)
-- The alternative is a classic **OV code-signing certificate**
-  (~$200–400/year) — reputation then builds per-certificate, slowly.
-- Until either exists: download counts and Defender submissions do the
-  slow version. False positives should be reported at Microsoft's
-  [submission portal](https://www.microsoft.com/en-us/wdsi/filesubmission);
-  do **not** tell users to add antivirus exclusions.
+The pipeline is ready; what is missing is an identity. It is wired for
+**Azure Artifact Signing** (the service formerly called Trusted Signing):
+certificates are issued against a verified identity, short-lived and rotated
+by the service, SmartScreen reputation attaches to the identity rather than to
+each certificate, and the job authenticates with its own OpenID Connect token,
+so no secret is stored in this repository. About $10 a month. The alternative
+is a classic OV certificate on a hardware token, which cannot sign from a
+hosted runner at all since 2023 without a cloud HSM, and builds reputation
+per certificate, slowly.
+
+### Turning it on, once
+
+1. In Azure, create an **Artifact Signing account** and complete **identity
+   validation** (individual or organisation; the portal states the current
+   eligibility rules), then a **certificate profile** of type Public Trust.
+2. Create an **app registration** in Entra ID and add a **federated
+   credential** for GitHub Actions with subject
+   `repo:FedericoTs/OpenKnowledge:environment:signing` - the installer job
+   runs in the `signing` environment precisely so this subject is stable
+   across branches and tags.
+3. On the signing account, assign that app the role
+   **Artifact Signing Certificate Profile Signer**.
+4. Set six **repository variables** (Settings → Secrets and variables →
+   Actions → Variables; none is a secret):
+
+   | variable | value |
+   |---|---|
+   | `AZURE_TENANT_ID` | the directory (tenant) id |
+   | `AZURE_CLIENT_ID` | the app registration's client id |
+   | `AZURE_SUBSCRIPTION_ID` | the subscription holding the account |
+   | `SIGNING_ENDPOINT` | the account's regional endpoint, e.g. `https://weu.codesigning.azure.net/` |
+   | `SIGNING_ACCOUNT` | the Artifact Signing account name |
+   | `SIGNING_PROFILE` | the certificate profile name |
+
+5. Run the next release. The build signs `openknowledge.exe` and
+   `OpenKnowledgeApp.exe`, builds the installer from them, signs the installer,
+   verifies all three, and the notes change from "Not code-signed" to
+   "Signed by …". `llama-server.exe` is upstream's binary and stays as upstream
+   shipped it. The uninstaller Inno Setup writes at install time is not signed.
+
+While `SIGNING_ACCOUNT` is unset the same pipeline builds an unsigned
+installer, as today, and says so. Pull requests never sign, whatever is set.
+
+### Verifying a download
+
+Right-click the installer → Properties → Digital Signatures, or in PowerShell:
+
+```powershell
+Get-AuthenticodeSignature .\OpenKnowledge-Setup-x.y.z.exe | Format-List Status, SignerCertificate
+Get-FileHash .\OpenKnowledge-Setup-x.y.z.exe -Algorithm SHA256
+```
+
+The hash is in the release notes for every version, signed or not. False
+positives from antivirus products should be reported at Microsoft's
+[submission portal](https://www.microsoft.com/en-us/wdsi/filesubmission);
+do **not** tell users to add antivirus exclusions.
 
 ## Troubleshooting
 

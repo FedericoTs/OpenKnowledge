@@ -21,6 +21,15 @@ sdist and wheel with `uv build`, checks them with `twine`, installs the wheel in
 a fresh environment, runs it from another directory (`--version` must be the tag,
 the widget must be found inside the wheel, the audit must run), and then uploads.
 
+## Code signing
+
+The installer job signs the executables and the installer when the six
+repository variables in [WINDOWS.md](WINDOWS.md#turning-it-on-once) exist,
+never on a pull request, and fails the build if a configured signature does
+not verify. The state is recorded in `SIGNING.txt` inside the installer
+artifact and repeated in the release notes. Nothing else changes: an
+unconfigured repository builds an unsigned installer and says so.
+
 ## Setting up PyPI, once
 
 Publishing uses [trusted publishing](https://docs.pypi.org/trusted-publishers/):
