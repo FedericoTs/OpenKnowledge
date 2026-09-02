@@ -246,6 +246,21 @@
   </section>
 
   <section data-admin-section data-governance-section>
+    <h2>Backup</h2>
+    <p class="hint">
+      Everything this install would hate to lose, in one file: the pinned
+      answers, the folder access rules, the resolved contradictions, the
+      wrong-answer reports, the ledger — and the documents, unless you leave
+      them out because they already live somewhere you back up. Taken through
+      SQLite's own backup API, so it is safe while questions are being
+      answered. Secrets are not in it: the admin token and any API keys have
+      to be set again after a restore. Restoring is deliberate and stays on
+      the server: <code>openknowledge restore &lt;file&gt;</code>.
+    </p>
+    <div id="backup"><p class="locked-note">Unlock to load.</p></div>
+  </section>
+
+  <section data-admin-section data-governance-section>
     <h2>Admin log</h2>
     <p class="hint">
       Every change an admin or curator made, newest first — pins, access
@@ -1053,6 +1068,49 @@ async function refreshConfig() {
   }
 }
 
+// Not a fetch: the controls are drawn here so the unlock, forget and
+// curator paths treat this section like every other one.
+async function refreshBackup() {
+  const box = $('backup');
+  box.textContent = '';
+  const row = box.appendChild(el('div', 'row'));
+  const include = el('input');
+  include.type = 'checkbox'; include.checked = true; include.id = 'backup-documents';
+  const label = row.appendChild(el('label'));
+  label.appendChild(include);
+  label.appendChild(document.createTextNode(' include the documents'));
+  const button = row.appendChild(el('button', 'small', 'Download backup'));
+  const note = row.appendChild(el('span', 'quiet'));
+  button.onclick = async () => {
+    button.disabled = true;
+    note.textContent = 'Packing…';
+    try {
+      // fetch rather than a link: the admin token travels in a header, and
+      // a link cannot carry one.
+      const res = await fetch('/admin/backup?documents=' + (include.checked ? 'true' : 'false'),
+        { headers: authHeaders() });
+      if (!res.ok) {
+        let detail = 'HTTP ' + res.status;
+        try { detail = (await res.json()).detail || detail; } catch (e) { /* keep the status */ }
+        throw new Error(detail);
+      }
+      const named = /filename="?([^";]+)/.exec(res.headers.get('Content-Disposition') || '');
+      const name = named ? named[1] : 'openknowledge-backup.zip';
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.body.appendChild(el('a'));
+      a.href = url; a.download = name; a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+      note.textContent = 'Saved ' + name + ' · ' + (blob.size / 1e6).toFixed(1) + ' MB. '
+        + 'Secrets are not in it.';
+      refreshAdminLog();
+    } catch (e) {
+      note.textContent = e.message;
+    }
+    button.disabled = false;
+  };
+}
+
 $('save-settings').onclick = async () => {
   const changes = {};
   for (const input of $('settings').querySelectorAll('[data-key]')) {
@@ -1102,7 +1160,7 @@ async function unlock(token) {
   await ready('admin', [
     refreshHealth(), refreshCosts(), refreshDemand(), refreshGaps(), refreshReports(), refreshPins(),
     refreshAccess(), refreshProposals(), refreshConflicts(), refreshSettings(), refreshConfig(),
-    refreshAdminLog(),
+    refreshBackup(), refreshAdminLog(),
   ]);
   return true;
 }
@@ -1150,7 +1208,7 @@ fetch('/auth/me').then(r => r.ok ? r.json() : null).then(async (who) => {
       await ready('admin', [
         refreshHealth(), refreshCosts(), refreshDemand(), refreshGaps(), refreshReports(), refreshPins(),
         refreshAccess(), refreshProposals(), refreshConflicts(), refreshSettings(), refreshConfig(),
-        refreshAdminLog(),
+        refreshBackup(), refreshAdminLog(),
       ]);
     } catch (e) { /* fall back to the token flow */ }
   } else if (who.curator && !state.token) {

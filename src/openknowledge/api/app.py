@@ -30,6 +30,7 @@ from typing import Annotated, Any
 
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, Response, StreamingResponse
+from starlette.background import BackgroundTask
 from starlette.concurrency import run_in_threadpool
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
@@ -469,6 +470,12 @@ def _warm_the_model_in_the_background(settings: Settings) -> None:
             log.warning("warmup: %s (the first question will pay the load instead)", exc)
 
     threading.Thread(target=_run, name="model-warmup", daemon=True).start()
+
+
+def _remove_quietly(path: Path) -> None:
+    """Delete the file a response was streamed from, once it has been sent."""
+    with contextlib.suppress(OSError):
+        path.unlink()
 
 
 def _warn_if_the_model_is_unreachable(settings: Settings) -> None:
@@ -1689,6 +1696,48 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "ttl_seconds": monitor.ttl,
             "endpoints": [r.as_dict() for r in readings],
         }
+
+    @app.get("/admin/backup", dependencies=[AdminOnly])
+    async def download_backup(
+        engine: EngineDep, request: Request, documents: bool = True
+    ) -> FileResponse:
+        """One file holding what exists nowhere else, handed to the browser.
+
+        The same archive ``openknowledge backup`` writes: the databases
+        through SQLite's own backup API (safe while questions are being
+        answered), the documents unless ``documents=false`` because they are
+        backed up elsewhere, and a manifest. Secrets are not in it - the
+        admin token and API keys have to be set again after a restore - so
+        the file is safe to hand to whoever keeps the backups. Written under
+        the data directory and removed once sent; nothing accumulates.
+        Restoring stays on the server, on purpose: ``openknowledge restore``.
+        """
+        from ..backup import BackupError, write_backup
+
+        stamp = time.strftime("%Y%m%d-%H%M%S")
+        out = Path(engine.settings.data_dir) / "backups" / f"openknowledge-backup-{stamp}.zip"
+        try:
+            made = await run_in_threadpool(
+                write_backup, engine.settings, out, include_documents=documents
+            )
+        except BackupError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        engine.knowledge.record_action(
+            _actor(request),
+            "backup.download",
+            out.name,
+            {
+                "documents": made.documents,
+                "databases": list(made.databases),
+                "bytes": made.bytes,
+            },
+        )
+        return FileResponse(
+            out,
+            media_type="application/zip",
+            filename=out.name,
+            background=BackgroundTask(_remove_quietly, out),
+        )
 
     @app.get("/admin/config", dependencies=[AdminOnly])
     async def config(engine: EngineDep) -> dict[str, Any]:

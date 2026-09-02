@@ -293,6 +293,10 @@ contradictions, and the ledger that knows what has been asked and what it cost
 — plus the documents, unless you pass `--no-documents` because they already
 live somewhere you back up separately.
 
+The same file is one click on `/manage`, under *Backup* (admin only): tick
+whether to include the documents, download, and the download is recorded in
+the admin log with what it carried. Restoring is not a button, on purpose.
+
 The databases are copied through SQLite's own backup API, so this is safe to
 run against a server that is still answering questions. Copying the files with
 `cp` while it serves is not: you get something that looks like a database and

@@ -853,3 +853,50 @@ def test_the_configuration_panel_shows_settings_and_never_the_token(managed_app)
         finally:
             browser.close()
     assert errors == [], f"page errors: {errors}"
+
+
+def test_the_backup_button_hands_over_a_real_archive(managed_app) -> None:
+    """Clicked, not called: the button fetches with the token in a header,
+    turns the reply into a download the browser saves, and says what it
+    saved. The saved file has to be the archive, and the admin log has to
+    say it left."""
+    import zipfile
+
+    import httpx
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as pw:
+        browser, page = _page(pw, managed_app)
+        errors: list[str] = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        try:
+            page.goto(managed_app + "/manage")
+            page.fill("#token-input", "t0ken")
+            page.click("#unlock")
+            page.wait_for_selector('body[data-ready="admin"]', timeout=30000)
+            with page.expect_download(timeout=30000) as handed:
+                page.click("#backup button:has-text('Download backup')")
+            names = zipfile.ZipFile(handed.value.path()).namelist()
+            page.wait_for_selector("#backup .quiet:has-text('Saved')", timeout=15000)
+            note = page.inner_text("#backup .quiet")
+
+            # The box means what it says: unticked, the documents stay home.
+            page.uncheck("#backup-documents")
+            with page.expect_download(timeout=30000) as without:
+                page.click("#backup button:has-text('Download backup')")
+            slimmer = zipfile.ZipFile(without.value.path()).namelist()
+        finally:
+            browser.close()
+
+    assert errors == [], f"page errors: {errors}"
+    assert "manifest.json" in names
+    assert "documents/handbook.md" in names, names
+    assert handed.value.suggested_filename.startswith("openknowledge-backup-")
+    assert "Secrets are not in it" in note
+    assert "manifest.json" in slimmer
+    assert not any(n.startswith("documents/") for n in slimmer), slimmer
+    log = httpx.get(
+        managed_app + "/admin/log", headers={"authorization": "Bearer t0ken"}, timeout=20
+    ).json()
+    downloads = [e for e in log["entries"] if e["action"] == "backup.download"]
+    assert sorted(e["detail"]["documents"] for e in downloads) == [0, 1]
