@@ -98,6 +98,7 @@ Two flags worth knowing:
 ```sh
 openknowledge audit ~/policies --min-overlap 0.45   # flag less; raise to cut noise
 openknowledge audit ~/policies --exit-zero          # don't fail the shell on findings
+openknowledge audit ~/policies --html report.html   # the same findings as one page to forward
 ```
 
 Without `--exit-zero` it exits non-zero when it finds something, which is what

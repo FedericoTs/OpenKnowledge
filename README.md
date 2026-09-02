@@ -42,6 +42,12 @@ nothing uploaded anywhere:
 uvx --from git+https://github.com/FedericoTs/OpenKnowledge openknowledge audit ~/policies
 ```
 
+Add `--html report.html` and the same findings become one page to forward to whoever
+owns the documents: both sentences of every contradiction, the figures marked, nothing
+fetched from anywhere.
+
+![An audit of eleven policy documents: two contradictions, each shown as the two sentences that cannot both be true, and one pair of documents that are two versions of the same file](https://raw.githubusercontent.com/FedericoTs/OpenKnowledge/HEAD/docs/images/audit.png)
+
 Then a model on your machine and the chat: see [Quick start](#quick-start).
 
 ![The management page: whether each model endpoint answers, what the install has cost, what people ask most](https://raw.githubusercontent.com/FedericoTs/OpenKnowledge/HEAD/docs/images/manage.png)
@@ -463,6 +469,7 @@ Then, in order:
 
 ```bash
 openknowledge audit ~/policies        # free: where your documents disagree, no model
+openknowledge audit ~/policies --html report.html   # the same, as a page to forward
 openknowledge model use qwen3:8b      # a model on your machine, so answers cost nothing
 openknowledge serve                   # chat widget on http://localhost:8080
 ```

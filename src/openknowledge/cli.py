@@ -626,10 +626,26 @@ def _cmd_audit(args: argparse.Namespace) -> int:
         pdf_backend=args.pdf_backend or settings.pdf_backend,
     )
 
+    written = None
+    if args.html:
+        # The same findings as one page - for the reader who forwards a file
+        # rather than pasting an email. "-" puts the page on stdout and
+        # nothing else, so it can be redirected.
+        from .audit_html import render_html
+
+        page = render_html(report)
+        if args.html == "-":
+            print(page, end="")
+        else:
+            written = Path(args.html)
+            written.write_text(page, encoding="utf-8")
+
     if args.json:
         print(json.dumps(report.as_dict(), indent=2))
-    else:
+    elif args.html != "-":
         print(render(report))
+    if written is not None:
+        print(f"Wrote {written} - a page to send to whoever owns these documents.")
 
     if report.documents == 0:
         print(f"\nNo readable documents in {report.root}.", file=sys.stderr)
@@ -1123,6 +1139,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("path", nargs="?", help="folder to read; defaults to OK_DOCUMENTS_DIR")
     p.add_argument("--json", action="store_true")
+    p.add_argument(
+        "--html",
+        metavar="PATH",
+        help="also write the report as one self-contained web page ('-' for stdout)",
+    )
     p.add_argument("--pdf-backend", choices=("auto", "opendataloader", "pdfplumber"))
     p.add_argument(
         "--strictness",
