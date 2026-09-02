@@ -50,9 +50,18 @@ from openknowledge.types import Answer, Tier
 SOURCE = Path(__file__).resolve().parent.parent / "src" / "openknowledge"
 
 
+def _source_of(path: Path) -> str:
+    """Read as UTF-8, whatever the machine thinks its encoding is.
+
+    Windows says cp1252, and these files have curly quotes in them, so the
+    default locale encoding fails on the runner and nowhere else.
+    """
+    return path.read_text(encoding="utf-8")
+
+
 def _shared_connection_modules() -> list[Path]:
     """Every module that hands one connection to more than one thread."""
-    return sorted(p for p in SOURCE.rglob("*.py") if "check_same_thread=False" in p.read_text())
+    return sorted(p for p in SOURCE.rglob("*.py") if "check_same_thread=False" in _source_of(p))
 
 
 def _holds_the_lock(item: ast.withitem) -> bool:
@@ -83,7 +92,7 @@ def test_shared_connections_are_only_used_under_the_lock() -> None:
     assert modules, "no module opens a connection with check_same_thread=False any more"
     offenders = []
     for path in modules:
-        tree = ast.parse(path.read_text())
+        tree = ast.parse(_source_of(path))
         for cls in (n for n in ast.walk(tree) if isinstance(n, ast.ClassDef)):
             for fn in (n for n in cls.body if isinstance(n, ast.FunctionDef)):
                 # __init__ builds the lock, so it cannot yet take it, and
