@@ -1,11 +1,26 @@
-# Publishing a version: push a v* tag and a GitHub Release appears with the
-# Windows installer attached - a direct download, no Actions login, no zip.
+# Publishing a version: push a v* tag (or dispatch with one) and a GitHub
+# Release appears with the Windows installer attached - a direct download, no
+# Actions login, no zip - and the same commit goes to PyPI, so
+# `uvx openknowledge audit ./policies` runs it with nothing installed.
 #
 # The build is not re-implemented here: this calls the Package workflow, so
 # the published exe went through the identical pipeline that gates every
 # packaging change - including the end-to-end job that installs the artifact
 # on a clean Windows machine, sits through the real first run, and asks it a
-# real question. An installer nobody installed does not get published.
+# real question. An installer nobody installed does not get published, and
+# PyPI comes after the installer: a wheel is published only for a version
+# whose installer was proved on a machine first.
+#
+# Two guards. The tag has to equal the version in pyproject.toml, checked
+# before anything is built, because a release named v0.8.8 that installs as
+# 0.8.7 is worse than no release. And the wheel is installed into a fresh
+# environment and run from another directory before it is uploaded - that is
+# the failure a checkout can never show (every test here runs against the
+# checkout, where the web assets are always found).
+#
+# PyPI is reached with trusted publishing: no token in the repository's
+# secrets, the job's OIDC identity is what PyPI trusts. Setting that trust up
+# is a one-time step on pypi.org, described in docs/RELEASING.md.
 
 name: Release
 
@@ -26,7 +41,22 @@ permissions:
   contents: write
 
 jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: The tag must be the version pyproject.toml carries
+        run: |
+          TAG="${{ inputs.tag || github.ref_name }}"
+          VERSION=$(python3 -c 'import tomllib; print(tomllib.load(open("pyproject.toml","rb"))["project"]["version"])')
+          if [ "$TAG" != "v$VERSION" ]; then
+            echo "::error::tag $TAG does not match pyproject.toml version $VERSION - bump the version, or fix the tag"
+            exit 1
+          fi
+          echo "releasing $TAG from ${GITHUB_SHA}"
+
   build:
+    needs: check
     uses: ./.github/workflows/package.yml
 
   publish:
@@ -73,3 +103,38 @@ jobs:
             --target "${GITHUB_SHA}" \
             --title "OpenKnowledge ${TAG#v}" \
             --notes-file notes.md
+
+  pypi:
+    # After the GitHub release, never instead of it: the installer is the
+    # deliverable, and the wheel is published for a version that has already
+    # been proved on a machine. If the trusted publisher is not yet set up on
+    # pypi.org, this job is red and the release above still stands.
+    needs: publish
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+
+      - name: Build the sdist and the wheel
+        run: uv build && uvx twine check dist/*
+
+      - name: Install the wheel somewhere else and run it
+        # From /tmp on purpose: the checkout's web/ folder must not be what
+        # the server finds. --version must be the tag, and the audit - the
+        # one command that needs no model - must run to completion.
+        run: |
+          TAG="${{ inputs.tag || github.ref_name }}"
+          uv venv /tmp/wheel-venv
+          uv pip install --python /tmp/wheel-venv/bin/python dist/*.whl
+          cd /tmp
+          got=$(/tmp/wheel-venv/bin/openknowledge --version)
+          test "$got" = "openknowledge ${TAG#v}" || { echo "::error::wheel says '$got', tag is $TAG"; exit 1; }
+          /tmp/wheel-venv/bin/python -c 'from openknowledge.assets import find_asset; assert find_asset("widget/index.html"), "the wheel does not carry the widget"'
+          /tmp/wheel-venv/bin/openknowledge audit "$GITHUB_WORKSPACE/documents" --exit-zero
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
