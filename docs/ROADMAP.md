@@ -850,8 +850,23 @@ Worth stating plainly, and the first one is the largest thing wrong with this pr
   language. The folder signal is deliberately **not** used — two folders are as often a
   topic split as a scope split, and suppressing across them would hide a real
   HR-versus-Finance contradiction.
-- **No deontic marker, no detection.** "The policy was withdrawn in March" against a document
-  still stating the policy is invisible to the pattern passes.
+- **Supersession announced by another document is now read** — the half of this that
+  is safe to act on. `declares_superseded` needs somebody to have gone back and edited
+  the *old* file, and in practice nobody does; the statement that gets written is in
+  the new document's header, `**Supersedes:** Expenses Policy v3.0 (January 2023)`.
+  That line is in this project's own sample corpus and was ignored, because the
+  self-declaration matcher deliberately skips "Supersedes:" — there it is the current
+  copy talking about a *different* document, which is exactly what makes it useful
+  here. See `knowledge/supersession.py`.
+- **A withdrawal announced in prose is still invisible**, and that is now a decision
+  rather than an omission. "The policy was withdrawn in March" would have to be
+  *inferred*, and retrieval does not downrank a superseded document — it **excludes**
+  it whenever any current document matches (`demote_superseded`). So a wrong inference
+  takes a live policy out of almost every answer. A header field written by whoever
+  replaced the document is a statement; a sentence in the body is a guess, and a guess
+  is not worth that. The resolution is conservative for the same reason: the announcer
+  is never its own target, every significant word of the target's title must appear in
+  the phrase, and a tie retires nothing.
 - **English-only.** The marker vocabulary is English; another language gets numeric
   detection only.
 - **Retrieved-window bound.** The cross-check compares against the passage that matched, so a

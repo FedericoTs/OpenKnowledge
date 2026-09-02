@@ -15,7 +15,13 @@ from ..cascade.ladder import Ladder, Rung
 from ..config import Settings
 from ..connectors import LocalFilesConnector
 from ..documents.cache import ParseCache
-from ..knowledge import IngestReport, KnowledgeStore, draft_for_documents, scan_documents
+from ..knowledge import (
+    IngestReport,
+    KnowledgeStore,
+    draft_for_documents,
+    scan_documents,
+    supersession,
+)
 from ..knowledge.claims import ClaimCache
 from ..knowledge.reverify import reverify_changed_documents
 from ..providers.anthropic_provider import AnthropicProvider
@@ -107,6 +113,11 @@ class Engine:
         separate precisely so that re-indexing cannot spend money by surprise.
         """
         self.documents = self.connector.fetch()
+        # A document is retired by whoever replaced it, and in practice the
+        # statement is written in the new file rather than added to the old
+        # one. Applied here rather than in the connector because it needs the
+        # whole corpus to know which document was named.
+        self.documents, retired = supersession.apply(self.documents)
         self._documents_stamp = self.documents_fingerprint()
         self.retriever.index(self.documents)
         evicted = self.store.evict_other_corpus_versions(self.retriever.corpus_version)
@@ -124,6 +135,13 @@ class Engine:
             claims=self.claims,
         )
         self.claims.keep_only(self.documents)
+        for document_id, announcer in sorted(retired.items()):
+            # Said out loud: retrieval excludes a superseded document whenever
+            # anything current matches, so an operator should be able to see
+            # that this happened and who said it.
+            self.last_scan.notes.append(
+                f"{document_id} treated as superseded: {announcer} says it replaced it"
+            )
         for skipped in self.connector.skipped:
             self.last_scan.notes.append(f"skipped {skipped.path}: {skipped.reason}")
         log.info(

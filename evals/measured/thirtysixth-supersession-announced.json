@@ -1,0 +1,30 @@
+{
+  "what": "A document retired by the one that replaced it is now read as retired. And the sabotage suite that checked it turned out to be reporting results it had not measured, for a reason worth writing down.",
+  "the_gap": {
+    "what_was_there": "declares_superseded reads a document's own head for 'SUPERSEDED by v4.1' and trusts it. That needs somebody to have gone back and edited the OLD file.",
+    "why_that_is_the_wrong_half": "In practice nobody edits the old file. The statement that gets written is in the new document's header: '**Supersedes:** Expenses Policy v3.0 (January 2023)'. That exact line is in this project's own sample corpus and was ignored, because the self-declaration matcher deliberately skips 'Supersedes:' - there it is the current copy talking about a different document, which is precisely what makes it useful for this."
+  },
+  "what_was_built_and_what_was_not": {
+    "built": "The authored declaration: a Supersedes/Replaces header field naming another document, resolved by title.",
+    "deliberately_not_built": "A withdrawal announced in prose - 'the policy was withdrawn in March'. Retrieval does not downrank a superseded document, it EXCLUDES it whenever any current document matches (demote_superseded, which fails open only when nothing current matches at all). So a wrong inference takes a live policy out of almost every answer. A header field written by whoever replaced the document is a statement; a sentence in the body is a guess, and a guess is not worth that outcome. The roadmap gap now says this rather than listing it as undone.",
+    "i_had_this_wrong_first": "The design was chosen on the belief that a false positive 'costs a demotion, not a disappearance'. Reading demote_superseded showed that is not what it does - it excludes. The whole scope of the feature narrowed on that one reading."
+  },
+  "the_resolution_is_conservative": {
+    "never_its_own_target": "A document's title is usually a subset of the phrase it writes - 'Expenses Policy' fits inside 'Expenses Policy v3.0 (January 2023)' - so without excluding the announcer the current policy would declare itself gone.",
+    "the_more_specific_title_wins": "That same phrase fits both the archived copy and the current one. Taking the looser match would retire the live policy while the archived figure answered in its place. Pinned by a test that asserts both really do fit.",
+    "a_tie_retires_nothing": "Two documents matching equally well means nobody can tell which was meant.",
+    "two_significant_words_minimum": "A one-word title could sit inside almost any notice."
+  },
+  "a_defect_the_sabotage_found_in_the_implementation": "The first stopword list stripped the domain words - policy, guidelines, standard, handbook. That looked right and made the feature nearly inert: 'Travel Policy' reduced to {travel}, one word, which the two-word floor then rejected. Most real titles are exactly '<something> Policy', so the common case was ruled out. The tests did not notice because their fixtures hit the same wall - five of seven sabotages passed, and chasing why is what surfaced it.",
+  "a_flaw_in_the_method_itself": {
+    "what_happened": "One sabotage swapped `max` for `min` in the tie-break. The runner wrote it, ran pytest, and restored the original - and the next run still behaved as if sabotaged. The test then failed against correct code, which read as a bug in the feature.",
+    "why": "Python validates a cached .pyc on the source's mtime AND SIZE. `min` and `max` are both three characters, so the restored file had an identical size, and the restore landed inside the same second. The stale bytecode was reused.",
+    "why_it_matters_more_than_this_one_case": "It produces false CAUGHT and false MISSED - a sabotage runner that silently tests the wrong bytes is the same failure as a test that never ran. Demonstrated in isolation rather than assumed: a same-size rewrite of a module inside one second, reloaded, still returns the old value.",
+    "fixed": "The runner now executes pytest with -B and PYTHONDONTWRITEBYTECODE=1, so nothing is cached between a sabotage and its restore. Re-run that way, all seven sabotages fail against their bug.",
+    "scope_of_the_doubt": "Earlier sabotage suites in this project are only at risk where a replacement had exactly the same byte length as the original and the restore fell inside the same second. Most changed length substantially. This is stated rather than quietly assumed away."
+  },
+  "the_golden_sets_were_not_re_run_and_here_is_why": "This changes ranking in general, so it would normally be gated on both sets. On both corpora `supersession.apply` returns the corpus UNCHANGED - literally the same list object - because the only announcement in either is aveline's, whose target already declares itself superseded. The input handed to the retriever is byte-identical, so the sets are guaranteed to produce what they produced before. An identity check, not an assumption; the first corpus that carries a real announcement will need the full run.",
+  "measured": "On the aveline corpus the announcement is detected - archive-expenses-policy-2023 announced by hr-expenses-policy - and nothing is newly marked, because that copy already says so itself. On ./documents nothing is announced at all.",
+  "pinned_by": "tests/test_supersession.py, 11 tests.",
+  "still_open": "Prose withdrawal, per above. Announcements naming a document that is not in the corpus do nothing, which is right but silent - an operator might want to know a replaced document was never imported."
+}
