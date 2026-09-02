@@ -16,13 +16,17 @@ the clock says nothing changed, and two parsers never share an entry.
 
 from __future__ import annotations
 
+import hashlib
 import os
 import sqlite3
 from pathlib import Path
+from unittest import mock
 
 from openknowledge.api.engine import build_engine
 from openknowledge.config import Settings
 from openknowledge.connectors.local_files import LocalFilesConnector
+from openknowledge.documents import blocks as blocks_module
+from openknowledge.documents import parse_bytes
 from openknowledge.documents.blocks import Block, BlockKind, ParsedDocument
 from openknowledge.documents.cache import ParseCache, cache_key
 
@@ -262,3 +266,94 @@ def test_the_backup_does_not_carry_it(tmp_path: Path) -> None:
     from openknowledge.backup import _DATABASES
 
     assert "parses.db" not in _DATABASES
+
+
+# -- the flattened text, stored beside the blocks --------------------------
+#
+# Flattening is not free: `normalise` makes six full passes over a document,
+# and on 1,200 files that was 1.09 of the 1.54 seconds every upload spent
+# re-reading a folder in which one file had changed. It is a pure function of
+# the blocks, so the cache stores it. What these hold is that storing it
+# cannot change what a document says.
+
+
+def test_a_cached_parse_flattens_to_exactly_what_it_flattened_before() -> None:
+    """The whole point, and the only thing that would matter if it were wrong.
+
+    Every content hash, every chunk and every corpus_version is built from
+    this text. A stored copy that differed from a recomputed one by so much as
+    a newline would fingerprint the same document two ways.
+    """
+    parsed = parse_bytes(
+        b"# Leave\n\nParental leave is 20 weeks.\n\n## Notice\n\nGive 8 weeks.\n", suffix=".md"
+    )
+    cache = ParseCache()
+    key = cache_key(b"anything", parser=".md")
+    cache.put(key, parsed)
+
+    restored = cache.get(key)
+    assert restored is not None
+    assert restored.flattened is not None, "the text was not stored"
+    assert restored.text == parsed.text
+
+
+def test_a_stored_parse_still_equals_a_freshly_parsed_one() -> None:
+    """One carries the memo and one does not, and they are the same document.
+
+    Excluded from equality on purpose: several tests assert that a cached
+    parse equals an uncached one, and they are asserting something true. A
+    memo counted as a difference would fail them for a difference that is not
+    one.
+    """
+    raw = b"# Expenses\n\nApproval above EUR 500.\n"
+    parsed = parse_bytes(raw, suffix=".md")
+    cache = ParseCache()
+    key = cache_key(raw, parser=".md")
+    cache.put(key, parsed)
+
+    restored = cache.get(key)
+    assert restored == parsed
+    assert restored is not parsed
+
+
+def test_a_document_that_was_never_cached_still_flattens() -> None:
+    """The memo is an optimisation, not a requirement. Anything that builds a
+    ParsedDocument directly - every parser does - gets the text computed."""
+    parsed = parse_bytes(b"# Title\n\nBody text.\n", suffix=".md")
+    assert parsed.flattened is None
+    assert "Body text." in parsed.text
+
+
+def test_reading_a_row_does_not_flatten_the_document_again() -> None:
+    """Recomputing it on read would leave the cost exactly where it was."""
+    raw = b"# Leave\n\nParental leave is 20 weeks.\n"
+    parsed = parse_bytes(raw, suffix=".md")
+    cache = ParseCache()
+    key = cache_key(raw, parser=".md")
+    cache.put(key, parsed)
+
+    calls = 0
+    real = blocks_module.normalise
+
+    def counted(text: str) -> str:
+        nonlocal calls
+        calls += 1
+        return real(text)
+
+    with mock.patch.object(blocks_module, "normalise", counted):
+        restored = cache.get(key)
+        assert restored is not None
+        _ = restored.text
+        _ = restored.text
+    assert calls == 0
+
+
+def test_a_row_written_by_an_older_shape_is_a_miss(tmp_path: Path) -> None:
+    """FORMAT is in the key, so a row from before the text was stored is not
+    read as one that has it - it is simply not found, and re-parsed."""
+    raw = b"# Leave\n\nParental leave is 20 weeks.\n"
+    assert cache_key(raw, parser=".md") != f"1:.md:{hashlib.sha256(raw).hexdigest()}"
+
+    cache = ParseCache(tmp_path / "parses.db")
+    cache.put(f"1:.md:{hashlib.sha256(raw).hexdigest()}", parse_bytes(raw, suffix=".md"))
+    assert cache.get(cache_key(raw, parser=".md")) is None

@@ -85,10 +85,26 @@ class ParsedDocument:
     #: that silently contributes nothing is how a corpus develops holes nobody
     #: notices until an answer is wrong.
     warnings: tuple[str, ...] = field(default_factory=tuple)
+    #: The flattened text, when somebody has already computed it.
+    #:
+    #: Flattening is not free: ``normalise`` makes six full passes over the
+    #: document, and on a corpus of 1,200 files that was 1.09 of the 1.54
+    #: seconds every upload and every delete spent re-reading a folder in
+    #: which one file had changed. It is a pure function of the blocks, so the
+    #: parse cache stores it beside them and hands it back here.
+    #:
+    #: Excluded from equality on purpose. A document read from the cache
+    #: carries it and a freshly parsed one does not, and those two are the
+    #: same document - the tests that assert a cached parse equals an uncached
+    #: one are asserting something true, and comparing a memo would make them
+    #: fail for a difference that is not one.
+    flattened: str | None = field(default=None, compare=False, repr=False)
 
     @property
     def text(self) -> str:
         """Flattened plain text, for anything that just wants the words."""
+        if self.flattened is not None:
+            return self.flattened
         return normalise("\n\n".join(b.contextual_text for b in self.blocks))
 
     @property

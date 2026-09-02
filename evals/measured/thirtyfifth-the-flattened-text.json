@@ -1,0 +1,25 @@
+{
+  "what": "An upload no longer re-flattens every document in the folder. Re-reading a 1,200-document corpus went from 1.55s to 0.42s, and one upload end to end from 3.15s to 1.95s.",
+  "where_the_time_was": {
+    "measured_first": "With parses cached, PDFs batched and per-document index work reused, connector.fetch() was 47% of an upload. Profiling it put 1.09 of its 1.54 seconds in ParsedDocument.text, and 1.04 of that in re.sub alone.",
+    "why_it_is_expensive": "`normalise` makes six full passes over the document - three str.replace, two regex substitutions, and a split/strip/join - at roughly 21 MB/s a pass. On 22 MB of text that is a second, paid on every upload and every delete, for documents where nothing changed.",
+    "it_is_pure": "The flattened text is a function of the blocks and nothing else, so the parse cache can store it beside them."
+  },
+  "measured": {
+    "conditions": "Same machine, same script, back to back, alternating - the shipped build restored from HEAD for the before run and the change restored after, so both saw identical load.",
+    "fetch": "400 documents 0.55s -> 0.15s; 1,200 1.55s -> 0.42s; 2,400 3.06s -> 0.90s. About 3.5x.",
+    "one_upload": "400 1.01s -> 0.54s; 1,200 3.15s -> 1.95s; 2,400 6.55s -> 4.61s.",
+    "repeatability": "Three runs of the after case at 1,200 documents: 2.00s, 1.90s, 1.98s. Within-session variance is about 5%."
+  },
+  "what_it_costs": "parses.db goes from 1.1x to 2.1x the size of the corpus text - 24.7 MB to 45.5 MB for 21.9 MB of documents. That is the trade and it is the right way round here: the file is pure derived data that can be deleted for the price of one rebuild, and what it buys back is a wait somebody is sitting through.",
+  "a_number_of_mine_that_did_not_hold": {
+    "what": "The v0.7.1 record published 'an upload end to end 3.42s -> 1.22s' at 1,200 documents. Measured again today, the same operation on the same unchanged code took 3.15s, not 1.22s.",
+    "why_it_matters": "Not a code regression - the two runs are hours apart on a container that had since downloaded 2.6 GB of models and run two eval suites, and page-cache state and host contention are not controlled here. What it means is that this box is not a stable timing reference between sessions.",
+    "so": "Every figure in this record is a same-session A/B, taken back to back by restoring the shipped code from HEAD between runs. Ratios are the trustworthy part; absolute seconds from a previous session are not comparable, and the v0.7.1 figures should be read as ratios too."
+  },
+  "the_field_is_excluded_from_equality": "A document read from the cache carries the flattened text and a freshly parsed one does not, and those two are the same document. Several tests assert exactly that a cached parse equals an uncached one, and they are asserting something true - a memo counted as a difference would fail them for a difference that is not one. `compare=False`, pinned by a test.",
+  "every_test_was_checked_against_the_bug_it_claims_to_catch": "Five sabotages, each applied and run: store a text that is not the document's, never store it at all, ignore the stored text and recompute, count the memo as a difference, and keep the old FORMAT so stale rows are read. All five fail against their bug; none passed first time.",
+  "gate": "No retrieval, prompt, chunking or grounding change: the same text, computed once instead of on every scan. FORMAT is bumped so a row written by the previous shape is a miss rather than something to interpret. The golden sets gate answers, and no answer moved.",
+  "pinned_by": "tests/test_parse_cache.py, 5 new tests.",
+  "still_open": "What remains in an upload is the index rebuild, which is now the larger half again - about 1.5s of the 1.95s at 1,200 documents. That is corpus-wide by nature: BM25 statistics and every document's tags depend on the whole corpus, and the per-document half of it is already cached."
+}

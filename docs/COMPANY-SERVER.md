@@ -118,6 +118,12 @@ than its timestamp — so a restore-from-backup or an `rsync -t`, which put
 old timestamps on new bytes, cannot make it serve you the previous version
 of a policy.
 
+It holds the flattened text as well as the structure, because flattening a
+document is six passes over it and doing that for a thousand files on every
+upload was most of the wait. That roughly doubles the file — reckon on about
+**twice the size of your documents' text** — which is the trade: disk for a
+wait somebody is sitting through.
+
 It is pure derived data. Deleting `parses.db` costs one rebuild and nothing
 else, which is why it is a separate file and why it is not in the backup:
 the backup already carries the documents themselves.
@@ -128,11 +134,15 @@ Uploads and deletes re-index, inside the request, so there is never a window
 where the corpus has changed and answers have not. What that costs is the
 work for the **one document that changed** — the rest is reused:
 
-| corpus | one upload |
-|---|---|
-| 400 documents | 0.4 s |
-| 1,200 documents | 1.2 s |
-| 2,400 documents | 3.4 s |
+| corpus | one upload | of which re-reading the folder |
+|---|---|---|
+| 400 documents | 0.5 s | 0.15 s |
+| 1,200 documents | 2.0 s | 0.4 s |
+| 2,400 documents | 4.6 s | 0.9 s |
+
+Measured back to back against the previous build on the same machine, which
+was 1.0 s, 3.2 s and 6.6 s. Treat the ratios rather than the absolutes: this
+box does not time the same operation the same way from one day to the next.
 
 The parts that genuinely depend on the whole corpus are still recomputed
 every time — which documents a word is distinctive against, and so every

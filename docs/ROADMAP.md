@@ -536,6 +536,37 @@ tags, and the whole index — chunks, term frequencies, lengths, document
 frequencies, average length, `corpus_version`, principals and both tag maps
 — are asserted identical to what the previous implementation produced.
 
+### The same words, flattened once
+
+With parses cached, PDFs batched and per-document index work reused, what an
+upload still spent its time on was re-reading the folder: `connector.fetch()`
+was **47%** of it. Profiling put 1.09 of those 1.54 seconds in
+`ParsedDocument.text` — `normalise` makes six full passes over a document,
+and 22 MB of text at roughly 21 MB/s a pass is a second, paid on every upload
+and every delete, for documents where nothing changed.
+
+It is a pure function of the blocks, so the parse cache stores it beside
+them. Re-reading 1,200 documents: **1.55 s → 0.42 s**; one upload end to end
+3.15 s → 1.95 s.
+
+The cost is disk. `parses.db` goes from 1.1x to **2.1x** the size of the
+corpus text. That is the right way round here — the file is derived data that
+can be deleted for the price of one rebuild, and what it buys is a wait
+somebody is sitting through.
+
+The field is excluded from equality, which matters more than it sounds: a
+document read from the cache carries the text and a freshly parsed one does
+not, and those two **are the same document**. Several tests assert exactly
+that, and they are asserting something true.
+
+Worth recording next to the numbers: measured again hours later, the same
+unchanged code took 3.15 s where the v0.7.1 record had said 1.22 s. Nothing
+regressed — this container had since downloaded 2.6 GB of models and run two
+eval suites, and page cache and host contention are not controlled. **This
+box is not a stable timing reference between sessions.** Every figure here is
+a same-session A/B with the shipped code restored from HEAD between runs, and
+the older records should be read as ratios rather than seconds.
+
 ### An access change is not a corpus change
 
 Both access endpoints re-indexed the whole corpus, synchronously, inside the

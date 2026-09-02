@@ -51,7 +51,7 @@ log = logging.getLogger(__name__)
 #: Bumped when the stored shape changes, so an older row is a miss rather
 #: than something to be interpreted. Cheaper than a migration for a cache:
 #: everything in here can be recomputed from the file it came from.
-FORMAT = 1
+FORMAT = 2
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS parses (
@@ -73,6 +73,10 @@ def _as_json(parsed: ParsedDocument) -> str:
         {
             "title": parsed.title,
             "pages": parsed.pages,
+            # Computed once here rather than on every scan that reads this row.
+            # It is derived from the blocks below, so it cannot disagree with
+            # them; FORMAT covers the shape changing.
+            "text": parsed.text,
             "warnings": list(parsed.warnings),
             "blocks": [
                 {
@@ -113,6 +117,7 @@ def _from_json(raw: str) -> ParsedDocument | None:
             title=payload["title"],
             pages=int(payload["pages"]),
             warnings=tuple(payload["warnings"]),
+            flattened=payload["text"],
         )
     except (TypeError, ValueError, KeyError):
         return None
