@@ -270,6 +270,32 @@ class Cascade:
                 return rung.provider
         return None
 
+    def _may_serve(self, provenance: set[str], principals: frozenset[str] | None) -> bool:
+        """Whether an answer drawn from ``provenance`` may go to this asker.
+
+        Empty provenance is the case that used to fail open. ``visible_to``
+        loops over the documents it is given, so a check over nothing passes -
+        and a pin written without listing its sources cites nothing. Measured
+        before this existed: a curator pinning "Executive bands run from EUR
+        180000 to EUR 240000" with no citation served it to an asker holding
+        only ``staff``, while the identical pin *with* a citation was
+        correctly refused. The control was opt-in, and the opt-in was a field
+        the curator had to remember.
+
+        So an answer that names no source is served only to an asker who is
+        hiding from nothing. If any document in the corpus is out of their
+        reach, an answer of unknown provenance might be about exactly that
+        one, and the honest thing is to answer the question again over what
+        they can see. Where nothing is restricted - the desktop app, most
+        installs - nothing changes.
+        """
+        if principals is None:
+            return True
+        if provenance:
+            return self.retriever.visible_to(provenance, principals)
+        _titles, hidden = self.retriever.documents_visible_to(principals)
+        return hidden == 0
+
     async def _events(
         self,
         question: str,
@@ -339,7 +365,7 @@ class Cascade:
             # where refusing is the honest answer.
             unaccounted = [c for c in contested if c.detected_at >= pin.updated_at]
             cited = {c.document_id for c in pin.citations}
-            if not unaccounted and self.retriever.visible_to(cited, principals):
+            if not unaccounted and self._may_serve(cited, principals):
                 yield _final(
                     Answer(
                         text=pin.answer,
@@ -374,7 +400,7 @@ class Cascade:
         cached = self.store.get(key)
         if cached is not None:
             cited = {c.document_id for c in cached.citations}
-            if self.retriever.visible_to(cited, principals):
+            if self._may_serve(cited, principals):
                 yield _final(
                     Answer(
                         text=cached.answer,
@@ -395,8 +421,13 @@ class Cascade:
         if self.knowledge is not None and self.settings.serve_drafts:
             draft = self.knowledge.draft_for(canonical)
             if draft is not None:
-                cited = {c.document_id for c in draft.citations}
-                if self.retriever.visible_to(cited, principals):
+                # A draft records the documents it was written from, and
+                # those are the provenance - a draft that cites one of the two
+                # documents it read is still an answer about both. The note
+                # below names them to the asker, which is only honest if the
+                # asker may know they exist.
+                cited = {c.document_id for c in draft.citations} | set(draft.origin_documents)
+                if self._may_serve(cited, principals):
                     yield _final(
                         Answer(
                             text=draft.answer,
@@ -542,7 +573,7 @@ class Cascade:
                     entry is not None
                     and asks_about_the_same_document
                     and asks_within_what_the_cache_knows
-                    and self.retriever.visible_to(cited, principals)
+                    and self._may_serve(cited, principals)
                 ):
                     verdict = check_grounding(
                         entry.answer,

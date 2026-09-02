@@ -75,6 +75,16 @@ run fetch the models, then serve the network instead of loopback: set
 - **Every admin change is logged**, with who made it: `openknowledge
   admin-log`, or the *Admin log* panel on `/manage`. Changes made with the
   shared token name nobody, which is what sign-in fixes.
+- **A shortcut answer is only shown to someone who could have reached its
+  sources.** Pins, cached answers and drafts are all shared, and every one
+  is re-checked against the asker on the way out — so a cached answer about
+  the board's compensation is a cache *miss* for someone who cannot open
+  that document, and the question is answered again over what they can see.
+  An answer that names no source at all cannot be checked, so it is shown
+  only to people who can already read every document; a pin written without
+  citing anything says so when you save it. This is why the pin editor asks
+  for sources: they are the answer's provenance, and provenance is what the
+  access check reads.
 
 ## What each person sees
 

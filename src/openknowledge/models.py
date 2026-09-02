@@ -452,6 +452,14 @@ def write_env(path: Path, values: dict[str, str], *, private: bool = False) -> l
     it: a token written under umask 022 is world-readable, and a bearer token
     any local account can read is not a secret.
     """
+    for key, value in values.items():
+        # One key per line is the whole format. A value carrying a newline
+        # would write a second line - a key nobody asked to set - so it is
+        # refused here as well as by whatever validated it, because this
+        # function is called from the settings endpoint, the installer and
+        # the CLI, and only one of those has a validator in front of it.
+        if "\n" in str(value) or "\r" in str(value):
+            raise ValueError(f"{key}: a dotenv value cannot contain a line break")
     lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
     remaining = dict(values)
     changed: list[str] = []

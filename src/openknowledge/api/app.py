@@ -1542,6 +1542,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "aliases": canonicals[1:],
             "cited": [c.document_id for c in citations],
             "pinned": True,
+            # A pin that names no source cannot be access-checked, so it is
+            # withheld from anyone the corpus hides something from. Said here
+            # because the alternative is a curator writing a pin, seeing 201,
+            # and hearing weeks later that half the company never got it.
+            "note": (
+                ""
+                if citations
+                else "This pin cites nothing, so it can only be shown to people who can "
+                "already read every document. List the documents it comes from in "
+                "'cite' to make it answerable for everyone else."
+            ),
         }
 
     @app.delete("/admin/pins", dependencies=[CuratorOnly])

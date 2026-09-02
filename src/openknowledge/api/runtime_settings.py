@@ -23,6 +23,7 @@ restart would teach people not to trust the page.
 
 from __future__ import annotations
 
+import re
 from typing import Annotated, Any
 
 from pydantic import TypeAdapter
@@ -73,6 +74,10 @@ EDITABLE: dict[str, str] = {
 }
 
 
+#: Anything that would not survive a round trip through one dotenv line.
+_CONTROL = re.compile(r"[\x00-\x1f\x7f]")
+
+
 class SettingsChangeError(ValueError):
     """A change that cannot be applied, with the reason a person can act on."""
 
@@ -98,6 +103,18 @@ def validate_changes(changes: dict[str, Any]) -> dict[str, Any]:
             validated[key] = TypeAdapter(contract).validate_python(raw)
         except Exception as exc:
             raise SettingsChangeError(f"{key}: {exc}") from exc
+        if isinstance(validated[key], str) and _CONTROL.search(validated[key]):
+            # Every applied change is written to a dotenv as KEY=value, one
+            # per line, so a value carrying a newline writes a second line -
+            # a key that is NOT in EDITABLE. Measured: setting
+            # azure_openai_deployment to "quiet\nOK_ADMIN_TOKEN=..." put
+            # exactly that line in the file, minting a bearer token that the
+            # next start honours and that outlives its author's removal from
+            # the admin group. The list of editable settings is only a
+            # boundary if a value cannot write outside its own line.
+            raise SettingsChangeError(
+                f"{key}: a setting cannot contain a line break or control character"
+            )
     return validated
 
 
