@@ -1,20 +1,60 @@
 # OpenKnowledge
 
+[![Latest release](https://img.shields.io/github/v/release/FedericoTs/OpenKnowledge?label=release&color=2f6b4f)](https://github.com/FedericoTs/OpenKnowledge/releases/latest)
+[![CI](https://github.com/FedericoTs/OpenKnowledge/actions/workflows/ci.yml/badge.svg)](https://github.com/FedericoTs/OpenKnowledge/actions/workflows/ci.yml)
+[![Licence: AGPL-3.0](https://img.shields.io/badge/licence-AGPL--3.0-blue)](LICENSE)
+
 **A cheap, private, deterministic answer engine for your company's own documents.**
 
-Self-hosted. Answers in a web chat, over an HTTP API, or from the CLI. Runs on your
-own hardware, your own API keys, or both — including as a Windows desktop app.
+It answers from your files, shows the passage it answered from, refuses when the
+documents do not say, and gives the same answer to the same question every time.
+Self-hosted, on your own hardware or your own API keys. Runs as a one-click Windows
+app or as one server the whole company reaches from a browser.
 
-> **Status: pre-alpha (v0.1.0).** Document parsing, the cost cascade, the determinism
-> layer, the grounding gate, the knowledge lifecycle (drafting, review, conflict
-> detection), hybrid retrieval, streaming chat, browser uploads, the management page
-> and the desktop app are implemented and tested. The self-hosted tier is **measured
-> live**: 100% accuracy, 0 false answers, $0.00000 per question on the project's golden
-> set, run on a 4-core CPU (`evals/measured/`). The paid tiers are not yet measured —
-> the escalation rate the cost model turns on still needs an API key. Connectors beyond
-> a local folder (SharePoint, Google Drive, a Teams channel) are roadmap, not code.
-> The Windows installer builds and smoke-tests in CI but is not yet signed.
-> See [ROADMAP](docs/ROADMAP.md).
+![A question about parental leave, answered from the policy with the passage shown, by a local model for $0.00, with the share of the wording found in its sources](docs/images/chat.png)
+
+**Measured, not asserted.** Every number here comes from a script in this repository
+(`evals/measured/`), run against a 4-bit Qwen3-4B on four CPU cores:
+
+| | |
+|---|---:|
+| accuracy on the golden set | **100%** (17 answerable cases) |
+| false answers on the must-refuse set | **0** (9 cases) |
+| same answer, asked twice | **100%** |
+| cost per question on the local tier | **$0.00000** |
+
+The corpus and the questions were written together, so this proves the pipeline behaves,
+not that it is accurate on your documents; that run is one command away, below. What a
+real deployment costs, and why the usual build costs ten cents a question, is worked
+through under *The problem*.
+
+## Try it in sixty seconds
+
+**Windows.** Download the [latest installer](https://github.com/FedericoTs/OpenKnowledge/releases/latest),
+run it, and drop documents into the folder it opens. It is not yet code-signed, so
+SmartScreen will ask first; every release's notes say exactly how the installer was
+verified before it was published.
+
+**Anywhere with Python.** Find where your documents disagree, with no model, no key, and
+nothing uploaded anywhere:
+
+```bash
+uvx --from git+https://github.com/FedericoTs/OpenKnowledge openknowledge audit ~/policies
+```
+
+Then a model on your machine and the chat: see [Quick start](#quick-start).
+
+![The management page: whether each model endpoint answers, what the install has cost, what people ask most](docs/images/manage.png)
+
+**Status.** Pre-1.0 and shipping weekly; the badge above is the current release. Built,
+tested and measured: document parsing (PDF, Word, Excel, PowerPoint, Markdown), the cost
+cascade, the determinism layer, the grounding gate, hybrid retrieval, drafting and review,
+contradiction detection with a notion of scope, supersession, streaming chat, browser
+uploads, per-folder access rules with Entra ID sign-in, a management page (costs, most
+asked, gaps, wrong answers, pins, health, configuration, backup, admin log) and a Windows
+installer that upgrades itself in CI on every release. Not yet: the paid tiers measured
+(needs an API key), connectors beyond a folder (SharePoint, Google Drive, Teams), and a
+signed installer. See [ROADMAP](docs/ROADMAP.md).
 
 ---
 
