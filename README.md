@@ -11,7 +11,7 @@ documents do not say, and gives the same answer to the same question every time.
 Self-hosted, on your own hardware or your own API keys. Runs as a one-click Windows
 app or as one server the whole company reaches from a browser.
 
-![A question about parental leave, answered from the policy with the passage shown, by a local model for $0.00, with the share of the wording found in its sources](https://raw.githubusercontent.com/FedericoTs/OpenKnowledge/main/docs/images/chat.png)
+![A question about parental leave, answered from the policy with the passage shown, by a local model for $0.00, with the share of the wording found in its sources](https://raw.githubusercontent.com/FedericoTs/OpenKnowledge/HEAD/docs/images/chat.png)
 
 **Measured, not asserted.** Every number here comes from a script in this repository
 (`evals/measured/`), run against a 4-bit Qwen3-4B on four CPU cores:
@@ -44,7 +44,7 @@ uvx --from git+https://github.com/FedericoTs/OpenKnowledge openknowledge audit ~
 
 Then a model on your machine and the chat: see [Quick start](#quick-start).
 
-![The management page: whether each model endpoint answers, what the install has cost, what people ask most](https://raw.githubusercontent.com/FedericoTs/OpenKnowledge/main/docs/images/manage.png)
+![The management page: whether each model endpoint answers, what the install has cost, what people ask most](https://raw.githubusercontent.com/FedericoTs/OpenKnowledge/HEAD/docs/images/manage.png)
 
 **Status.** Pre-1.0 and shipping weekly; the badge above is the current release. Built,
 tested and measured: document parsing (PDF, Word, Excel, PowerPoint, Markdown), the cost
