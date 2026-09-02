@@ -221,6 +221,12 @@ header. It carries no question text and no identity — a metric with the
 question in it is a log of what people asked, published to whatever scrapes
 it.
 
+The same ledger, read as a shortlist: *Most asked* on `/manage` ranks the last
+30 days' questions by how often they were asked, with how each was answered —
+which tiers, how many times, what it cost — and whether it is already pinned.
+`openknowledge top` is the all-time list on the server. A question a model is
+paid to answer every time is the one to pin: pinned, it is free and identical.
+
 ## When it gets one wrong
 
 A refusal is easy to learn from: it is counted, ranked and reported
@@ -234,8 +240,8 @@ it lands in *Answered wrong* on `/manage`, ranked by how many people said
 so, with the answer they were shown and the notes they left. From there
 one box pins the right answer and closes the report.
 
-Every pin — from either list, the review queue, or `openknowledge pin` on the
-server — is listed under *Pinned answers* on `/manage`, with who pinned it and
+Every pin — from any of those lists, the review queue, or `openknowledge pin` on
+the server — is listed under *Pinned answers* on `/manage`, with who pinned it and
 when. That is also where one is edited, or taken back so the documents answer
 the question again. A pinned answer is served word for word before any
 document or model is consulted, so it is the one answer the grounding check

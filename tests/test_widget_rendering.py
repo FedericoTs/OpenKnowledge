@@ -718,3 +718,56 @@ def test_a_pin_can_be_read_edited_and_taken_back_from_the_page(managed_app) -> N
     log = httpx.get(managed_app + "/admin/log", headers=auth, timeout=20).json()
     deleted = [e for e in log["entries"] if e["action"] == "pin.delete"]
     assert [e["target"] for e in deleted] == ["when does the office close"]
+
+
+def test_the_most_asked_list_can_pin_from_where_it_counts(managed_app) -> None:
+    """The ledger read as a shortlist, with the fix one click away.
+
+    Two people ask the same thing and the model declines both times. The
+    panel has to show that question with its count and how it went, and
+    pinning it from there has to mark it pinned in this list and put it in
+    the pinned list - one store, so one page cannot say two things.
+    """
+    import httpx
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as pw:
+        browser, page = _page(pw, managed_app)
+        errors: list[str] = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        try:
+            # Asked twice, each answer waited for, so both reach the ledger
+            # before the page that counts them is opened.
+            for asked in (1, 2):
+                page.fill("#q", "when does the office close?")
+                page.click("#send")
+                page.wait_for_function(
+                    f"document.querySelectorAll('.msg.a .badge').length >= {asked}", timeout=60000
+                )
+
+            page.goto(managed_app + "/manage")
+            page.fill("#token-input", "t0ken")
+            page.click("#unlock")
+            page.wait_for_selector('body[data-ready="admin"]', timeout=30000)
+
+            summary = page.inner_text("#demand details summary")
+            assert "2 times" in summary, summary
+            assert "when does the office close" in summary, summary
+            assert "pinned" not in summary, summary
+            page.click("#demand details summary")
+            assert "2 refused" in page.inner_text("#demand details .body")
+
+            page.fill("#demand textarea", "At 18:00.")
+            page.click("#demand button:has-text('Pin this answer')")
+            page.wait_for_selector("#demand summary:has-text('pinned')", timeout=15000)
+            page.wait_for_selector(
+                "#pins summary:has-text('when does the office close')", timeout=15000
+            )
+        finally:
+            browser.close()
+
+    assert errors == [], f"page errors: {errors}"
+    (pin,) = httpx.get(
+        managed_app + "/admin/pins", headers={"authorization": "Bearer t0ken"}, timeout=20
+    ).json()
+    assert (pin["question"], pin["answer"]) == ("when does the office close", "At 18:00.")

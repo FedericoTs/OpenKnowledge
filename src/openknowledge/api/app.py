@@ -1176,10 +1176,28 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return {"days": days, "gaps": gaps, "total": len(gaps)}
 
     @app.get("/admin/questions", dependencies=[CuratorOnly])
-    async def questions(engine: EngineDep, limit: int = 20) -> dict[str, Any]:
-        """Most-asked questions: the shortlist worth pinning."""
+    async def questions(engine: EngineDep, limit: int = 20, days: int = 0) -> dict[str, Any]:
+        """Most-asked questions: the shortlist worth pinning.
+
+        ``days`` bounds ``top`` to a window; 0, the default, is the whole
+        ledger. Each entry says how it was answered - which tiers, how often,
+        at what cost - and whether it is already pinned, which is the
+        difference between a row that needs a person and one that does not.
+        """
+        since = engine.store.now() - days * 86400 if days > 0 else None
         return {
-            "top": [{"question": q, "count": n} for q, n in engine.store.top_questions(limit)],
+            "days": days,
+            "top": [
+                {
+                    "question": d.canonical_query,
+                    "count": d.count,
+                    "by_tier": d.by_tier,
+                    "spend_usd": d.spend_usd,
+                    "last_asked": d.last_asked,
+                    "pinned": engine.store.get_pin(d.canonical_query) is not None,
+                }
+                for d in engine.store.question_demand(limit, since)
+            ],
             "recent": [
                 {
                     "question": e.canonical_query,

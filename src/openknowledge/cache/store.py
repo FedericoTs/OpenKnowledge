@@ -106,6 +106,23 @@ class PinnedAnswer:
 
 
 @dataclass(frozen=True, slots=True)
+class QuestionDemand:
+    """One much-asked question and how it has been answered.
+
+    ``by_tier`` counts answers per tier; ``spend_usd`` is what they cost in
+    total. The two together are the case for pinning: a question a model
+    answers every time is paid for every time, and can change when the
+    documents do.
+    """
+
+    canonical_query: str
+    count: int
+    by_tier: dict[str, int]
+    spend_usd: float
+    last_asked: float
+
+
+@dataclass(frozen=True, slots=True)
 class LedgerEntry:
     ts: float
     canonical_query: str
@@ -529,6 +546,40 @@ class AnswerStore:
             (limit,),
         ).fetchall()
         return [(r["canonical_query"], r["n"]) for r in rows]
+
+    def question_demand(self, limit: int = 20, since: float | None = None) -> list[QuestionDemand]:
+        """Most-asked questions with how each was answered, most asked first.
+
+        Ties go to the question asked most recently, so of two asked equally
+        often the live one lists first. ``since`` bounds the window; None is
+        the whole ledger.
+        """
+        where, params = ("WHERE ts >= ?", (since,)) if since is not None else ("", ())
+        rows = self._conn.execute(
+            "SELECT canonical_query, tier, COUNT(*) AS n, SUM(cost_usd) AS spend, MAX(ts) AS last"
+            f" FROM ledger {where} GROUP BY canonical_query, tier",
+            params,
+        ).fetchall()
+        by_tier: dict[str, dict[str, int]] = {}
+        spend: dict[str, float] = {}
+        last: dict[str, float] = {}
+        for r in rows:
+            question = r["canonical_query"]
+            by_tier.setdefault(question, {})[r["tier"]] = r["n"]
+            spend[question] = spend.get(question, 0.0) + (r["spend"] or 0.0)
+            last[question] = max(last.get(question, 0.0), r["last"])
+        demand = [
+            QuestionDemand(
+                canonical_query=question,
+                count=sum(tiers.values()),
+                by_tier=tiers,
+                spend_usd=round(spend[question], 6),
+                last_asked=last[question],
+            )
+            for question, tiers in by_tier.items()
+        ]
+        demand.sort(key=lambda d: (-d.count, -d.last_asked))
+        return demand[:limit]
 
 
 def citations_for(retriever: object, document_ids: tuple[str, ...]) -> tuple[Citation, ...]:

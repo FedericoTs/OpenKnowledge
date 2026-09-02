@@ -123,6 +123,19 @@
   </section>
 
   <section data-admin-section>
+    <h2>Most asked</h2>
+    <p class="hint">
+      What people asked most in the last 30 days and how each was answered,
+      counted from the ledger. A question a model answers is paid for every
+      time and can change when the documents do; pinning it makes it free and
+      identical, and the pinned ones say so. One that was refused is also
+      listed by name under “asked and not answered” below. Nobody's name is
+      recorded against any of them.
+    </p>
+    <div id="demand"><p class="locked-note">Unlock to load.</p></div>
+  </section>
+
+  <section data-admin-section>
     <h2>Asked and not answered</h2>
     <p class="hint">
       Questions your documents did not fully answer, most asked first — each
@@ -150,7 +163,7 @@
   <section data-admin-section>
     <h2>Pinned answers</h2>
     <p class="hint">
-      Answers a person wrote and put their name to — from the two lists above,
+      Answers a person wrote and put their name to — from the lists above,
       the review queue, or <code>openknowledge pin</code> on the server. A
       pinned answer is served <b>word for word</b>, at no cost, before any
       document or model is consulted, so it is also the one answer the
@@ -634,6 +647,91 @@ async function refreshCosts() {
   }
 }
 
+// How each tier reads in a sentence. The keys are Tier values on the server.
+const TIER_WORDS = {
+  pinned: 'pinned', exact: 'from the cache', semantic: 'from the cache',
+  draft: 'from a draft', corpus: 'from the index', local: 'by the local model',
+  frontier: 'by the paid model', refused: 'refused', contested: 'contested',
+};
+const MODEL_TIERS = ['local', 'frontier'];
+
+async function refreshDemand() {
+  const box = $('demand');
+  try {
+    const body = await api('/admin/questions?days=30&limit=20');
+    box.textContent = '';
+    if (!body.top.length) {
+      box.appendChild(el('p', 'empty', 'Nothing was asked in the last 30 days.'));
+      return;
+    }
+    for (const q of body.top) {
+      const item = box.appendChild(el('details', 'item'));
+      const head = item.appendChild(el('summary'));
+      head.appendChild(el('span', 'tag', q.count === 1 ? 'once' : q.count + ' times'));
+      head.appendChild(el('b', null, q.question));
+      if (q.pinned) head.appendChild(el('span', 'tag', 'pinned'));
+      // The case for pinning, as a number: how often a model was paid to
+      // answer this, and what that came to.
+      const modelled = MODEL_TIERS.reduce((n, tier) => n + (q.by_tier[tier] || 0), 0);
+      if (modelled) {
+        head.appendChild(el('span', 'tag warn', 'a model answered ' + modelled + ' of ' + q.count
+          + (q.spend_usd ? ' · ' + money(q.spend_usd) : '')));
+      }
+
+      const body_ = item.appendChild(el('div', 'body'));
+      const how = Object.entries(q.by_tier).sort((a, b) => b[1] - a[1])
+        .map(([tier, n]) => n + ' ' + (TIER_WORDS[tier] || tier)).join(' · ');
+      const when = new Date(q.last_asked * 1000).toLocaleDateString();
+      body_.appendChild(el('p', 'quiet', 'last asked ' + when + ' · ' + how));
+      if (q.pinned) {
+        body_.appendChild(el('p', 'quiet',
+          'Pinned: every ask is free and identical. Edit or unpin it under “Pinned answers”.'));
+        continue;
+      }
+
+      // The same box the gaps list has, for the same reason: the action the
+      // list exists for is one click away, and the answer is still a
+      // person's to write.
+      const text = body_.appendChild(el('textarea'));
+      text.rows = 3;
+      text.placeholder = 'The answer, in your own words.';
+      text.style.width = '100%';
+      const row = body_.appendChild(el('div', 'row'));
+      const cite = row.appendChild(el('select'));
+      cite.appendChild(new Option('cite no document', ''));
+      for (const d of state.documents) cite.appendChild(new Option(d.name, d.id));
+      const save = row.appendChild(el('button', 'small', 'Pin this answer'));
+      const note = row.appendChild(el('span', 'quiet'));
+      save.onclick = async () => {
+        const answer = text.value.trim();
+        if (!answer) { note.textContent = 'Write the answer first.'; return; }
+        save.disabled = true;
+        note.textContent = 'Pinning…';
+        try {
+          await api('/admin/pins', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              question: q.question,
+              answer,
+              cite: cite.value ? [cite.value] : [],
+              author: 'manage-page',
+            }),
+          });
+          refreshDemand();
+          refreshPins();
+        } catch (e) {
+          save.disabled = false;
+          note.textContent = e.message;
+        }
+      };
+    }
+  } catch (e) {
+    box.textContent = '';
+    box.appendChild(el('p', 'locked-note', e.message));
+  }
+}
+
 async function refreshGaps() {
   const box = $('gaps');
   try {
@@ -712,7 +810,7 @@ async function refreshPins() {
     box.textContent = '';
     if (!pins.length) {
       box.appendChild(el('p', 'empty',
-        'Nothing is pinned. Answer a question in either list above and it appears here.'));
+        'Nothing is pinned. Answer a question in any list above and it appears here.'));
       return;
     }
     for (const p of pins) {
@@ -897,8 +995,8 @@ async function unlock(token) {
   $('forget').hidden = false;
   $('token-input').value = '';
   await ready('admin', [
-    refreshCosts(), refreshGaps(), refreshReports(), refreshPins(), refreshAccess(),
-    refreshProposals(), refreshConflicts(), refreshSettings(), refreshAdminLog(),
+    refreshCosts(), refreshDemand(), refreshGaps(), refreshReports(), refreshPins(),
+    refreshAccess(), refreshProposals(), refreshConflicts(), refreshSettings(), refreshAdminLog(),
   ]);
   return true;
 }
@@ -944,8 +1042,8 @@ fetch('/auth/me').then(r => r.ok ? r.json() : null).then(async (who) => {
       $('unlock-section').hidden = true;
       say('Admin, via your sign-in group.', true);
       await ready('admin', [
-        refreshCosts(), refreshGaps(), refreshReports(), refreshPins(), refreshAccess(),
-        refreshProposals(), refreshConflicts(), refreshSettings(), refreshAdminLog(),
+        refreshCosts(), refreshDemand(), refreshGaps(), refreshReports(), refreshPins(),
+        refreshAccess(), refreshProposals(), refreshConflicts(), refreshSettings(), refreshAdminLog(),
       ]);
     } catch (e) { /* fall back to the token flow */ }
   } else if (who.curator && !state.token) {
@@ -966,7 +1064,7 @@ fetch('/auth/me').then(r => r.ok ? r.json() : null).then(async (who) => {
     }
     say('Knowledge curator, via your sign-in group.', true);
     await ready('curator', [
-      refreshCosts(), refreshGaps(), refreshReports(), refreshPins(),
+      refreshCosts(), refreshDemand(), refreshGaps(), refreshReports(), refreshPins(),
       refreshProposals(), refreshConflicts(),
     ]);
   }

@@ -178,7 +178,9 @@ def test_questions_endpoint_surfaces_pin_candidates(client: TestClient) -> None:
     for _ in range(2):
         client.post("/chat", json={"question": "How do I get VPN access?", "channel": "web"})
     body = client.get("/admin/questions", headers=AUTH).json()
-    assert body["top"][0] == {"question": "how do i get vpn access", "count": 2}
+    top = body["top"][0]
+    assert (top["question"], top["count"]) == ("how do i get vpn access", 2)
+    assert top["pinned"] is False
     assert body["recent"][0]["channel"] == "web"
 
 
