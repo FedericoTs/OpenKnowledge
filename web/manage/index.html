@@ -147,6 +147,20 @@
     <div id="reports"><p class="locked-note">Unlock to load.</p></div>
   </section>
 
+  <section data-admin-section>
+    <h2>Pinned answers</h2>
+    <p class="hint">
+      Answers a person wrote and put their name to — from the two lists above,
+      the review queue, or <code>openknowledge pin</code> on the server. A
+      pinned answer is served <b>word for word</b>, at no cost, before any
+      document or model is consulted, so it is also the one answer the
+      grounding check never sees: what is written here is what every reader
+      gets. Edit it here; unpin it and the question goes back to being
+      answered from the documents.
+    </p>
+    <div id="pins"><p class="locked-note">Unlock to load.</p></div>
+  </section>
+
   <section data-admin-section data-governance-section>
     <h2>Access</h2>
     <p class="hint">
@@ -691,6 +705,82 @@ async function refreshGaps() {
   }
 }
 
+async function refreshPins() {
+  const box = $('pins');
+  try {
+    const pins = await api('/admin/pins');
+    box.textContent = '';
+    if (!pins.length) {
+      box.appendChild(el('p', 'empty',
+        'Nothing is pinned. Answer a question in either list above and it appears here.'));
+      return;
+    }
+    for (const p of pins) {
+      const item = box.appendChild(el('details', 'item'));
+      const head = item.appendChild(el('summary'));
+      head.appendChild(el('b', null, p.question));
+      // Provenance is the tag, because a pin without it asks the reader to
+      // trust it - the one thing this product otherwise refuses to do.
+      head.appendChild(el('span', p.cited.length ? 'tag' : 'tag warn',
+        p.cited.length ? 'cites ' + p.cited.join(', ') : 'cites nothing'));
+      if (!p.enabled) head.appendChild(el('span', 'tag warn', 'disabled'));
+      // A row from before the column was written has no date; say nothing
+      // rather than 1970.
+      const when = p.updated_at ? new Date(p.updated_at * 1000).toLocaleDateString() : '';
+      head.appendChild(el('span', 'quiet', (p.author ? 'by ' + p.author : '')
+        + (p.author && when ? ', ' : '') + when));
+
+      // The text is the answer: what is in this box is what a reader gets,
+      // so it is shown as the thing to edit rather than a copy of it.
+      const body_ = item.appendChild(el('div', 'body'));
+      body_.appendChild(el('p', 'quiet', 'Served word for word to anyone who asks this. '
+        + 'Save keeps the citation; unpin, and the documents answer it again.'));
+      const text = body_.appendChild(el('textarea'));
+      text.rows = 4;
+      text.value = p.answer;
+      text.style.width = '100%';
+      const row = body_.appendChild(el('div', 'row'));
+      const save = row.appendChild(el('button', 'small', 'Save'));
+      const unpin = row.appendChild(el('button', 'ghost small', 'Unpin'));
+      const note = row.appendChild(el('span', 'quiet'));
+      const busy = (on, what) => { save.disabled = on; unpin.disabled = on; note.textContent = what; };
+      save.onclick = async () => {
+        const answer = text.value.trim();
+        if (!answer) { note.textContent = 'An empty pin is an unpin — use the button.'; return; }
+        if (answer === p.answer) { note.textContent = 'Nothing changed.'; return; }
+        busy(true, 'Saving…');
+        try {
+          // Same question, same sources: re-pinning overwrites, it does not
+          // mint a second pin, and the citation travels with the new text.
+          await api('/admin/pins', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              question: p.question, answer, cite: p.cited, author: 'manage-page',
+            }),
+          });
+          refreshPins();
+        } catch (e) {
+          busy(false, e.message);
+        }
+      };
+      unpin.onclick = async () => {
+        if (!confirm('Unpin “' + p.question + '”? The documents answer it from then on.')) return;
+        busy(true, 'Unpinning…');
+        try {
+          await api('/admin/pins?question=' + encodeURIComponent(p.question), { method: 'DELETE' });
+          refreshPins();
+        } catch (e) {
+          busy(false, e.message);
+        }
+      };
+    }
+  } catch (e) {
+    box.textContent = '';
+    box.appendChild(el('p', 'locked-note', e.message));
+  }
+}
+
 async function refreshConflicts() {
   const box = $('conflicts');
   try {
@@ -807,7 +897,7 @@ async function unlock(token) {
   $('forget').hidden = false;
   $('token-input').value = '';
   await ready('admin', [
-    refreshCosts(), refreshGaps(), refreshReports(), refreshAccess(),
+    refreshCosts(), refreshGaps(), refreshReports(), refreshPins(), refreshAccess(),
     refreshProposals(), refreshConflicts(), refreshSettings(), refreshAdminLog(),
   ]);
   return true;
@@ -854,7 +944,7 @@ fetch('/auth/me').then(r => r.ok ? r.json() : null).then(async (who) => {
       $('unlock-section').hidden = true;
       say('Admin, via your sign-in group.', true);
       await ready('admin', [
-        refreshCosts(), refreshGaps(), refreshReports(), refreshAccess(),
+        refreshCosts(), refreshGaps(), refreshReports(), refreshPins(), refreshAccess(),
         refreshProposals(), refreshConflicts(), refreshSettings(), refreshAdminLog(),
       ]);
     } catch (e) { /* fall back to the token flow */ }
@@ -876,7 +966,7 @@ fetch('/auth/me').then(r => r.ok ? r.json() : null).then(async (who) => {
     }
     say('Knowledge curator, via your sign-in group.', true);
     await ready('curator', [
-      refreshCosts(), refreshGaps(), refreshReports(),
+      refreshCosts(), refreshGaps(), refreshReports(), refreshPins(),
       refreshProposals(), refreshConflicts(),
     ]);
   }

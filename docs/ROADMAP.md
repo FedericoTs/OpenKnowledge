@@ -876,7 +876,12 @@ Worth stating plainly, and the first one is the largest thing wrong with this pr
 
 ## Later
 
-- Admin web UI (pins, costs, prompt, connectors) — the API exists, the UI does not
+- Admin web UI — `/manage` has costs, gaps, wrong answers, pinned answers, access
+  rules, the review queue, contradictions, live settings and the admin log. Still
+  API-only: the most-asked list (`/admin/questions`), a health line that says whether
+  the model endpoints answer, the effective configuration, a backup button.
+  Deliberately not a UI: prompt editing (a prompt change goes through both golden
+  sets, not a text box) and connector setup.
 - Slack channel adapter
 - Per-document prompt caching for hot documents — the only caching lever that pays here,
   since the system prompt is measured at 476 tokens and cannot cache at all

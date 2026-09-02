@@ -234,6 +234,13 @@ it lands in *Answered wrong* on `/manage`, ranked by how many people said
 so, with the answer they were shown and the notes they left. From there
 one box pins the right answer and closes the report.
 
+Every pin — from either list, the review queue, or `openknowledge pin` on the
+server — is listed under *Pinned answers* on `/manage`, with who pinned it and
+when. That is also where one is edited, or taken back so the documents answer
+the question again. A pinned answer is served word for word before any
+document or model is consulted, so it is the one answer the grounding check
+never sees; the panel says so above the list.
+
 ```sh
 openknowledge reports          # the same list, on the server
 ```

@@ -1193,12 +1193,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get("/admin/pins", dependencies=[CuratorOnly])
     async def list_pins(engine: EngineDep) -> list[dict[str, Any]]:
+        """Every pinned answer, as the store holds it.
+
+        ``updated_at`` is when the current text was pinned, not when the
+        question was first pinned - re-pinning overwrites both. The panel on
+        /manage shows it so a curator can tell a pin written last week from
+        one written before the policy changed.
+        """
         return [
             {
                 "question": p.canonical_query,
                 "answer": p.answer,
                 "author": p.author,
                 "cited": [c.document_id for c in p.citations],
+                "updated_at": p.updated_at,
+                "enabled": p.enabled,
             }
             for p in engine.store.list_pins()
         ]

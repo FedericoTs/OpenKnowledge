@@ -643,3 +643,78 @@ def test_a_citation_names_where_a_reader_can_look(declining_app) -> None:
             assert not any("chunk" in r for r in rendered), rendered
         finally:
             browser.close()
+
+
+def test_a_pin_can_be_read_edited_and_taken_back_from_the_page(managed_app) -> None:
+    """The loop the API had and the page did not: see it, change it, take it back.
+
+    The server contract has its own tests. What only a browser proves is that
+    the panel shows the question a curator would look for, with its source and
+    its author; that Save re-pins under the same question with the same
+    citation rather than minting a second pin or dropping the source; and that
+    Unpin asks first, deletes only when told to, and leaves the panel saying so
+    - after which the store is empty and the admin log names the deletion.
+    """
+    import httpx
+    from playwright.sync_api import sync_playwright
+
+    auth = {"authorization": "Bearer t0ken"}
+    httpx.post(
+        managed_app + "/admin/pins",
+        json={
+            "question": "when does the office close?",
+            "answer": "At 18:00.",
+            "cite": ["handbook"],
+            "author": "cli",
+        },
+        headers=auth,
+        timeout=20,
+    )
+
+    def pins() -> list[dict]:
+        return httpx.get(managed_app + "/admin/pins", headers=auth, timeout=20).json()
+
+    with sync_playwright() as pw:
+        browser, page = _page(pw, managed_app)
+        errors: list[str] = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        try:
+            page.goto(managed_app + "/manage")
+            page.fill("#token-input", "t0ken")
+            page.click("#unlock")
+            page.wait_for_selector('body[data-ready="admin"]', timeout=30000)
+
+            summary = page.inner_text("#pins details summary")
+            assert "when does the office close" in summary, summary
+            assert "cites handbook" in summary, summary
+            assert "by cli" in summary, summary
+
+            # The controls sit inside the folded item, as in the other panels.
+            page.click("#pins details summary")
+
+            # Declining the confirmation must delete nothing.
+            page.once("dialog", lambda d: d.dismiss())
+            page.click("#pins button:has-text('Unpin')")
+
+            # Editing: the round trip is proved by the author changing to the
+            # page's own name once the panel re-renders from the server.
+            page.fill("#pins textarea", "At 18:00, and at 17:00 on Fridays.")
+            page.click("#pins button:has-text('Save')")
+            page.wait_for_selector("#pins summary:has-text('by manage-page')", timeout=15000)
+            (pin,) = pins()
+            assert pin["answer"] == "At 18:00, and at 17:00 on Fridays."
+            assert pin["cited"] == ["handbook"], "the edit lost the citation"
+
+            page.click("#pins details summary")
+            page.once("dialog", lambda d: d.accept())
+            page.click("#pins button:has-text('Unpin')")
+            page.wait_for_selector("#pins .empty", timeout=15000)
+            assert "Nothing is pinned" in page.inner_text("#pins .empty")
+        finally:
+            browser.close()
+
+    assert errors == [], f"page errors: {errors}"
+    assert pins() == []
+    log = httpx.get(managed_app + "/admin/log", headers=auth, timeout=20).json()
+    deleted = [e for e in log["entries"] if e["action"] == "pin.delete"]
+    assert [e["target"] for e in deleted] == ["when does the office close"]
