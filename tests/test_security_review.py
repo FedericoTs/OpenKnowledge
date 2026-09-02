@@ -193,9 +193,12 @@ def test_no_hostile_name_leaves_the_documents_folder(raw: str) -> None:
     )
     path = _safe_document_path(raw)
     if path is not None:
-        assert str((Path("/corpus") / path).resolve()).startswith("/corpus/"), (
-            f"{raw!r} became the path {path!r}"
-        )
+        # Containment, asked in a way both filesystems answer the same. The
+        # first version compared strings against "/corpus/", which is a POSIX
+        # answer to a question Windows spells D:\corpus\ - green here, red on
+        # the runner, over a path ('etc/passwd') that never escaped anything.
+        root = Path("/corpus").resolve()
+        assert (root / path).resolve().is_relative_to(root), f"{raw!r} became the path {path!r}"
 
 
 def test_a_hostile_archive_writes_only_where_it_is_told(tmp_path: Path) -> None:
