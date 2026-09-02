@@ -816,3 +816,40 @@ def test_the_health_line_names_the_dead_endpoint(managed_app) -> None:
     # The first load reads the cache; the button is the one thing that asks
     # the endpoints again, and has to say so in its request.
     assert [u.endswith("?fresh=1") for u in asked] == [False, True], asked
+
+
+def test_the_configuration_panel_shows_settings_and_never_the_token(managed_app) -> None:
+    """Rendered: the env names, the values, the default tags - and the admin
+    token that unlocked the page reported as set, its value nowhere. The
+    server here turned embeddings off, so that group has something set and
+    opens; a group left at its defaults stays folded."""
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as pw:
+        browser, page = _page(pw, managed_app)
+        errors: list[str] = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        try:
+            page.goto(managed_app + "/manage")
+            page.fill("#token-input", "t0ken")
+            page.click("#unlock")
+            page.wait_for_selector('body[data-ready="admin"]', timeout=30000)
+
+            text = page.inner_text("#config")
+            assert "t0ken" not in text, "the token is on the page"
+            assert "OK_ADMIN_TOKEN" in text and "set (hidden)" in text
+            assert "OK_EMBEDDING_ENABLED" in text
+            opened = page.eval_on_selector_all(
+                "#config details[open] summary b", "els => els.map(e => e.textContent)"
+            )
+            assert "Embeddings and the semantic cache" in opened, opened
+            assert "Knowledge" not in opened, "nothing set there; it should stay folded"
+            row = page.inner_text("#config tr:has(code:text-is('OK_EMBEDDING_ENABLED'))")
+            assert "false" in row and "default" not in row, row
+            # A folded group renders nothing visible; open it the way a reader would.
+            page.click("#config details:has(summary b:text-is('Retrieval and grounding')) summary")
+            row = page.inner_text("#config tr:has(code:text-is('OK_RETRIEVAL_K'))")
+            assert "default" in row and "live" in row, row
+        finally:
+            browser.close()
+    assert errors == [], f"page errors: {errors}"

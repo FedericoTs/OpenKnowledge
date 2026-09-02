@@ -234,6 +234,18 @@
   </section>
 
   <section data-admin-section data-governance-section>
+    <h2>Configuration</h2>
+    <p class="hint">
+      Every setting this install is running with, read from the process rather
+      than from the file — a file edited after the start is not in force, and
+      this is where that shows. <b>default</b> means nobody set it; <b>live</b>
+      means the Settings panel above can change it, the rest take a restart.
+      Secrets are shown as set or not set, never as values.
+    </p>
+    <div id="config"><p class="locked-note">Unlock to load.</p></div>
+  </section>
+
+  <section data-admin-section data-governance-section>
     <h2>Admin log</h2>
     <p class="hint">
       Every change an admin or curator made, newest first — pins, access
@@ -1000,6 +1012,47 @@ async function refreshSettings() {
   } catch (e) { box.innerHTML = ''; box.appendChild(el('p', 'empty', e.message)); }
 }
 
+async function refreshConfig() {
+  const box = $('config');
+  try {
+    const body = await api('/admin/config');
+    box.textContent = '';
+    const where = body.state;
+    box.appendChild(el('p', 'quiet', 'Version ' + body.version + ' · state ' + where.mode
+      + ' at ' + where.root + ' · reads ' + where.env_file
+      + (where.env_file_exists ? '' : ' (not created yet)')
+      + ' — an OK_* environment variable overrides the file.'));
+    for (const g of body.groups) {
+      const item = box.appendChild(el('details', 'item'));
+      // Groups where somebody set something are the ones worth reading first.
+      if (g.set) item.open = true;
+      const head = item.appendChild(el('summary'));
+      head.appendChild(el('b', null, g.name));
+      head.appendChild(el('span', 'tag',
+        g.set ? g.set + ' of ' + g.settings.length + ' set' : 'all defaults'));
+      const tbody = item.appendChild(el('div', 'body')).appendChild(el('table'))
+        .appendChild(el('tbody'));
+      for (const s of g.settings) {
+        const tr = tbody.appendChild(el('tr'));
+        tr.appendChild(el('td')).appendChild(el('code', null, s.env));
+        let shown, cls = null;
+        if (s.redacted) shown = s.value + ' (hidden)';
+        else if (s.value === null) { shown = 'unset'; cls = 'quiet'; }
+        else if (s.value === '') { shown = 'empty'; cls = 'quiet'; }
+        else if (Array.isArray(s.value)) shown = s.value.join(', ');
+        else shown = String(s.value);
+        tr.appendChild(el('td', cls, shown));
+        const tags = tr.appendChild(el('td'));
+        if (s.is_default) tags.appendChild(el('span', 'tag', 'default'));
+        if (s.live) tags.appendChild(el('span', 'tag', s.live === 'live' ? 'live' : 'live · rebuild'));
+      }
+    }
+  } catch (e) {
+    box.textContent = '';
+    box.appendChild(el('p', 'locked-note', e.message));
+  }
+}
+
 $('save-settings').onclick = async () => {
   const changes = {};
   for (const input of $('settings').querySelectorAll('[data-key]')) {
@@ -1048,7 +1101,8 @@ async function unlock(token) {
   $('token-input').value = '';
   await ready('admin', [
     refreshHealth(), refreshCosts(), refreshDemand(), refreshGaps(), refreshReports(), refreshPins(),
-    refreshAccess(), refreshProposals(), refreshConflicts(), refreshSettings(), refreshAdminLog(),
+    refreshAccess(), refreshProposals(), refreshConflicts(), refreshSettings(), refreshConfig(),
+    refreshAdminLog(),
   ]);
   return true;
 }
@@ -1095,7 +1149,8 @@ fetch('/auth/me').then(r => r.ok ? r.json() : null).then(async (who) => {
       say('Admin, via your sign-in group.', true);
       await ready('admin', [
         refreshHealth(), refreshCosts(), refreshDemand(), refreshGaps(), refreshReports(), refreshPins(),
-        refreshAccess(), refreshProposals(), refreshConflicts(), refreshSettings(), refreshAdminLog(),
+        refreshAccess(), refreshProposals(), refreshConflicts(), refreshSettings(), refreshConfig(),
+        refreshAdminLog(),
       ]);
     } catch (e) { /* fall back to the token flow */ }
   } else if (who.curator && !state.token) {

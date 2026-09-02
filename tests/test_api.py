@@ -185,9 +185,19 @@ def test_questions_endpoint_surfaces_pin_candidates(client: TestClient) -> None:
 
 
 def test_admin_config_does_not_leak_secrets(client: TestClient) -> None:
-    body = client.get("/admin/config", headers=AUTH).json()
-    assert "api_key_configured" in body["escalation"]
-    assert "anthropic_api_key" not in str(body)
+    """The token that authorised this very request must not be in the reply."""
+    response = client.get("/admin/config", headers=AUTH)
+    assert response.status_code == 200
+    assert TOKEN not in response.text
+    rows = {r["name"]: r for g in response.json()["groups"] for r in g["settings"]}
+    assert rows["admin_token"] == {
+        "name": "admin_token",
+        "env": "OK_ADMIN_TOKEN",
+        "value": "set",
+        "redacted": True,
+        "is_default": False,
+        "live": None,
+    }
 
 
 def test_refusal_is_not_reported_as_cached(client: TestClient) -> None:

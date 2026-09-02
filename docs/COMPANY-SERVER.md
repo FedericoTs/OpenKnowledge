@@ -231,6 +231,13 @@ once every 30 seconds, with a short timeout; a question never waits on it.
 that restarts the process on a failed health check does not restart it because
 the model is down.
 
+*Configuration*, further down and admin-only, is every setting the process is
+running with — read from the process, not from the file, so a `.env` edited
+after the start shows up as *not* in force — with its `OK_*` name, whether it
+was set or left at its default, whether the Settings panel can change it live,
+and which file the next start will read. Secrets appear as set or not set,
+never as values.
+
 The same ledger, read as a shortlist: *Most asked* on `/manage` ranks the last
 30 days' questions by how often they were asked, with how each was answered —
 which tiers, how many times, what it cost — and whether it is already pinned.

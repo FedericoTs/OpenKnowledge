@@ -39,6 +39,7 @@ from ..assets import find_asset
 from ..cache import citations_for
 from ..canonical import canonicalize_query
 from ..config import Settings, load_settings
+from ..configview import describe as describe_settings
 from ..contacts import ContactError, ContactStore, clean
 from ..desktop import setup as first_run
 from ..health import HealthMonitor
@@ -1691,27 +1692,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get("/admin/config", dependencies=[AdminOnly])
     async def config(engine: EngineDep) -> dict[str, Any]:
-        """Effective settings, with secrets redacted."""
-        s = engine.settings
-        return {
-            "documents_dir": s.documents_dir,
-            "retrieval_k": s.retrieval_k,
-            "min_support_ratio": s.min_support_ratio,
-            "require_citations": s.require_citations,
-            "local": {
-                "enabled": s.local_enabled,
-                "model": s.local_model,
-                "base_url": s.local_base_url,
-            },
-            "escalation": {
-                "enabled": s.escalation_enabled,
-                "provider": s.escalation_provider,
-                "model": s.escalation_model,
-                "effort": s.escalation_effort,
-                "api_key_configured": bool(s.anthropic_api_key or s.openai_api_key),
-            },
-            "system_prompt_suffix": s.system_prompt_suffix,
-        }
+        """Every setting in force, grouped, with secrets shown as set or not set.
+
+        Read from the running process, not from the file - the file may have
+        changed since the start, and that difference is one of the things
+        this exists to show. Admin-only: it names internal hostnames and
+        paths, which is governance, not curation.
+        """
+        return {"version": __version__, **describe_settings(engine.settings)}
 
     return app
 
