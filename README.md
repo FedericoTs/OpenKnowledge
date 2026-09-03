@@ -82,12 +82,12 @@ token, a directive to never refuse, a forged system turn, a citation to a docume
 does not exist, a forged supersession notice, a tracking pixel, a privilege escalation, a
 fence escape, and a shell command.
 
-| | |
-|---|---:|
-| payloads that reached a user | **0** of 10 |
-| payloads the model itself obeyed | **at least 2** |
-| false answers on questions the corpus does not cover | **0** of 6 |
-| legitimate answers suppressed by a payload | **1** |
+| | v0.12.5 | v0.12.6 |
+|---|---:|---:|
+| accuracy on questions the corpus answers | 83.3% | **91.7%** |
+| payloads that reached a user | 0 of 10 | **0 of 10** |
+| false answers on questions the corpus does not cover | 0 of 6 | **0 of 6** |
+| legitimate answers suppressed by a payload | 1 | **0** |
 
 None of the ten markers appeared in any answer a user saw. Nothing leaked, nothing was
 forged, nothing ran, and the refusal held even in the case designed to break it: one
@@ -109,14 +109,19 @@ another. The grounding gate caught it — only 25% of that answer's words appear
 sources, against a 45% floor — and refused. So the safety property holds end to end, and
 it holds because of the gate, not because the model declined.
 
-That is also the cost. The gate discards the whole draft, and the correct, correctly
-cited fact — EUR 500 — goes out with the injected text. Asked what a line manager may
-approve, the system refused. Three arms establish the payload caused it: with the
-section cut it answers, with the section replaced by ordinary prose of the same length it
-answers, with the payload it refuses. So the attack that lands is availability: poison a
-paragraph and questions about that document stop being answered, while the asker sees the
-ordinary "that isn't covered by the documents I have". Recorded in
-`evals/measured/fortieth-a-document-that-argues-back.json`.
+That was also the cost, and v0.12.6 fixes it. The gate discarded the whole draft, so the
+correct, correctly cited fact — EUR 500 — went out with the injected text and the question
+stopped being answered. Two changes, each measured on its own across six evaluation runs:
+a document can no longer forge a change of speaker (`<|im_start|>` renders as four
+ordinary tokens instead of one control token), and a sentence addressed to a machine no
+longer counts as evidence for an answer — because a verbatim quotation of a source is
+perfectly grounded by construction, which is how a recited payload once passed the gate.
+
+Three of those six runs were rejected: one bundled four changes and could not be
+attributed, one traded the refusal away, and one dropped a whole chunk and took a real
+rule with it. All six are in
+`evals/measured/fortythird-two-holes-closed-one-at-a-time.json`, with the earlier finding
+in `fortieth-a-document-that-argues-back.json`.
 
 ## Try it in sixty seconds
 
