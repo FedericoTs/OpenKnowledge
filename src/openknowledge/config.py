@@ -365,6 +365,12 @@ class Settings(BaseSettings):
     #: request carries as many files as the client cares to attach - a limit
     #: on requests would be a limit on nothing.
     upload_mb_per_minute: int = Field(default=0, ge=0)
+    #: Megabytes of free disk to keep spare. Unlike the rate limits this is
+    #: on by default, because it is not a policy about people - it is what
+    #: keeps the server able to write its index, its databases and its log
+    #: after the last file fits. Zero turns it off, for a deployment that
+    #: means to run to the edge.
+    disk_floor_mb: int = Field(default=500, ge=0)
 
     # -- website -----------------------------------------------------------
     #: Serve the marketing page at /site and accept its contact form at

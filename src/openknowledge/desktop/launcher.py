@@ -39,6 +39,7 @@ from pathlib import Path
 
 import httpx
 
+from ..config import Settings
 from ..models import write_env
 from ..paths import StatePaths, state_paths
 from . import llama, update
@@ -163,6 +164,19 @@ class ConsoleProgress:
             self._last = ""
 
 
+def _floor_from(persisted: dict[str, str]) -> int:
+    """OK_DISK_FLOOR_MB as written, or the default the Settings model uses."""
+    raw = persisted.get("OK_DISK_FLOOR_MB", "").strip()
+    if not raw:
+        return int(Settings.model_fields["disk_floor_mb"].default)
+    try:
+        return max(0, int(raw))
+    except ValueError:
+        # A dotenv typo must not stop the app launching; the server itself
+        # will refuse the same value far more loudly when it loads settings.
+        return int(Settings.model_fields["disk_floor_mb"].default)
+
+
 def _first_run(
     exe: Path,
     needed: tuple[ModelFile, ...],
@@ -170,6 +184,7 @@ def _first_run(
     state: StatePaths,
     servers: list[LlamaServer],
     stop: threading.Event,
+    floor_mb: int,
 ) -> None:
     """Download (with consent), start llama-servers, swap the engine in.
 
@@ -197,7 +212,7 @@ def _first_run(
         for model in missing:
             while not stop.is_set():
                 try:
-                    ensure_model(model, models_dir, progress=report)
+                    ensure_model(model, models_dir, progress=report, floor_mb=floor_mb)
                     console.finish()
                     break
                 except TransientDownloadError as error:
@@ -453,7 +468,12 @@ def main() -> int:
 
     state = state_paths()
     models_dir = state.data_dir / "models"
-    plan = plan_launch(read_env_file(state.env_file), models_dir)
+    persisted = read_env_file(state.env_file)
+    plan = plan_launch(persisted, models_dir)
+    # 2.6 GB is the biggest write this product makes, so the floor applies
+    # to it too. Read straight from the dotenv: the app's Settings object
+    # does not exist yet at this point in the launch.
+    floor_mb = _floor_from(persisted)
     for note in plan.notes:
         print(note, flush=True)
 
@@ -501,7 +521,7 @@ def main() -> int:
         if start_first_run and exe is not None:
             threading.Thread(
                 target=_first_run,
-                args=(exe, needed, models_dir, state, servers, on_quit),
+                args=(exe, needed, models_dir, state, servers, on_quit, floor_mb),
                 name="openknowledge-first-run",
                 daemon=True,
             ).start()

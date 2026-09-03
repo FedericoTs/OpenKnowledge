@@ -50,6 +50,7 @@ EDITABLE: dict[str, str] = {
     "upload_enabled": "live",
     "upload_max_mb": "live",
     "upload_mb_per_minute": "live",
+    "disk_floor_mb": "live",
     # the local model
     "local_enabled": "rebuild",
     "local_model": "rebuild",

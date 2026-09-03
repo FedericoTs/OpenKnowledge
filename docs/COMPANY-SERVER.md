@@ -229,11 +229,38 @@ allowance below the per-file ceiling would accept a file that could never
 fit in a minute, so the server refuses that pair rather than refusing the
 file forever.
 
-Two things it does not do. It bounds what is **kept**, not what is received:
-the request body is read and spooled before any of this code runs. And it
-bounds *speed*, not *total* — 100 MB a minute still fills a disk given a
-day. It is a limit on one caller's share, not a disk-space guarantee; if the
-corpus needs a ceiling, that is a separate thing and this is not it.
+It bounds what is **kept**, not what is received: the request body is read
+and spooled before any of this code runs. And it bounds *speed*, not
+*total* — 100 MB a minute still fills a disk given a day. That second half
+is what the floor below is for.
+
+### Somewhere left to write
+
+```sh
+OK_DISK_FLOOR_MB=500          # the default; 0 turns it off
+```
+
+Free space this server keeps spare. An upload that would leave less is
+refused with the numbers in the message, and so is a first-run model
+download — 2.6 GB is the biggest write this product makes, and one that
+fills the disk and *then* fails has taken the space with it.
+
+Unlike the rate limits this is on by default, because it is not a policy
+about people. A disk at zero cannot commit a SQLite transaction, cannot
+write the index, and cannot append to the log you would read to find out
+why; the first symptom is a server that stopped answering for a reason
+nothing on the page explains. The floor is free space **after** the write:
+"there is 40 MB free and this file is 30 MB" is not a reason to proceed,
+because the file that just fits is exactly the one that leaves nothing for
+the database.
+
+Watch it before it bites — `openknowledge_disk_free_bytes` and
+`openknowledge_disk_floor_bytes` on `/metrics`.
+
+This is a floor under free space, not a ceiling on the corpus: it holds
+whatever else is filling the disk, and it answers "will this machine still
+work", not "how large may this corpus grow". A quota is a different thing
+and this is not it.
 
 ## Two things touching the same files at once
 

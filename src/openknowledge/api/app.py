@@ -55,6 +55,7 @@ from ..config import Settings, load_settings
 from ..configview import describe as describe_settings
 from ..contacts import ContactError, ContactStore, clean
 from ..desktop import setup as first_run
+from ..disk import free_bytes, no_room_for
 from ..health import HealthMonitor
 from ..health import targets as health_targets
 from ..knowledge.store import Actor
@@ -1097,6 +1098,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                         }
                     )
                     continue
+            cramped = no_room_for(target_dir, len(data), engine.settings.disk_floor_mb)
+            if cramped:
+                skipped.append({"name": name, "reason": cramped})
+                continue
             target = target_dir / name
             replaced = target.exists()
             if replaced and not may_curate:
@@ -1891,6 +1896,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "The per-uploader byte allowance in force. 0 means no limit.",
                 "gauge",
                 float(live.upload_mb_per_minute * 1_000_000),
+            ),
+            # The one number that explains a server which has started
+            # refusing uploads, and the only one here worth alerting on
+            # before it does.
+            Sample(
+                "openknowledge_disk_free_bytes",
+                "Free space where the documents are kept.",
+                "gauge",
+                float(free_bytes(live.documents_dir)),
+            ),
+            Sample(
+                "openknowledge_disk_floor_bytes",
+                "Free space this server keeps spare. 0 means no floor.",
+                "gauge",
+                float(live.disk_floor_mb * 1_000_000),
             ),
             Sample(
                 "openknowledge_conflicts_open",

@@ -23,6 +23,7 @@ from pathlib import Path
 
 import httpx
 
+from ..disk import no_room_for
 from .manifest import ModelFile
 
 # progress(model, bytes_done, bytes_total) - called about once per chunk.
@@ -66,13 +67,23 @@ def ensure_model(
     progress: Progress | None = None,
     *,
     base_url: str | None = None,
+    floor_mb: int = 500,
 ) -> Path:
     """Return a verified local path for ``model``, downloading if needed.
 
     ``base_url`` rebases the manifest URL onto another host - it exists for
     tests, which should not need Hugging Face to prove resume logic works.
+
+    ``floor_mb`` is the free space to leave behind; the download is refused
+    before it starts rather than failing part way through with the disk full.
     """
     into.mkdir(parents=True, exist_ok=True)
+    cramped = no_room_for(into, model.size_bytes, floor_mb)
+    if cramped:
+        # Before the first byte rather than after 2.4 GB of them: a download
+        # that fills the disk and then fails has taken the space with it, and
+        # the machine it left behind cannot write the log saying so.
+        raise DownloadError(f"{model.filename}: {cramped}")
     final = into / model.filename
     marker = into / (model.filename + ".sha256-ok")
 

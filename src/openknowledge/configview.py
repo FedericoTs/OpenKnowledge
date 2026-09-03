@@ -60,7 +60,7 @@ GROUPS: tuple[tuple[str, tuple[str, ...], tuple[str, ...]], ...] = (
     ("Google Drive", ("drive_",), ()),
     (
         "Serving",
-        ("upload_", "asker_", "tls_", "contact_", "trusted_"),
+        ("upload_", "asker_", "tls_", "contact_", "trusted_", "disk_"),
         ("bind_host", "public_url", "website_enabled"),
     ),
     ("Sign-in and admin", ("oidc_",), ("auth_mode", "admin_token", "session_hours")),

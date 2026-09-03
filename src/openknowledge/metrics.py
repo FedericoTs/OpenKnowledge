@@ -44,11 +44,25 @@ def _escaped(value: str) -> str:
     return value.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
 
 
+def _written(value: float) -> str:
+    """The value, written so a person reading the page can also use it.
+
+    ``%g`` turns 500000000 into 5e+08. A scraper is happy with that and a
+    human is not, and this page is read by both - the free-disk gauge exists
+    precisely so somebody can look at it when uploads start refusing. Whole
+    numbers are written in full; everything else keeps %g, which is what
+    keeps a fraction of a cent from becoming 0.
+    """
+    if value.is_integer() and abs(value) < 1e15:
+        return str(int(value))
+    return f"{value:g}"
+
+
 def _line(sample: Sample) -> str:
     if not sample.labels:
-        return f"{sample.name} {sample.value:g}"
+        return f"{sample.name} {_written(sample.value)}"
     labels = ",".join(f'{key}="{_escaped(value)}"' for key, value in sample.labels)
-    return f"{sample.name}{{{labels}}} {sample.value:g}"
+    return f"{sample.name}{{{labels}}} {_written(sample.value)}"
 
 
 def render(samples: Iterable[Sample]) -> str:
