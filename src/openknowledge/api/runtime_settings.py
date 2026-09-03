@@ -28,7 +28,7 @@ from typing import Annotated, Any
 
 from pydantic import TypeAdapter
 
-from ..config import Settings
+from ..config import Settings, unusable_upload_pair
 
 #: field name -> how it takes effect. The single source for the endpoint, the
 #: page, and the tests.
@@ -49,6 +49,7 @@ EDITABLE: dict[str, str] = {
     # uploads
     "upload_enabled": "live",
     "upload_max_mb": "live",
+    "upload_mb_per_minute": "live",
     # the local model
     "local_enabled": "rebuild",
     "local_model": "rebuild",
@@ -82,8 +83,13 @@ class SettingsChangeError(ValueError):
     """A change that cannot be applied, with the reason a person can act on."""
 
 
-def validate_changes(changes: dict[str, Any]) -> dict[str, Any]:
-    """Type-check ``changes`` against the Settings model, editable fields only."""
+def validate_changes(changes: dict[str, Any], current: Settings | None = None) -> dict[str, Any]:
+    """Type-check ``changes`` against the Settings model, editable fields only.
+
+    ``current`` is what the server is running now, needed for the settings
+    whose validity depends on another: half a pair arrives here alone, and
+    the pair is what has to hold.
+    """
     if not changes:
         raise SettingsChangeError("no settings were given")
     validated: dict[str, Any] = {}
@@ -115,7 +121,19 @@ def validate_changes(changes: dict[str, Any]) -> dict[str, Any]:
             raise SettingsChangeError(
                 f"{key}: a setting cannot contain a line break or control character"
             )
+    complaint = _pair_complaint(validated, current)
+    if complaint:
+        raise SettingsChangeError(complaint)
     return validated
+
+
+def _pair_complaint(validated: dict[str, Any], current: Settings | None) -> str | None:
+    """Whether the change, applied to what is running, leaves a bad pair."""
+    if current is None:
+        return None
+    merged = {name: getattr(current, name) for name in ("upload_max_mb", "upload_mb_per_minute")}
+    merged.update({k: v for k, v in validated.items() if k in merged})
+    return unusable_upload_pair(merged["upload_max_mb"], merged["upload_mb_per_minute"])
 
 
 def to_env_value(value: Any) -> str:

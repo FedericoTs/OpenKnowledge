@@ -213,6 +213,28 @@ enforce their own, so the effective limit is doubled — set it accordingly,
 or keep the deployment to one server, which is the shape this guide
 describes.
 
+The same lever exists for what people *add*, and it is counted in megabytes
+rather than in requests, because one upload request carries as many files as
+the client attaches:
+
+```sh
+OK_UPLOAD_MB_PER_MINUTE=100   # 0 (the default) is off
+OK_UPLOAD_MAX_MB=25           # the per-file ceiling, unchanged
+```
+
+Over the allowance, the files that do not fit come back in the response's
+`skipped` list with what was spent and when to try again; everything before
+them is stored. The two settings are checked against each other — an
+allowance below the per-file ceiling would accept a file that could never
+fit in a minute, so the server refuses that pair rather than refusing the
+file forever.
+
+Two things it does not do. It bounds what is **kept**, not what is received:
+the request body is read and spooled before any of this code runs. And it
+bounds *speed*, not *total* — 100 MB a minute still fills a disk given a
+day. It is a limit on one caller's share, not a disk-space guarantee; if the
+corpus needs a ceiling, that is a separate thing and this is not it.
+
 ## Two things touching the same files at once
 
 The server answers on a thread pool, and each of its SQLite databases is one

@@ -41,21 +41,27 @@ _SWEEP_ABOVE = 4096
 
 @dataclass(frozen=True, slots=True)
 class Decision:
-    """Whether this question may proceed, and what to tell the asker."""
+    """Whether this may proceed, and what to tell whoever asked."""
 
     allowed: bool
-    #: Questions this asker has asked inside the window, including this one.
+    #: What this caller has spent inside the window, including this request.
+    #: Questions, for the asker limit; bytes, for the upload limit.
     asked: int
-    #: Seconds until the oldest question falls out of the window. 0 when allowed.
+    #: Seconds until enough falls out of the window to make room. 0 when allowed.
     retry_after: float = 0.0
 
 
 class AskerLimiter:
-    """How many questions one asker may ask per window.
+    """How much one caller may spend per window.
 
     A sliding window of timestamps rather than a fixed bucket: a fixed bucket
     lets a caller spend the whole limit at 10:59:59 and the whole limit again
     at 11:00:00, which is the burst the limit exists to stop.
+
+    What is counted is whatever ``cost`` says. Questions cost one each, which
+    is what this class was written for. Uploaded bytes cost their own size,
+    because a limit on upload *requests* would be a limit on nothing: one
+    request carries as many files as the client cares to attach.
 
     ``per_minute`` of zero disables it entirely, which is the right default for
     a desktop install where the only asker is the person whose laptop it is.
@@ -65,7 +71,7 @@ class AskerLimiter:
         self.per_minute = max(0, int(per_minute))
         self.window_seconds = window_seconds
         self._salt = secrets.token_bytes(16)
-        self._seen: dict[str, deque[float]] = {}
+        self._seen: dict[str, deque[tuple[float, int]]] = {}
         self._lock = threading.Lock()
         #: Questions refused by this limiter since the process started. The one
         #: number an operator wants when answers went strange for an hour.
@@ -79,9 +85,9 @@ class AskerLimiter:
         """The asker, as something this process can count but not read back."""
         return hashlib.blake2b(who.encode("utf-8"), key=self._salt, digest_size=16).hexdigest()
 
-    def check(self, who: str, *, now: float | None = None) -> Decision:
-        """Count this question and say whether it may proceed."""
-        if not self.enabled:
+    def check(self, who: str, *, cost: int = 1, now: float | None = None) -> Decision:
+        """Charge ``cost`` to this caller and say whether it may proceed."""
+        if not self.enabled or cost <= 0:
             return Decision(allowed=True, asked=0)
 
         moment = time.monotonic() if now is None else now
@@ -91,23 +97,22 @@ class AskerLimiter:
             if len(self._seen) > _SWEEP_ABOVE:
                 self._sweep(cutoff)
             window = self._seen.setdefault(key, deque())
-            while window and window[0] <= cutoff:
+            while window and window[0][0] <= cutoff:
                 window.popleft()
-            if len(window) >= self.per_minute:
+            spent = sum(charge for _, charge in window)
+            if spent + cost > self.per_minute:
                 self.refused += 1
-                # The oldest question in the window is the one whose leaving
-                # makes room, so that is when it is worth trying again.
                 return Decision(
                     allowed=False,
-                    asked=len(window),
-                    retry_after=max(0.0, window[0] - cutoff),
+                    asked=spent,
+                    retry_after=_when_there_is_room(window, spent, cost, self.per_minute, cutoff),
                 )
-            window.append(moment)
-            return Decision(allowed=True, asked=len(window))
+            window.append((moment, cost))
+            return Decision(allowed=True, asked=spent + cost)
 
     def _sweep(self, cutoff: float) -> None:
         """Forget askers with nothing left in the window. Called under the lock."""
-        stale = [key for key, window in self._seen.items() if not window or window[-1] <= cutoff]
+        stale = [key for key, window in self._seen.items() if not window or window[-1][0] <= cutoff]
         for key in stale:
             del self._seen[key]
 
@@ -115,3 +120,25 @@ class AskerLimiter:
         """Drop every counter. What a restart would do, without one."""
         with self._lock:
             self._seen.clear()
+
+
+def _when_there_is_room(
+    window: deque[tuple[float, int]], spent: int, cost: int, ceiling: int, cutoff: float
+) -> float:
+    """Seconds until enough of the window expires to fit ``cost``.
+
+    With every charge worth one, this is when the oldest leaves - which is
+    what it used to say. With charges of different sizes it is not: a caller
+    who spent their minute on one large file waits for that file, and a
+    caller who spent it on forty small ones waits only for as many as it
+    takes to make room. Saying "try again in a second" when the room will
+    not exist for fifty is worse than saying nothing.
+    """
+    freed = 0
+    for moment, charge in window:
+        freed += charge
+        if spent - freed + cost <= ceiling:
+            return max(0.0, moment - cutoff)
+    # Nothing this window can free is enough: the request is larger than the
+    # whole allowance. The caller needs a bigger limit, not a longer wait.
+    return 0.0

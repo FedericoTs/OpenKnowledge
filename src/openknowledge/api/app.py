@@ -267,6 +267,23 @@ def _within_limit(request: Request, principals: frozenset[str] | None) -> None:
         )
 
 
+def _upload_allowance(request: Request) -> AskerLimiter | None:
+    """The limiter that says how many bytes this uploader has left, or None.
+
+    Bytes rather than requests, because one multipart request carries as many
+    files as the client attaches - a limit on requests would be a limit on
+    nothing. It bounds what is *kept*: the body has already been received and
+    spooled by the time this endpoint runs, which is Starlette's business and
+    not something a handler can undo.
+
+    Read from settings on every upload, like the asker limit, because it is a
+    lever an operator reaches for while a sync is looping.
+    """
+    limiter: AskerLimiter = request.app.state.upload_limiter
+    limiter.per_minute = request.app.state.settings.upload_mb_per_minute * 1_000_000
+    return limiter if limiter.enabled else None
+
+
 def _asker_principals(request: Request, supplied: list[str] | None) -> frozenset[str] | None:
     """Who is asking, in the vocabulary the ACL machinery enforces.
 
@@ -709,6 +726,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # replaces the engine, and forgetting who has been asking every time a
     # setting changes is how a limit becomes advisory.
     app.state.limiter = AskerLimiter(resolved.asker_questions_per_minute)
+    # Counted in bytes, so the ceiling is megabytes turned into them.
+    app.state.upload_limiter = AskerLimiter(resolved.upload_mb_per_minute * 1_000_000)
 
     # A browser will happily point an attacker's domain at 127.0.0.1 (DNS
     # rebinding) and then fetch this server from a webpage. The Host header
@@ -1035,6 +1054,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         target_dir.mkdir(parents=True, exist_ok=True)
 
         may_curate = _may_curate(request)
+        allowance = _upload_allowance(request)
+        uploader = _asker_key(request, None)
         stored: list[dict[str, Any]] = []
         skipped: list[dict[str, str]] = []
         for upload in files:
@@ -1062,6 +1083,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             if not data:
                 skipped.append({"name": name, "reason": "the file is empty"})
                 continue
+            if allowance is not None:
+                decision = allowance.check(uploader, cost=len(data))
+                if not decision.allowed:
+                    allowed_mb = engine.settings.upload_mb_per_minute
+                    skipped.append(
+                        {
+                            "name": name,
+                            "reason": f"one person may add {allowed_mb} MB a minute here, and "
+                            f"this would go over it - {decision.asked / 1_000_000:.1f} MB of "
+                            f"that is already spent. Try again in "
+                            f"{decision.retry_after:.0f}s; everything before this was stored.",
+                        }
+                    )
+                    continue
             target = target_dir / name
             replaced = target.exists()
             if replaced and not may_curate:
@@ -1805,6 +1840,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         writing a parser.
         """
         limiter: AskerLimiter = request.app.state.limiter
+        uploads: AskerLimiter = request.app.state.upload_limiter
+        live: Settings = request.app.state.settings
         day = time.time() - 86400
         samples = [
             Sample(
@@ -1838,7 +1875,22 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "openknowledge_asker_limit_per_minute",
                 "The per-asker limit in force. 0 means no limit.",
                 "gauge",
-                float(limiter.per_minute),
+                # From settings, not from the limiter: a limiter reads the
+                # setting when it is next used, so between a change on
+                # /manage and the next question its own copy is yesterday's.
+                float(live.asker_questions_per_minute),
+            ),
+            Sample(
+                "openknowledge_upload_rate_limited_total",
+                "Files refused because one uploader was over their per-minute megabytes.",
+                "counter",
+                float(uploads.refused),
+            ),
+            Sample(
+                "openknowledge_upload_limit_bytes_per_minute",
+                "The per-uploader byte allowance in force. 0 means no limit.",
+                "gauge",
+                float(live.upload_mb_per_minute * 1_000_000),
             ),
             Sample(
                 "openknowledge_conflicts_open",
@@ -1916,7 +1968,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         from ..models import write_env
 
         try:
-            validated = validate_changes(changes)
+            validated = validate_changes(changes, request.app.state.settings)
         except SettingsChangeError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 

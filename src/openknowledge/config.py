@@ -8,8 +8,27 @@ forgot to switch it off.
 
 from __future__ import annotations
 
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+def unusable_upload_pair(max_mb: int, per_minute: int) -> str | None:
+    """Why these two upload settings cannot both be true, or None.
+
+    A per-minute allowance below the per-file ceiling permits a file that can
+    never be uploaded: it exceeds the whole minute's budget, so no amount of
+    waiting makes room and the refusal repeats forever. Better to refuse the
+    configuration, where somebody can act on it, than a file, where they
+    cannot tell why.
+    """
+    if per_minute and per_minute < max_mb:
+        return (
+            f"upload_mb_per_minute ({per_minute}) is below upload_max_mb ({max_mb}), "
+            "so a file this server accepts could never fit in a minute's allowance "
+            "and would be refused forever. Raise the per-minute allowance to at "
+            "least the per-file ceiling, or lower the ceiling."
+        )
+    return None
 
 
 class Settings(BaseSettings):
@@ -340,6 +359,12 @@ class Settings(BaseSettings):
     #: Per-file ceiling. A corpus document larger than this is almost always a
     #: scan, which the parser cannot read anyway.
     upload_max_mb: int = Field(default=25, ge=1, le=500)
+    #: How many megabytes one uploader may add per minute. Zero (the default)
+    #: is off, as on the desktop, where the only uploader is the person whose
+    #: laptop it is. Counted in bytes rather than requests, because one
+    #: request carries as many files as the client cares to attach - a limit
+    #: on requests would be a limit on nothing.
+    upload_mb_per_minute: int = Field(default=0, ge=0)
 
     # -- website -----------------------------------------------------------
     #: Serve the marketing page at /site and accept its contact form at
@@ -429,6 +454,14 @@ class Settings(BaseSettings):
         """Sessions and pending logins. Its own file: sign-in state is
         disposable and personal, and wiping it must not touch answers."""
         return f"{self.data_dir.rstrip('/')}/auth.db"
+
+    @model_validator(mode="after")
+    def _upload_limits_agree(self) -> Settings:
+        """Refuse a pair of upload settings that permits an impossible file."""
+        complaint = unusable_upload_pair(self.upload_max_mb, self.upload_mb_per_minute)
+        if complaint:
+            raise ValueError(complaint)
+        return self
 
 
 def load_settings() -> Settings:
