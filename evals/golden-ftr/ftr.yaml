@@ -1,0 +1,160 @@
+# A corpus neither of us wrote, and an exam neither of us wrote.
+#
+# The corpus in ./documents is the US Federal Travel Regulation - Title 41,
+# Subtitle F, chapters 300 and 301 - fetched from eCFR on 2026-09-03. A work of
+# the US government, so it is public domain and committed here in full: anybody
+# can rerun this exactly.
+#
+# The questions are GSA's own per-diem FAQ, verbatim. GSA publishes both the
+# regulation and the FAQ, so the questions and the reference answers come from
+# the organisation that wrote the rules - not from whoever is being graded.
+#
+# Which case is answerable and which is a refusal was NOT a judgement call. The
+# rule: search the corpus for the fact GSA's answer turns on. Present, the case
+# is answerable and `must_say` carries the regulation's own figure. Absent -
+# because GSA answered from its website, its rate-setting process, or a body of
+# law outside these chapters - the case is a refusal, and the only correct
+# behaviour is to say the documents do not cover it.
+#
+# Eleven of the nineteen are refusals. That is not a thumb on the scale; it is
+# what a real FAQ looks like next to a real regulation, and it is the half that
+# matters, because a system that answers those is a system that invents.
+#
+# One thing found on the way: GSA's answer to "are lodging taxes included"
+# cites FTR 301-11.27. In the current eCFR text the rule is at 301-11.16. The
+# fact is unchanged and the pointer is stale - which is exactly the kind of
+# drift this product exists to notice.
+
+# --- answerable: the fact is in these chapters ------------------------------
+
+- id: gsa-15-first-and-last-day
+  question: What is the M&IE reimbursement rate during the first and last travel day?
+  must_cite: [ftr-301-11]
+  must_say: [["75 percent", "75%"]]
+  must_not_say: ["50 percent", "100 percent", "full M&IE rate on the first"]
+  tags: [per-diem, mie]
+  notes: GSA FAQ 15. Regulation at 301-11.20.
+
+- id: gsa-19-one-day-travel
+  question: Do I receive a meal reimbursement for day travel away from my regular duty station?
+  must_cite: [ftr-301-11]
+  must_say: [["75 percent", "75%"], ["12 hours", "12 but less than 24"]]
+  must_not_say: ["no reimbursement for day travel", "100 percent"]
+  tags: [per-diem, mie]
+  notes: GSA FAQ 19. Regulation at 301-11.20 - the over-12-hours condition is the point.
+
+- id: gsa-17-receipts
+  question: Do I need to provide receipts?
+  must_cite: [ftr-301-52]
+  must_say: ["$75"]
+  must_not_say: ["$25", "no receipts are required", "receipts are not required"]
+  tags: [claims]
+  notes: GSA FAQ 17, quoting 301-52.1 almost verbatim.
+
+- id: gsa-13-incidental-expenses
+  question: What is considered an incidental expense?
+  must_cite: [ftr-300-1]
+  must_say: [["porters", "baggage carriers"]]
+  must_not_say: ["laundry is an incidental expense for chapter 301", "alcoholic beverages"]
+  tags: [definitions]
+  notes: GSA FAQ 13, and it names the section - Part 300-3, Per Diem Allowance.
+
+- id: gsa-11-lodging-taxes
+  question: Are lodging taxes included in the CONUS per diem rate?
+  must_cite: [ftr-301-11]
+  must_say: [["miscellaneous travel expense", "miscellaneous expense"]]
+  must_not_say: ["lodging taxes are included in the per diem rate", "not reimbursable"]
+  tags: [per-diem, lodging]
+  notes: GSA FAQ 11. Regulation at 301-11.16, which GSA's FAQ still cites as 301-11.27.
+
+- id: gsa-16-mix-and-match
+  question: Can I combine the lodging and M&IE per diem rates in order to get a nicer hotel room or spend more on meals?
+  must_cite: [ftr-301-11]
+  must_say: [["maximum", "not to exceed"]]
+  must_not_say: ["yes, you may combine", "mix and match is permitted"]
+  tags: [per-diem]
+  notes: GSA FAQ 16. The lodging rate is a ceiling, so there is nothing to move.
+
+- id: gsa-18-no-hotels-at-per-diem
+  question: What do I do if there are no hotels available at per diem?
+  must_cite: [ftr-301-11]
+  must_say: [["actual expense", "actual and necessary"]]
+  must_not_say: ["you must pay the difference yourself", "book anyway"]
+  tags: [lodging]
+  notes: GSA FAQ 18, pointing at the actual-expense provisions in 301-11.
+
+- id: gsa-12-taxes-and-tips-in-mie
+  question: Are taxes and gratuity included in the Meals and Incidental expense rate?
+  must_cite: [ftr-300-1]
+  must_say: [["tips", "gratuit"]]
+  must_not_say: ["reimbursed separately", "taxes are excluded from M&IE"]
+  tags: [per-diem, mie]
+  notes: GSA FAQ 12. The glossary's M&IE definition is what settles it.
+
+# --- refusal: GSA answers these from outside these chapters -----------------
+
+- id: gsa-2-find-the-rate
+  kind: refusal
+  question: How do I find the per diem rate for a city and state?
+  tags: [website]
+  notes: GSA FAQ 2 answers with gsa.gov/perdiem. The regulation sets the method, not the rates.
+
+- id: gsa-3-nsa-versus-conus
+  kind: refusal
+  question: What is the difference between non-standard areas and standard CONUS locations?
+  tags: [rate-setting]
+  notes: GSA FAQ 3. A GSA administrative distinction, not a rule in chapters 300 or 301.
+
+- id: gsa-4-how-rates-are-set
+  kind: refusal
+  question: How are the CONUS per diem rates set for non-standard areas?
+  tags: [rate-setting]
+  notes: GSA FAQ 4 answers with contractor average-daily-rate data and FEMA IDs.
+
+- id: gsa-6-special-review
+  kind: refusal
+  question: How can a CONUS non-standard area receive a special review?
+  tags: [rate-setting]
+  notes: GSA FAQ 6 describes a submission process with a deadline. Not in the regulation.
+
+- id: gsa-7-new-nsa
+  kind: refusal
+  question: How can I request the establishment of a new non-standard area?
+  tags: [rate-setting]
+  notes: GSA FAQ 7, same process and deadline as 6.
+
+- id: gsa-8-city-not-listed
+  kind: refusal
+  question: What if a city is not listed on the CONUS per diem website?
+  tags: [website]
+  notes: GSA FAQ 8 answers with the Census Geocoder and the county rule.
+
+- id: gsa-9-hotels-refusing
+  kind: refusal
+  question: Can hotels refuse to honor the per diem rate to federal government employees?
+  tags: [hotels]
+  notes: GSA FAQ 9 - a hotel's commercial decision. The regulation binds agencies, not hotels.
+
+- id: gsa-10-gov-rate
+  kind: refusal
+  question: Is the hotel's GOV rate the same as the federal per diem rate?
+  tags: [hotels]
+  notes: GSA FAQ 10. Nothing in these chapters defines a hotel's GOV rate.
+
+- id: gsa-14-mie-study-cadence
+  kind: refusal
+  question: How often is a study conducted on the M&IE expense rates?
+  tags: [rate-setting]
+  notes: GSA FAQ 14 - every three years since FY2016. A GSA practice, not a regulation.
+
+- id: gsa-20-contractor-per-diem
+  kind: refusal
+  question: How much per diem can I pay a contractor?
+  tags: [scope]
+  notes: GSA FAQ 20 declines it - the FTR covers federal employees on official travel.
+
+- id: gsa-21-trucker-meal-deduction
+  kind: refusal
+  question: How much can a trucker deduct for meals per day?
+  tags: [scope]
+  notes: GSA FAQ 21 redirects to DOT and the IRS. Squarely outside the corpus.
