@@ -52,9 +52,10 @@ def _settings(tmp_path: Path, bot: FakeBotFramework, **overrides: object) -> Set
     (docs / "hr").mkdir(parents=True)
     (docs / "hr" / "leave.md").write_text(
         "# Parental Leave\nEmployees with 12 months of service get 20 weeks of fully "
-        "paid parental leave.\n"
+        "paid parental leave.\n",
+        encoding="utf-8",
     )
-    (docs / "handbook.md").write_text("# Handbook\nThe office closes at 18:00.\n")
+    (docs / "handbook.md").write_text("# Handbook\nThe office closes at 18:00.\n", encoding="utf-8")
     values: dict[str, object] = {
         "data_dir": str(tmp_path / "data"),
         "documents_dir": str(docs),

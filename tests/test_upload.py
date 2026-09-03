@@ -154,7 +154,7 @@ def test_deleting_a_document_removes_its_knowledge(client) -> None:
 def test_listing_shows_what_indexed_and_what_could_not(client) -> None:
     c, root = client
     root.mkdir(parents=True, exist_ok=True)
-    (root / "good.md").write_text("# Good\n\ncontent")
+    (root / "good.md").write_text("# Good\n\ncontent", encoding="utf-8")
     (root / "legacy.doc").write_bytes(b"old")
     rows = {f["name"]: f for f in c.get("/documents").json()["files"]}
     assert rows["good.md"]["skipped"] is None

@@ -153,7 +153,7 @@ def corpus(tmp_path: Path) -> Path:
     documents = tmp_path / "documents"
     documents.mkdir()
     (documents / "handbook.md").write_text(
-        "# Handbook\n\nParental leave is 20 weeks, fully paid.\n"
+        "# Handbook\n\nParental leave is 20 weeks, fully paid.\n", encoding="utf-8"
     )
     return documents
 
@@ -228,7 +228,9 @@ def test_a_report_becomes_stale_when_the_documents_change(app, corpus: Path) -> 
         )
         assert client.get("/admin/reports", headers=ADMIN).json()["reports"][0]["stale"] is False
 
-        (corpus / "handbook.md").write_text("# Handbook\n\nParental leave is 22 weeks.\n")
+        (corpus / "handbook.md").write_text(
+            "# Handbook\n\nParental leave is 22 weeks.\n", encoding="utf-8"
+        )
         assert client.post("/admin/reindex", headers=ADMIN).status_code == 200
         assert client.get("/admin/reports", headers=ADMIN).json()["reports"][0]["stale"] is True
 

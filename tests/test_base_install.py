@@ -55,7 +55,9 @@ print("created", len(app.routes) > 10)
 def test_the_app_can_be_built_without_the_optional_extras(tmp_path) -> None:
     documents = tmp_path / "documents"
     documents.mkdir()
-    (documents / "handbook.md").write_text("# Handbook\nThe office closes at 18:00.")
+    (documents / "handbook.md").write_text(
+        "# Handbook\nThe office closes at 18:00.", encoding="utf-8"
+    )
     program = textwrap.dedent(_PROGRAM).format(
         blocked=set(OPTIONAL), data=str(tmp_path / "data"), documents=str(documents)
     )

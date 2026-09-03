@@ -63,7 +63,9 @@ def _unit(vector: list[float]) -> list[float]:
 def measure(corpus: Path, cases_path: Path, embedder: Embedder) -> dict[str, Any]:
     documents = LocalFilesConnector(corpus).fetch()
     chunks = [c for d in documents for c in chunk_document(d)]
-    cases = [c for c in yaml.safe_load(cases_path.read_text()) if c.get("must_cite")]
+    cases = [
+        c for c in yaml.safe_load(cases_path.read_text(encoding="utf-8")) if c.get("must_cite")
+    ]
     if not chunks or not cases:
         raise SystemExit("nothing to measure: no chunks, or no case carries must_cite")
 

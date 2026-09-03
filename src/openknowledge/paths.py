@@ -63,7 +63,7 @@ def _mentions_openknowledge(path: Path) -> bool:
     Read defensively: an unreadable file is simply not evidence.
     """
     try:
-        head = path.read_text(errors="replace")[:16384]
+        head = path.read_text(errors="replace", encoding="utf-8")[:16384]
     except OSError:
         return False
     return "OK_" in head or "openknowledge" in head.lower()

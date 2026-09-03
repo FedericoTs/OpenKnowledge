@@ -12,9 +12,11 @@ from openknowledge.connectors import Connector, LocalFilesConnector
 @pytest.fixture
 def corpus(tmp_path: Path) -> Path:
     (tmp_path / "policies").mkdir()
-    (tmp_path / "policies" / "expenses.md").write_text("# Expenses Policy\nMeals to EUR 45.")
-    (tmp_path / "notes.txt").write_text("plain text note")
-    (tmp_path / "empty.md").write_text("   ")
+    (tmp_path / "policies" / "expenses.md").write_text(
+        "# Expenses Policy\nMeals to EUR 45.", encoding="utf-8"
+    )
+    (tmp_path / "notes.txt").write_text("plain text note", encoding="utf-8")
+    (tmp_path / "empty.md").write_text("   ", encoding="utf-8")
     (tmp_path / "image.png").write_bytes(b"\x89PNG not text")
     return tmp_path
 
@@ -90,7 +92,7 @@ def test_content_hash_tracks_edits(corpus: Path) -> None:
         )
 
     before = hash_of("notes")
-    (corpus / "notes.txt").write_text("edited note")
+    (corpus / "notes.txt").write_text("edited note", encoding="utf-8")
     assert hash_of("notes") != before
 
 

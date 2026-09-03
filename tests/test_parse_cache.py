@@ -91,7 +91,7 @@ def test_a_touched_file_is_still_a_hit_and_an_edit_is_still_a_miss(tmp_path: Pat
     documents = tmp_path / "documents"
     documents.mkdir()
     path = documents / "expenses.md"
-    path.write_text(POLICY)
+    path.write_text(POLICY, encoding="utf-8")
     engine = build_engine(_settings(tmp_path, documents))
     try:
         engine.reindex()
@@ -105,7 +105,7 @@ def test_a_touched_file_is_still_a_hit_and_an_edit_is_still_a_miss(tmp_path: Pat
         # Different bytes, same length, clock rolled backwards: a miss.
         rewritten = POLICY.replace("EUR 500", "EUR 900")
         assert len(rewritten) == len(POLICY)
-        path.write_text(rewritten)
+        path.write_text(rewritten, encoding="utf-8")
         os.utime(path, (1_000_000, 1_000_000))
         engine.reindex()
         assert engine.connector.parses.misses > misses, "the bytes moved and it noticed"
@@ -123,8 +123,8 @@ def test_a_warm_cache_produces_the_same_corpus_as_no_cache(tmp_path: Path) -> No
     quietly made of stale text."""
     documents = tmp_path / "documents"
     documents.mkdir()
-    (documents / "expenses.md").write_text(POLICY)
-    (documents / "travel.md").write_text(CHANGED)
+    (documents / "expenses.md").write_text(POLICY, encoding="utf-8")
+    (documents / "travel.md").write_text(CHANGED, encoding="utf-8")
 
     warm = build_engine(_settings(tmp_path / "a", documents))
     plain = build_engine(_settings(tmp_path / "b", documents))
@@ -148,7 +148,7 @@ def test_it_survives_a_restart(tmp_path: Path) -> None:
     time the server comes up would leave most of the win on the table."""
     documents = tmp_path / "documents"
     documents.mkdir()
-    (documents / "expenses.md").write_text(POLICY)
+    (documents / "expenses.md").write_text(POLICY, encoding="utf-8")
 
     first = build_engine(_settings(tmp_path, documents))
     first.reindex()
@@ -191,7 +191,7 @@ def test_a_parse_that_found_nothing_is_not_remembered(tmp_path: Path) -> None:
     should try again rather than inherit the failure for ever."""
     documents = tmp_path / "documents"
     documents.mkdir()
-    (documents / "empty.md").write_text("")
+    (documents / "empty.md").write_text("", encoding="utf-8")
     engine = build_engine(_settings(tmp_path, documents))
     try:
         engine.reindex()
@@ -207,12 +207,12 @@ def test_parses_of_files_that_are_gone_are_forgotten(tmp_path: Path) -> None:
     documents = tmp_path / "documents"
     documents.mkdir()
     path = documents / "expenses.md"
-    path.write_text(POLICY)
+    path.write_text(POLICY, encoding="utf-8")
     engine = build_engine(_settings(tmp_path, documents))
     try:
         engine.reindex()
         assert len(engine.connector.parses) == 1
-        path.write_text(CHANGED)
+        path.write_text(CHANGED, encoding="utf-8")
         engine.reindex()
         assert len(engine.connector.parses) == 1, "the old text is not kept alongside the new"
         path.unlink()
@@ -227,7 +227,7 @@ def test_deleting_the_cache_costs_a_rebuild_and_nothing_else(tmp_path: Path) -> 
     """It is pure derived data, in its own file so that promise can be made."""
     documents = tmp_path / "documents"
     documents.mkdir()
-    (documents / "expenses.md").write_text(POLICY)
+    (documents / "expenses.md").write_text(POLICY, encoding="utf-8")
     settings = _settings(tmp_path, documents)
     engine = build_engine(settings)
     engine.reindex()
@@ -253,7 +253,7 @@ def test_audit_still_writes_nothing(tmp_path: Path) -> None:
     trade for a command that runs once."""
     documents = tmp_path / "documents"
     documents.mkdir()
-    (documents / "expenses.md").write_text(POLICY)
+    (documents / "expenses.md").write_text(POLICY, encoding="utf-8")
     connector = LocalFilesConnector(documents)
     assert connector.parses is None
     connector.fetch()

@@ -183,7 +183,7 @@ def terminate(servers: list[LlamaServer], grace_seconds: float = 10.0) -> None:
 
 def _tail(log_path: Path, lines: int = 8) -> str:
     try:
-        text = log_path.read_text(errors="replace")
+        text = log_path.read_text(errors="replace", encoding="utf-8")
     except OSError:
         return "(no log was written)"
     tail = text.strip().splitlines()[-lines:]

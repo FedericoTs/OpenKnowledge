@@ -56,7 +56,7 @@ def already_verified(model: ModelFile, into: Path) -> bool:
         final.is_file()
         and final.stat().st_size == model.size_bytes
         and marker.is_file()
-        and marker.read_text().strip() == model.sha256
+        and marker.read_text(encoding="utf-8").strip() == model.sha256
     )
 
 
@@ -77,10 +77,10 @@ def ensure_model(
     marker = into / (model.filename + ".sha256-ok")
 
     if final.is_file() and final.stat().st_size == model.size_bytes:
-        if marker.is_file() and marker.read_text().strip() == model.sha256:
+        if marker.is_file() and marker.read_text(encoding="utf-8").strip() == model.sha256:
             return final
         if _sha256_of(final) == model.sha256:
-            marker.write_text(model.sha256)
+            marker.write_text(model.sha256, encoding="utf-8")
             return final
         # Right size, wrong bytes: worse than nothing. Start clean.
         final.unlink()
@@ -114,7 +114,7 @@ def ensure_model(
             "corrupted; the download was discarded. Nothing runs on unverified bytes."
         )
     part.replace(final)
-    marker.write_text(model.sha256)
+    marker.write_text(model.sha256, encoding="utf-8")
     return final
 
 

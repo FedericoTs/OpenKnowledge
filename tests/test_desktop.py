@@ -249,13 +249,13 @@ def _write_stub(tmp_path: Path, body: str) -> Path:
     shim makes it an executable the same way the real llama-server is one.
     """
     script = tmp_path / "stub.py"
-    script.write_text(body)
+    script.write_text(body, encoding="utf-8")
     if sys.platform == "win32":
         stub = tmp_path / "llama-server.bat"
-        stub.write_text(f'@echo off\r\n"{sys.executable}" "{script}" %*\r\n')
+        stub.write_text(f'@echo off\r\n"{sys.executable}" "{script}" %*\r\n', encoding="utf-8")
     else:
         stub = tmp_path / "llama-server"
-        stub.write_text(f'#!/bin/sh\nexec "{sys.executable}" "{script}" "$@"\n')
+        stub.write_text(f'#!/bin/sh\nexec "{sys.executable}" "{script}" "$@"\n', encoding="utf-8")
         stub.chmod(stub.stat().st_mode | stat.S_IXUSR)
     return stub
 
@@ -360,7 +360,7 @@ def test_read_env_file_reads_what_write_env_writes(tmp_path: Path) -> None:
     from openknowledge.models import write_env
 
     env = tmp_path / ".env"
-    env.write_text("# a comment\nOK_KEEP='quoted'\n\nbroken line\n")
+    env.write_text("# a comment\nOK_KEEP='quoted'\n\nbroken line\n", encoding="utf-8")
     write_env(env, {"OK_LOCAL_BASE_URL": "http://127.0.0.1:8091/v1"})
     values = read_env_file(env)
     assert values["OK_KEEP"] == "quoted"

@@ -138,7 +138,9 @@ def _coerce_date(value: Any) -> _dt.date | None:
 @lru_cache(maxsize=1)
 def load_price_table() -> dict[str, ModelPrice]:
     """Parse the bundled ``pricing.yaml`` into ``{model_id: ModelPrice}``."""
-    raw = yaml.safe_load(resources.files("openknowledge").joinpath("pricing.yaml").read_text())
+    raw = yaml.safe_load(
+        resources.files("openknowledge").joinpath("pricing.yaml").read_text(encoding="utf-8")
+    )
     defaults: dict[str, Any] = raw.get("defaults") or {}
 
     table: dict[str, ModelPrice] = {}

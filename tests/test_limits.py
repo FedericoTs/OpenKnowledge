@@ -136,7 +136,9 @@ def idp():
 def corpus(tmp_path: Path) -> Path:
     documents = tmp_path / "documents"
     documents.mkdir()
-    (documents / "handbook.md").write_text("# Handbook\n\nParental leave is 20 weeks.\n")
+    (documents / "handbook.md").write_text(
+        "# Handbook\n\nParental leave is 20 weeks.\n", encoding="utf-8"
+    )
     return documents
 
 

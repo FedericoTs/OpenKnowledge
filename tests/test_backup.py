@@ -42,7 +42,7 @@ def _settings(root: Path, **kw) -> Settings:
 def test_what_a_person_decided_survives_the_move(tmp_path: Path) -> None:
     """The whole point: a pin written here answers there."""
     here, there = _settings(tmp_path / "here"), _settings(tmp_path / "there")
-    (Path(here.documents_dir) / "leave.md").write_text("# Leave\n\n20 weeks.\n")
+    (Path(here.documents_dir) / "leave.md").write_text("# Leave\n\n20 weeks.\n", encoding="utf-8")
 
     with AnswerStore(here.db_path) as store:
         store.pin("how much parental leave", "20 weeks, fully paid.", author="hr")
@@ -207,7 +207,7 @@ def test_an_archive_that_lies_about_its_contents_changes_nothing(tmp_path: Path)
 def test_documents_can_be_left_out_for_a_decisions_only_backup(tmp_path: Path) -> None:
     """Somebody whose documents already live in SharePoint wants the pins."""
     here = _settings(tmp_path / "here")
-    (Path(here.documents_dir) / "big.md").write_text("# Big\n\nlots of words\n")
+    (Path(here.documents_dir) / "big.md").write_text("# Big\n\nlots of words\n", encoding="utf-8")
     with AnswerStore(here.db_path) as store:
         store.pin("q", "a decision worth keeping", author="hr")
 
@@ -225,7 +225,9 @@ def test_nested_document_folders_keep_their_shape(tmp_path: Path) -> None:
     """Folders are how access rules are written, so the tree is load-bearing."""
     here = _settings(tmp_path / "here")
     (Path(here.documents_dir) / "finance" / "2026").mkdir(parents=True)
-    (Path(here.documents_dir) / "finance" / "2026" / "limits.md").write_text("# Limits\n")
+    (Path(here.documents_dir) / "finance" / "2026" / "limits.md").write_text(
+        "# Limits\n", encoding="utf-8"
+    )
 
     write_backup(here, tmp_path / "ok.zip")
     there = _settings(tmp_path / "there")

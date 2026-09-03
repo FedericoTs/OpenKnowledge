@@ -247,7 +247,9 @@ def test_a_corpus_indexes_identically_with_and_without_batching(tmp_path: Path) 
     root = tmp_path / "corpus"
     for i in range(4):
         write_pdf(root / f"policy-{i}.pdf", seed=i)
-    (root / "notes.md").write_text("# Notes\n\nA markdown file, parsed the ordinary way.\n")
+    (root / "notes.md").write_text(
+        "# Notes\n\nA markdown file, parsed the ordinary way.\n", encoding="utf-8"
+    )
 
     batched = LocalFilesConnector(root, parses=ParseCache()).fetch()
     one_at_a_time = LocalFilesConnector(root).fetch()  # no cache, no prefetch path

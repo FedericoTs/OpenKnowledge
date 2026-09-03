@@ -70,7 +70,7 @@ def drive() -> Iterator[FakeDrive]:
 def _settings(tmp_path: Path, drive: FakeDrive, **overrides: object) -> Settings:
     docs = tmp_path / "documents"
     docs.mkdir(exist_ok=True)
-    (docs / "notice.md").write_text("# Notice\nThe canteen is closed on Monday.")
+    (docs / "notice.md").write_text("# Notice\nThe canteen is closed on Monday.", encoding="utf-8")
     values: dict[str, object] = {
         "data_dir": str(tmp_path / "data"),
         "documents_dir": str(docs),

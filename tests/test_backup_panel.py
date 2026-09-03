@@ -26,7 +26,9 @@ AUTH = {"Authorization": f"Bearer {TOKEN}"}
 def _client(tmp_path: Path) -> TestClient:
     docs = tmp_path / "documents"
     (docs / "hr").mkdir(parents=True)
-    (docs / "hr" / "leave.md").write_text("# Parental Leave\nEmployees get 20 weeks fully paid.")
+    (docs / "hr" / "leave.md").write_text(
+        "# Parental Leave\nEmployees get 20 weeks fully paid.", encoding="utf-8"
+    )
     settings = Settings(
         data_dir=str(tmp_path / "data"),
         documents_dir=str(docs),

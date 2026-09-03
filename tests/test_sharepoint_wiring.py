@@ -67,7 +67,7 @@ def graph() -> Iterator[FakeGraph]:
 def _settings(tmp_path: Path, graph: FakeGraph, **overrides: object) -> Settings:
     docs = tmp_path / "documents"
     docs.mkdir(exist_ok=True)
-    (docs / "handbook.md").write_text("# Handbook\nThe office closes at 18:00.")
+    (docs / "handbook.md").write_text("# Handbook\nThe office closes at 18:00.", encoding="utf-8")
     values: dict[str, object] = {
         "data_dir": str(tmp_path / "data"),
         "documents_dir": str(docs),

@@ -38,7 +38,7 @@ def _corpus(root: Path) -> Path:
     for folder in ("hr", "hr/archive", "travel"):
         (documents / folder).mkdir(parents=True, exist_ok=True)
         (documents / folder / "policy.md").write_text(
-            f"# {folder}\n\nParental leave is 20 weeks, fully paid.\n"
+            f"# {folder}\n\nParental leave is 20 weeks, fully paid.\n", encoding="utf-8"
         )
     return documents
 
@@ -214,7 +214,9 @@ def test_an_upload_after_an_access_change_carries_the_new_audience(tmp_path: Pat
         engine.reapply_access()
         assert _audiences(engine)["hr-policy"] == frozenset({"group:hr"})
 
-        (documents / "travel" / "another.md").write_text("# Travel\n\nEconomy only.\n")
+        (documents / "travel" / "another.md").write_text(
+            "# Travel\n\nEconomy only.\n", encoding="utf-8"
+        )
         engine.reindex()
 
         audiences = _audiences(engine)

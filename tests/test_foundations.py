@@ -57,10 +57,12 @@ def test_an_openknowledge_deployment_is_recognised_by_its_own_evidence(
 ) -> None:
     monkeypatch.delenv("OK_STATE_DIR", raising=False)
     cases = {
-        "env-with-ok-keys": lambda d: (d / ".env").write_text("OK_LOCAL_MODEL=qwen3:8b\n"),
+        "env-with-ok-keys": lambda d: (d / ".env").write_text(
+            "OK_LOCAL_MODEL=qwen3:8b\n", encoding="utf-8"
+        ),
         "own-database": lambda d: (
             (d / "data").mkdir(),
-            (d / "data" / "openknowledge.db").write_text(""),
+            (d / "data" / "openknowledge.db").write_text("", encoding="utf-8"),
         ),
         "paired-install-dirs": lambda d: ((d / "data").mkdir(), (d / "documents").mkdir()),
         "source-checkout": lambda d: (d / "src" / "openknowledge").mkdir(parents=True),
@@ -86,9 +88,11 @@ def test_a_strangers_project_directory_is_not_a_deployment(
     """
     stranger = tmp_path / "some-node-service"
     stranger.mkdir()
-    (stranger / ".env").write_text("DATABASE_URL=postgres://x\nNODE_ENV=production\n")
-    (stranger / "pyproject.toml").write_text('[project]\nname = "their-tool"\n')
-    (stranger / "data").write_text("a plain FILE named data")
+    (stranger / ".env").write_text(
+        "DATABASE_URL=postgres://x\nNODE_ENV=production\n", encoding="utf-8"
+    )
+    (stranger / "pyproject.toml").write_text('[project]\nname = "their-tool"\n', encoding="utf-8")
+    (stranger / "data").write_text("a plain FILE named data", encoding="utf-8")
     monkeypatch.chdir(stranger)
 
     assert state_paths().mode == "app", "hijacked by a stranger's project files"
@@ -105,7 +109,9 @@ def test_an_empty_directory_means_per_user_app_state(app_mode: Path) -> None:
 
 def test_ok_state_dir_overrides_everything(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("OK_STATE_DIR", str(tmp_path / "forced"))
-    (tmp_path / ".env").write_text("OK_LOCAL_MODEL=x\n")  # would force project mode
+    (tmp_path / ".env").write_text(
+        "OK_LOCAL_MODEL=x\n", encoding="utf-8"
+    )  # would force project mode
     monkeypatch.chdir(tmp_path)
     state = state_paths()
     assert state.mode == "override"
@@ -155,7 +161,7 @@ def test_load_settings_reads_the_state_directorys_env_file(
 ) -> None:
     """`model use` writes there; the next start has to read the same file."""
     app_mode.mkdir(parents=True)
-    (app_mode / ".env").write_text("OK_LOCAL_MODEL=written-by-model-use\n")
+    (app_mode / ".env").write_text("OK_LOCAL_MODEL=written-by-model-use\n", encoding="utf-8")
     monkeypatch.delenv("OK_LOCAL_MODEL", raising=False)
     assert load_settings().local_model == "written-by-model-use"
 
@@ -176,7 +182,7 @@ def test_a_frozen_bundle_wins_over_the_checkout(
     """PyInstaller sets sys._MEIPASS; a frozen build must serve its own copy."""
     bundle = tmp_path / "bundle" / "web" / "widget"
     bundle.mkdir(parents=True)
-    (bundle / "index.html").write_text("<!-- frozen copy -->")
+    (bundle / "index.html").write_text("<!-- frozen copy -->", encoding="utf-8")
     monkeypatch.setattr(sys, "_MEIPASS", str(tmp_path / "bundle"), raising=False)
 
     found = find_asset("widget/index.html")
@@ -257,7 +263,9 @@ def test_an_existing_token_in_the_state_file_wins_over_minting(
     from openknowledge.api.app import create_app
 
     app_mode.mkdir(parents=True)
-    (app_mode / ".env").write_text("OK_OTHER=kept\nOK_ADMIN_TOKEN=already-minted\n")
+    (app_mode / ".env").write_text(
+        "OK_OTHER=kept\nOK_ADMIN_TOKEN=already-minted\n", encoding="utf-8"
+    )
     monkeypatch.delenv("OK_ADMIN_TOKEN", raising=False)
 
     settings = load_settings()
@@ -336,8 +344,8 @@ def test_tls_is_both_paths_or_neither(tmp_path: Path) -> None:
 
     cert = tmp_path / "server.crt"
     key = tmp_path / "server.key"
-    cert.write_text("not really a cert")
-    key.write_text("not really a key")
+    cert.write_text("not really a cert", encoding="utf-8")
+    key.write_text("not really a key", encoding="utf-8")
     assert _tls_kwargs(settings(tls_cert=str(cert), tls_key=str(key))) == {
         "ssl_certfile": str(cert),
         "ssl_keyfile": str(key),

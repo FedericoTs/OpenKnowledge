@@ -148,8 +148,12 @@ def _settings(tmp_path: Path, idp: FakeIdp, **overrides: object) -> Settings:
 def corpus(tmp_path: Path) -> Path:
     documents = tmp_path / "documents"
     (documents / "hr").mkdir(parents=True)
-    (documents / "handbook.md").write_text("# Handbook\n\nThe office closes at 18:00.\n")
-    (documents / "hr" / "leave.md").write_text("# Leave\n\nParental leave is 20 weeks.\n")
+    (documents / "handbook.md").write_text(
+        "# Handbook\n\nThe office closes at 18:00.\n", encoding="utf-8"
+    )
+    (documents / "hr" / "leave.md").write_text(
+        "# Leave\n\nParental leave is 20 weeks.\n", encoding="utf-8"
+    )
     return documents
 
 
@@ -367,7 +371,7 @@ def test_an_employee_cannot_overwrite_a_document(app, employee, corpus: Path) ->
     assert response.status_code == 201
     assert response.json()["stored"] == []
     assert "administrator" in response.json()["skipped"][0]["reason"]
-    assert "18:00" in (corpus / "handbook.md").read_text()
+    assert "18:00" in (corpus / "handbook.md").read_text(encoding="utf-8")
 
 
 def test_an_employee_can_still_contribute_a_new_document(app, employee, corpus: Path) -> None:

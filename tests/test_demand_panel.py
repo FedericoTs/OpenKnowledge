@@ -31,7 +31,9 @@ DAY = 86400.0
 def _client(tmp_path: Path) -> TestClient:
     docs = tmp_path / "documents"
     docs.mkdir()
-    (docs / "leave.md").write_text("# Parental Leave\nEmployees get 20 weeks fully paid.")
+    (docs / "leave.md").write_text(
+        "# Parental Leave\nEmployees get 20 weeks fully paid.", encoding="utf-8"
+    )
     settings = Settings(
         data_dir=str(tmp_path / "data"),
         documents_dir=str(docs),

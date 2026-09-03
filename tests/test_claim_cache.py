@@ -104,8 +104,8 @@ def test_a_rebuild_finds_the_same_conflicts_the_first_index_did(tmp_path: Path) 
     which is where a stale claim would actually reach somebody."""
     documents = tmp_path / "documents"
     documents.mkdir()
-    (documents / "expenses.md").write_text(POLICY)
-    (documents / "travel.md").write_text(MOVED)
+    (documents / "expenses.md").write_text(POLICY, encoding="utf-8")
+    (documents / "travel.md").write_text(MOVED, encoding="utf-8")
     engine = build_engine(
         Settings(
             data_dir=str(tmp_path / "data"),
@@ -128,7 +128,9 @@ def test_a_rebuild_finds_the_same_conflicts_the_first_index_did(tmp_path: Path) 
         # submit") must stay, because that one was not corrected. Asserting
         # "no conflicts at all" would pass for the wrong reason the day the
         # reconciliation cleared too much.
-        (documents / "travel.md").write_text(MOVED.replace("EUR 1,000", "EUR 500"))
+        (documents / "travel.md").write_text(
+            MOVED.replace("EUR 1,000", "EUR 500"), encoding="utf-8"
+        )
         engine.reindex()
         after = {c.key for c in engine.knowledge.open_conflicts()}
         assert after == {"expenses:required|travel:allowed"}
@@ -159,10 +161,10 @@ def test_correcting_a_document_clears_the_conflict_it_caused(tmp_path: Path) -> 
     documents = tmp_path / "documents"
     documents.mkdir()
     (documents / "expenses.md").write_text(
-        "# Expenses\n\nTravel above EUR 500 requires prior approval.\n"
+        "# Expenses\n\nTravel above EUR 500 requires prior approval.\n", encoding="utf-8"
     )
     (documents / "travel.md").write_text(
-        "# Travel\n\nTravel above EUR 1,000 requires prior approval.\n"
+        "# Travel\n\nTravel above EUR 1,000 requires prior approval.\n", encoding="utf-8"
     )
     engine = build_engine(
         Settings(
@@ -178,7 +180,7 @@ def test_correcting_a_document_clears_the_conflict_it_caused(tmp_path: Path) -> 
         assert engine.knowledge.open_conflicts(), "the two documents disagree"
 
         (documents / "travel.md").write_text(
-            "# Travel\n\nTravel above EUR 500 requires prior approval.\n"
+            "# Travel\n\nTravel above EUR 500 requires prior approval.\n", encoding="utf-8"
         )
         report = engine.reindex()
         assert not engine.knowledge.open_conflicts(), (
@@ -196,8 +198,12 @@ def test_a_resolution_somebody_made_is_not_undone_by_a_rescan(tmp_path: Path) ->
     deleted it would erase what the admin log points at."""
     documents = tmp_path / "documents"
     documents.mkdir()
-    (documents / "a.md").write_text("# A\n\nTravel above EUR 500 requires prior approval.\n")
-    (documents / "b.md").write_text("# B\n\nTravel above EUR 1,000 requires prior approval.\n")
+    (documents / "a.md").write_text(
+        "# A\n\nTravel above EUR 500 requires prior approval.\n", encoding="utf-8"
+    )
+    (documents / "b.md").write_text(
+        "# B\n\nTravel above EUR 1,000 requires prior approval.\n", encoding="utf-8"
+    )
     engine = build_engine(
         Settings(
             data_dir=str(tmp_path / "data"),
@@ -217,7 +223,9 @@ def test_a_resolution_somebody_made_is_not_undone_by_a_rescan(tmp_path: Path) ->
 
         # And still resolved after the documents are corrected, when the
         # conflict stops being detected at all.
-        (documents / "b.md").write_text("# B\n\nTravel above EUR 500 requires prior approval.\n")
+        (documents / "b.md").write_text(
+            "# B\n\nTravel above EUR 500 requires prior approval.\n", encoding="utf-8"
+        )
         engine.reindex()
         rows = engine.knowledge._conn.execute(  # noqa: SLF001 - reading the record itself
             "SELECT status, resolution FROM conflicts WHERE key = ?", (key,)

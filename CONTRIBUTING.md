@@ -37,6 +37,14 @@ that refuses to compute.
 **Connectors must populate `allowed_principals`.** A connector that returns documents without
 their ACLs turns a permission-aware system into a leak.
 
+**Two things the suite is not allowed to assume about the machine.** CI runs the tests on
+Linux and on Windows, and the Windows job is the slow one, so a test that is green on your
+laptop and red there costs a cycle to find out. Say `encoding="utf-8"` on every text read
+and write — the default is the locale's, which is cp1252 on the runner and UTF-8 on yours —
+and never compare a path's string form against a literal: `str(Path("/x") / "y")` is
+`D:\x\y` there. Ask containment with `is_relative_to`. `tests/test_cross_platform.py`
+holds both, over the whole repository, in about a second.
+
 ## Where help is most useful
 
 See [ROADMAP.md](docs/ROADMAP.md). The highest-leverage items right now:

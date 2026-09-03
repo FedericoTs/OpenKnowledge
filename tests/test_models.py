@@ -364,7 +364,8 @@ def test_recording_the_choice_keeps_the_operators_file_intact(tmp_path: Path) ->
     """An operator's .env has their comments and ordering in it. Keep both."""
     env = tmp_path / ".env"
     env.write_text(
-        "# my notes\nOK_DOCUMENTS_DIR=./policies\nOK_LOCAL_MODEL=qwen3:4b\n# trailing note\n"
+        "# my notes\nOK_DOCUMENTS_DIR=./policies\nOK_LOCAL_MODEL=qwen3:4b\n# trailing note\n",
+        encoding="utf-8",
     )
     changed = write_env(env, {"OK_LOCAL_MODEL": "qwen3:8b", "OK_LOCAL_CONTEXT_TOKENS": "40960"})
 
@@ -380,7 +381,7 @@ def test_recording_the_choice_keeps_the_operators_file_intact(tmp_path: Path) ->
 
 def test_recording_an_unchanged_value_reports_no_change(tmp_path: Path) -> None:
     env = tmp_path / ".env"
-    env.write_text("OK_LOCAL_MODEL=qwen3:8b\n")
+    env.write_text("OK_LOCAL_MODEL=qwen3:8b\n", encoding="utf-8")
     assert write_env(env, {"OK_LOCAL_MODEL": "qwen3:8b"}) == []
 
 

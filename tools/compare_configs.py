@@ -123,7 +123,7 @@ def run_profile(
         print(f"  {profile.name}: no metrics written (exit {result.returncode})")
         return None
 
-    metrics = json.loads(baseline.read_text())
+    metrics = json.loads(baseline.read_text(encoding="utf-8"))
     metrics["_profile"] = profile.name
     metrics["_seconds"] = round(elapsed, 1)
     # A non-zero exit means cases failed, which is a result, not an error. Only

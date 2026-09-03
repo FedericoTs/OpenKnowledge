@@ -20,7 +20,8 @@ def client(tmp_path: Path) -> TestClient:
     docs = tmp_path / "documents"
     docs.mkdir()
     (docs / "leave.md").write_text(
-        "# Parental Leave\nEmployees with 12 months of service get 20 weeks fully paid."
+        "# Parental Leave\nEmployees with 12 months of service get 20 weeks fully paid.",
+        encoding="utf-8",
     )
     settings = Settings(
         data_dir=str(tmp_path / "data"),
@@ -130,7 +131,9 @@ def test_pins_can_be_listed_and_removed(client: TestClient) -> None:
 
 
 def test_reindex_picks_up_a_new_document(client: TestClient, tmp_path: Path) -> None:
-    (tmp_path / "documents" / "vpn.md").write_text("# VPN\nConnect to vpn.internal with MFA.")
+    (tmp_path / "documents" / "vpn.md").write_text(
+        "# VPN\nConnect to vpn.internal with MFA.", encoding="utf-8"
+    )
     body = client.post("/admin/reindex", headers=AUTH).json()
     assert body["documents"] == 2
     assert body["corpus_version"] != "empty"
@@ -290,7 +293,8 @@ def test_health_counts_documents_and_chunks_separately(tmp_path: Path) -> None:
     # Two files, deliberately long enough to chunk into more than two pieces.
     for name in ("a.md", "b.md"):
         (documents / name).write_text(
-            f"# {name}\n\n" + "\n\n".join(f"Paragraph {i} about policy. " * 60 for i in range(6))
+            f"# {name}\n\n" + "\n\n".join(f"Paragraph {i} about policy. " * 60 for i in range(6)),
+            encoding="utf-8",
         )
 
     settings = Settings(data_dir=str(tmp_path / "data"), documents_dir=str(documents))

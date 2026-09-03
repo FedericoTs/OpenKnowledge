@@ -564,7 +564,9 @@ def _cmd_eval(args: argparse.Namespace) -> int:
         print(format_report(report, verbose=args.verbose))
 
     if args.save_baseline:
-        Path(args.save_baseline).write_text(_json.dumps(report.to_dict(), indent=2) + "\n")
+        Path(args.save_baseline).write_text(
+            _json.dumps(report.to_dict(), indent=2) + "\n", encoding="utf-8"
+        )
         print(f"\nbaseline written to {args.save_baseline}", file=sys.stderr)
 
     if args.baseline:
@@ -1021,10 +1023,10 @@ def _version() -> str:
     commit = ""
     git_dir = Path(__file__).resolve().parents[2] / ".git"
     try:
-        head = (git_dir / "HEAD").read_text().strip()
+        head = (git_dir / "HEAD").read_text(encoding="utf-8").strip()
         if head.startswith("ref: "):
             ref = head[5:]
-            sha = (git_dir / ref).read_text().strip()
+            sha = (git_dir / ref).read_text(encoding="utf-8").strip()
             commit = f" ({sha[:7]} on {ref.rsplit('/', 1)[-1]})"
         elif head:
             commit = f" ({head[:7]}, detached)"
