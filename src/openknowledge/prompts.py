@@ -17,9 +17,11 @@ and every answer produced under the old wording becomes unreachable.
 
 from __future__ import annotations
 
+import re
+
 from .retrieval.base import Chunk
 
-PROMPT_VERSION = "v4"
+PROMPT_VERSION = "v5"
 
 SYSTEM_PROMPT = """\
 You answer questions about an organisation's internal documents. You are used by \
@@ -99,6 +101,29 @@ products, services or offers described in the sources as your own abilities.
 """
 
 
+#: Chat-turn control tokens, as ChatML and its relatives write them. A document
+#: containing one can end the turn it is quoted inside and open a new one in
+#: whatever role it likes, which is not something document text should be able
+#: to do. Measured: a forged ``<|im_start|>system`` block in
+#: evals/golden-injection/nw-procurement.md was obeyed, and its text came back
+#: inside a draft.
+_TURN_CONTROL = re.compile(r"<\|([^|>\n]{0,64})\|>")
+
+
+def _quoted(text: str) -> str:
+    """Source text with anything that could forge a turn boundary defused.
+
+    The spaces are the whole trick: ``<|im_start|>`` is one control token to a
+    tokeniser and ``< |im_start| >`` is four ordinary ones. The words are kept
+    rather than deleted - a hostile document is evidence somebody may have to
+    read, and "what does this document say?" has to stay answerable about
+    exactly the documents that matter most. ASCII only, deliberately: a
+    cleverer substitute character is one more thing to break on a Windows
+    console, which this repository has already been bitten by once.
+    """
+    return _TURN_CONTROL.sub(r"< |\1| >", text)
+
+
 def format_context(chunks: list[Chunk]) -> str:
     """Render retrieved chunks into the SOURCES block the prompt describes."""
     if not chunks:
@@ -107,7 +132,8 @@ def format_context(chunks: list[Chunk]) -> str:
     parts = ["SOURCES:"]
     for chunk in chunks:
         where = f" ({chunk.locator})" if chunk.locator else ""
-        parts.append(f"\n[{chunk.document_id}] {chunk.document_title}{where}\n{chunk.text}")
+        header = f"[{chunk.document_id}] {chunk.document_title}{where}"
+        parts.append(f"\n{header}\n{_quoted(chunk.text)}")
     return "\n".join(parts)
 
 
