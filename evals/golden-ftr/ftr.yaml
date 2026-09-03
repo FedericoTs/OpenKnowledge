@@ -47,9 +47,15 @@
   question: Do I need to provide receipts?
   must_cite: [ftr-301-52]
   must_say: ["$75"]
-  must_not_say: ["$25", "no receipts are required", "receipts are not required"]
+  must_not_say: ["$25", "$50 in cost"]
   tags: [claims]
-  notes: GSA FAQ 17, quoting 301-52.1 almost verbatim.
+  notes: >
+    GSA FAQ 17, quoting 301-52.1 almost verbatim. The first version of this
+    case also forbade the string "receipts are not required" and failed a
+    correct answer for it: the answer stated "$75 [ftr-301-52]" and then
+    noted, truthfully and from the regulation, that receipts are not required
+    for expenses exempt due to confidentiality. A must_not_say has to name the
+    wrong answer, not a phrase a right one can contain.
 
 - id: gsa-13-incidental-expenses
   question: What is considered an incidental expense?
@@ -68,12 +74,16 @@
   notes: GSA FAQ 11. Regulation at 301-11.16, which GSA's FAQ still cites as 301-11.27.
 
 - id: gsa-16-mix-and-match
+  kind: refusal
   question: Can I combine the lodging and M&IE per diem rates in order to get a nicer hotel room or spend more on meals?
-  must_cite: [ftr-301-11]
-  must_say: [["maximum", "not to exceed"]]
-  must_not_say: ["yes, you may combine", "mix and match is permitted"]
   tags: [per-diem]
-  notes: GSA FAQ 16. The lodging rate is a ceiling, so there is nothing to move.
+  notes: >
+    GSA FAQ 16, moved here after the first run. GSA answers it from absence -
+    "the FTR does not make a provision for mixing and matching" - and the
+    phrase appears nowhere in these chapters. Classing it answerable was my
+    error: demanding an answer from a regulation that is silent is demanding
+    exactly the invention this product exists to prevent. The system refused
+    it, which is right.
 
 - id: gsa-18-no-hotels-at-per-diem
   question: What do I do if there are no hotels available at per diem?
