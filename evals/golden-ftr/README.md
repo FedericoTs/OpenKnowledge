@@ -66,7 +66,17 @@ export OK_LOCAL_BASE_URL=http://127.0.0.1:8082/v1
 uv run openknowledge eval --path evals/golden-ftr/ftr.yaml --verbose
 ```
 
-Retrieval is BM25-only here (`OK_EMBEDDING_ENABLED=false`), which is the weaker
-of the two shipped configurations — so the accuracy below is a floor, not a
-ceiling. Anyone with the embedding model running should get the same set to
-score higher, and if it does not, that is worth knowing too.
+Run it both ways. That last sentence used to read "BM25 is the weaker of the
+two configurations, so this is a floor" — and the hybrid run disproved it:
+with embeddings on, which is the **default**, the same set scored 57% instead
+of 71% and produced the one false answer in the record. It lost the incidental
+-expenses definition and the no-hotel-at-per-diem case, and answered a
+question about whether hotels may refuse the rate, which these chapters do not
+address at all.
+
+So neither number is a floor, and the default is currently the worse one. To
+reproduce the default, serve `nomic-embed-text-v1.5` and set
+`OK_EMBEDDING_ENABLED=true` with `OK_EMBEDDING_BASE_URL` pointing at it. Probe
+the endpoint before trusting a run to it: "embeddings enabled" and "embeddings
+working" are different claims, and a missing embedding model degrades to BM25
+silently by design.

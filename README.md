@@ -28,16 +28,22 @@ not that it is accurate on your documents. So there is a second table, on a corp
 exam nobody here wrote — the US Federal Travel Regulation from eCFR, asked GSA's own
 per-diem FAQ, both committed under `evals/golden-ftr/` so you can rerun it:
 
-| | |
-|---|---:|
-| accuracy on questions the regulation answers | **71%** (5 of 7) |
-| false answers on questions it does not | **0** (12 cases) |
-| cost per question | **$0.00000** |
+| | BM25 only | BM25 + embeddings *(the default)* |
+|---|---:|---:|
+| accuracy on questions the regulation answers | **71%** (5 of 7) | **57%** (4 of 7) |
+| false answers on questions it does not | **0** of 12 | **1** of 12 |
+| cost per question | $0.00000 | $0.00000 |
 
-Five of seven, not seven of seven, and the two failures are described in
-`evals/measured/thirtyninth-an-exam-nobody-here-wrote.json` rather than smoothed over.
-That gap between 100% and 71% is the honest distance between a demo and a deployment.
-Your own corpus is one command away, below. What a
+The default is the worse column. Adding vectors lost two correct answers and produced the
+one false answer in this table: asked whether hotels can refuse the federal per diem rate —
+which these chapters do not address — it said they cannot. GSA's own FAQ says they are not
+required to honour it, so the answer was both unsupported and wrong.
+
+That is the honest state of it: on a corpus we did not write, four to five of seven, and a
+retrieval default that currently costs accuracy rather than adding it. Both runs, both
+failure lists, and the three defects this corpus found in our own exam are in
+`evals/measured/thirtyninth-an-exam-nobody-here-wrote.json`. Your own corpus is one command
+away, below. What a
 real deployment costs, and why the usual build costs ten cents a question, is worked
 through under *The problem*.
 

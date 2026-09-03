@@ -27,6 +27,18 @@
         "refused": 13,
         "local": 6
       }
+    },
+    "with_hybrid_retrieval_the_shipped_default": {
+      "cases": 19,
+      "answerable": 7,
+      "must_refuse": 12,
+      "accuracy": 0.5714,
+      "false_answers": 1,
+      "false_answer_rate": 0.0833,
+      "determinism": 0.9474,
+      "support_on_passes": 0.8482,
+      "support_on_failures": 0.739,
+      "note": "BM25 plus local nomic-embed-text-v1.5, the configuration the product ships with. The embedding endpoint was probed before the run and returned 768 dimensions, so this is not a silent fallback to BM25."
     }
   },
   "what_it_means": "On a real regulation it had never seen, asked a real FAQ's questions, it answered 5 of 7 correctly and refused all 12 questions the regulation does not cover - inventing nothing. The refusal half is the stronger result and the one a buyer should weigh: asked how much a trucker may deduct for meals or what per diem to pay a contractor, it declined rather than reached. The 71.4% is a floor, not a ceiling: retrieval here is BM25 only, the weaker of the two shipped configurations.",
@@ -39,12 +51,13 @@
     "gsa-15-first-and-last-day: forbade '100 percent', which the regulation itself uses for full days of travel.",
     "gsa-16-mix-and-match: classed answerable, but GSA answers it from absence and the phrase appears nowhere in the corpus; refusing is correct, so it is a refusal case now."
   ],
-  "what_it_deliberately_does_not_do": "It does not measure the shipped default: embeddings are off, so this is BM25 retrieval alone. It does not measure escalation - no API key was configured, and the point was the free tier. It is one corpus in one domain of one country's law; a corpus of HR policies or engineering runbooks would chunk and retrieve differently. And 19 cases is a small exam: the difference between 71.4% and 85.7% here is one case.",
+  "what_it_deliberately_does_not_do": "Both retrieval configurations are now measured, and they disagree; the default is the worse one. It does not measure escalation - no API key was configured, and the point was the free tier. It is one corpus in one domain of one country's law; a corpus of HR policies or engineering runbooks would chunk and retrieve differently. And 19 cases is a small exam: the difference between 71.4% and 85.7% here is one case.",
   "platform": {
     "python": "3.11.15",
     "machine": "x86_64",
     "cpus": 4,
     "model": "Qwen3-4B-Instruct-2507-Q4_K_M",
     "retrieval": "BM25 only"
-  }
+  },
+  "the_result_that_reversed_a_claim": "Hybrid retrieval, which is the DEFAULT, scored worse than BM25 alone on this corpus: 57.1% against 71.4%, and it produced the first false answer this system has given in any evaluation here. Asked whether hotels can refuse the federal per diem rate - a question these chapters do not address, because they bind agencies and travellers rather than hotels - it answered 'No, hotels cannot refuse to honor the per diem rate for federal government employees.' GSA's own FAQ says the opposite: 'Hotels are not required to honor the federal per diem rates.' So the answer was both unsupported by the corpus and wrong. Two further cases that BM25 answered correctly - the definition of an incidental expense, and what to do when no hotel is available at per diem - were refused under hybrid retrieval. The record before this one called 71.4% 'a floor, not a ceiling', on the assumption that adding vectors could only help. That assumption was wrong and the number was not a floor."
 }
