@@ -108,6 +108,14 @@ def measure(size: int, corpus: Path, state: Path, queries: int) -> dict[str, obj
     documents, chunks, _version, _evicted = engine.reindex()
     index_seconds = time.perf_counter() - started
 
+    # The second one is the number that reaches a user. The engine rebuilds on
+    # every upload, every delete and every access-rule change, so a corpus is
+    # re-indexed constantly once it is in use - with the parse and claim caches
+    # warm. A cold first build happens once; this happens all day.
+    started = time.perf_counter()
+    engine.reindex()
+    again_seconds = time.perf_counter() - started
+
     latencies: list[float] = []
     for i in range(queries):
         query = QUERIES[i % len(QUERIES)]
@@ -120,6 +128,7 @@ def measure(size: int, corpus: Path, state: Path, queries: int) -> dict[str, obj
         "documents": documents,
         "chunks": chunks,
         "index_seconds": round(index_seconds, 2),
+        "reindex_seconds": round(again_seconds, 2),
         "documents_per_second": round(documents / index_seconds, 1) if index_seconds else None,
         "query_ms_median": round(statistics.median(latencies), 1),
         "query_ms_p95": round(latencies[min(len(latencies) - 1, int(len(latencies) * 0.95))], 1),
@@ -140,8 +149,9 @@ def main(argv: list[str] | None = None) -> int:
 
     rows = []
     print(
-        f"{'docs':>7} {'chunks':>8} {'index s':>9} {'docs/s':>8} "
-        f"{'q ms p50':>9} {'q ms p95':>9} {'peak MB':>8}"
+        f"{'docs':>7} {'chunks':>8} {'cold s':>9} {'warm s':>9} {'docs/s':>8} "
+        f"{'q ms p50':>9} {'q ms p95':>9} {'peak MB':>8}",
+        flush=True,
     )
     for size in args.sizes:
         row = measure(
@@ -150,8 +160,9 @@ def main(argv: list[str] | None = None) -> int:
         rows.append(row)
         print(
             f"{row['documents']:>7} {row['chunks']:>8} {row['index_seconds']:>9} "
-            f"{row['documents_per_second']:>8} {row['query_ms_median']:>9} "
-            f"{row['query_ms_p95']:>9} {row['peak_rss_mb']:>8}"
+            f"{row['reindex_seconds']:>9} {row['documents_per_second']:>8} "
+            f"{row['query_ms_median']:>9} {row['query_ms_p95']:>9} {row['peak_rss_mb']:>8}",
+            flush=True,
         )
     if args.out:
         args.out.write_text(json.dumps(rows, indent=2) + "\n", encoding="utf-8")

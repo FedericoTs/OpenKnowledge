@@ -47,6 +47,31 @@ away, below. What a
 real deployment costs, and why the usual build costs ten cents a question, is worked
 through under *The problem*.
 
+### What happens at a thousand documents
+
+Every accuracy number above was measured on twenty documents. Here is what indexing costs
+as the corpus grows — no model involved, BM25 only, on a four-core VM:
+
+| documents | chunks | first index | rebuild | query p50 | query p95 |
+|---:|---:|---:|---:|---:|---:|
+| 20 | 217 | 0.16 s | 0.15 s | 0.8 ms | 1.2 ms |
+| 100 | 1,085 | 3.17 s | 3.10 s | 4.4 ms | 6.9 ms |
+| 300 | 3,255 | 26.4 s | 26.0 s | 16.6 ms | 24.6 ms |
+| 500 | 5,425 | 71.1 s | — | 25.8 ms | 138 ms |
+| 2,000 | — | *did not finish in 26 minutes* | — | — | — |
+
+**Indexing is quadratic in the number of documents, and the rebuild costs the same as the
+first build.** Five times the corpus is twenty times the time. A profile says why:
+contradiction detection compares every *pair* of documents — 44,850 comparisons for 300
+documents, which is exactly every pair — and that is 98% of the index. The parse cache
+saves re-reading files; it does not touch this. Since the engine rebuilds on every upload,
+every delete and every access-rule change, a 500-document corpus pays 71 seconds each time.
+
+Retrieval itself is fine: queries stay in tens of milliseconds and memory in hundreds of
+megabytes. It is one function, on every document pair, on every rebuild. Unfixed, and
+measured in `evals/measured/fortyfirst-what-happens-at-a-thousand.json` — rerun it with
+`uv run python tools/measure_scale.py --workdir /tmp/scale --sizes 20 100 300`.
+
 ### Documents that argue back
 
 A knowledge base ingests documents from outside, and any of them can contain text

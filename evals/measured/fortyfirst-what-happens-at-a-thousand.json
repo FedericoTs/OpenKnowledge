@@ -1,0 +1,38 @@
+{
+  "what": "The first measurement of what this system does as a corpus grows. Every accuracy number in this repository was taken on twenty documents, and nothing had ever said what happens at a thousand - not 'it is probably fine', nothing at all. It is not fine: indexing is quadratic in the number of documents, and the cost is paid in full on every rebuild.",
+  "how": "tools/measure_scale.py grows a corpus from the Federal Travel Regulation set, giving each copy a distinct organisation name and section numbering so the index is not N identical documents - BM25 on duplicates is a much easier problem and would flatter the result. No model is called: this is the free half of the pipeline, the half whose cost grows with the corpus. 4-core VM, BM25 only, embeddings off, a fresh state directory per size.",
+  "the_measurement_that_changed_the_code": "Nothing yet. Recorded before fixing, as everything else here is.",
+  "measured": {
+    "note": "cold = first index into an empty state directory. warm = a second reindex immediately after, with the parse and claim caches populated - which is what every upload, delete and access-rule change does.",
+    "rows": [
+      {"documents": 20, "chunks": 217, "cold_seconds": 0.16, "warm_seconds": 0.15, "query_ms_p50": 0.8, "query_ms_p95": 1.2, "peak_rss_mb": 74.3},
+      {"documents": 100, "chunks": 1085, "cold_seconds": 3.17, "warm_seconds": 3.10, "query_ms_p50": 4.4, "query_ms_p95": 6.9, "peak_rss_mb": 105.1},
+      {"documents": 300, "chunks": 3255, "cold_seconds": 26.37, "warm_seconds": 26.01, "query_ms_p50": 16.6, "query_ms_p95": 24.6, "peak_rss_mb": 176.5},
+      {"documents": 500, "chunks": 5425, "cold_seconds": 71.09, "warm_seconds": null, "query_ms_p50": 25.8, "query_ms_p95": 138.1, "peak_rss_mb": 258.6, "from": "the first ladder, which did not measure a warm rebuild"}
+    ],
+    "two_thousand": {
+      "finished": false,
+      "gave_up_after_seconds": 1580,
+      "bytes_written": 5992000000,
+      "corpus_bytes": 20971520,
+      "state_dir_bytes": 238000000,
+      "peak_rss_mb": 665,
+      "note": "Stopped rather than waited out. A curve that completes is worth more than one point that does not, and the quadratic fit predicts about 20 minutes for this size, which is consistent with what was observed."
+    }
+  },
+  "the_shape": {
+    "index_time": "quadratic. 20 -> 100 documents is 5x the corpus and 19.8x the time; 100 -> 300 is 3x the corpus and 8.3x the time. Both land on N squared.",
+    "query_latency": "roughly linear. 0.8 ms at 20 documents, 16.6 ms at 300, 25.8 ms at 500. The p95 at 500 is 138 ms against a 25.8 ms median, so some queries cost five times the typical one.",
+    "memory": "linear and modest: 74 MB at 20 documents, 259 MB at 500, 665 MB at 2000.",
+    "write_amplification": "indexing a 20 MB corpus wrote 5.99 GB before being stopped - roughly 300 times the corpus, into a 238 MB state directory."
+  },
+  "the_cause": {
+    "found_by": "cProfile on a 300-document index, on an otherwise idle core.",
+    "where": "reindex -> scan_documents -> claims.compare_documents -> deontic.conflicts_between accounts for 111.65 s of 113.86 s, which is 98% of the index.",
+    "why_quadratic": "conflicts_between was called 44,850 times for 300 documents. C(300,2) is exactly 44,850, so contradiction detection compares every pair of documents on every rebuild. Under it, salience.coefficient runs 2.95 million times and its inner generator 104 million times.",
+    "why_the_caches_do_not_help": "warm and cold are the same to within 1.5% at every size measured. The parse cache and the claim cache save re-reading documents; the pairwise comparison is recomputed from scratch each time, and it is 98% of the work. The engine rebuilds on every upload, every delete and every access-rule change, so this is the hot path, not a one-off cost at setup."
+  },
+  "what_this_means": "A 500-document corpus - a small company - already costs 71 seconds per rebuild, and every upload pays it. At 2000 documents a rebuild did not finish in 26 minutes. The retrieval side is fine: queries stay in tens of milliseconds and memory stays in hundreds of megabytes. The problem is one function, called on every document pair, on every rebuild.",
+  "not_fixed_here": "Recording it before fixing it is the point. The obvious directions - only comparing documents that share enough vocabulary to possibly conflict, caching pair verdicts by content hash so unchanged pairs are not recompared, or comparing only what actually changed against the rest - are all real work with their own accuracy risk, and none of them should be chosen on the strength of one profile.",
+  "version": "0.12.5"
+}
