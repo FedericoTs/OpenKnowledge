@@ -1,0 +1,50 @@
+{
+  "what": "The first evaluation of this system on documents nobody here wrote, asked questions nobody here wrote. Every other golden set in this repository was authored alongside its corpus, which proves the pipeline behaves and not that it is accurate on documents it has never seen.",
+  "how": "Corpus: the US Federal Travel Regulation, title 41 subtitle F chapters 300-301, from the eCFR API - 20 documents, 159 kB, 205 sections, public domain and committed in evals/golden-ftr/documents so anyone can rerun this. Questions: GSA's own per-diem FAQ, verbatim; GSA writes both the regulation and the FAQ. Answerable vs must-refuse was decided by searching the corpus for the fact GSA's answer turns on, not by judgement. Local tier only, BM25 retrieval (embeddings off), no escalation, 4-bit Qwen3-4B on 4 CPU cores, cold cache.",
+  "the_measurement_that_changed_the_code": "Nothing yet - this one changed what is claimed rather than what runs. Accuracy on a corpus we did not write is 71.4%, against 100% on the corpus we did. Both numbers are in this file because publishing only the second is the thing this project exists not to do. The two failures are real and reproduced on a cold cache: a determinism break, and a chunk-level retrieval miss. Neither is fixed here; fixing them before recording the number would have hidden the number.",
+  "measured": {
+    "as_the_exam_was_first_written": {
+      "cases": 19,
+      "answerable": 8,
+      "must_refuse": 11,
+      "accuracy": 0.5,
+      "false_answers": 0,
+      "determinism": 0.9474,
+      "note": "Three of its four failures were defects in the exam, not the product."
+    },
+    "after_correcting_the_exam": {
+      "cases": 19,
+      "answerable": 7,
+      "must_refuse": 12,
+      "accuracy": 0.7143,
+      "false_answers": 0,
+      "determinism": 0.9474,
+      "paraphrase_consistency": 1.0,
+      "cost_per_question_usd": 0.0,
+      "support_on_passes": 0.8644,
+      "support_on_failures": 0.811,
+      "tiers": {
+        "refused": 13,
+        "local": 6
+      }
+    }
+  },
+  "what_it_means": "On a real regulation it had never seen, asked a real FAQ's questions, it answered 5 of 7 correctly and refused all 12 questions the regulation does not cover - inventing nothing. The refusal half is the stronger result and the one a buyer should weigh: asked how much a trucker may deduct for meals or what per diem to pay a contractor, it declined rather than reached. The 71.4% is a floor, not a ceiling: retrieval here is BM25 only, the weaker of the two shipped configurations.",
+  "the_two_failures_that_are_the_product": [
+    "gsa-15-first-and-last-day: the same question, asked twice, refused once and answered correctly the other time ('75 percent of the applicable M&IE rate', cited). The grounding gate rejected a correct, well-supported answer on one of two identical attempts. This is a determinism break on the project's headline claim, and it reproduced on a cold cache in a second run.",
+    "gsa-19-one-day-travel: right document, wrong chunk. It answered from 301-11.21, the rule for deducting government-furnished meals, instead of 301-11.20, which sets the 75 percent rate for travel over 12 hours - and produced a long hedged paragraph that never states the rate."
+  ],
+  "the_three_failures_that_were_the_exam": [
+    "gsa-17-receipts: forbade the string 'receipts are not required', which a CORRECT answer used for a true scoped caveat drawn from the regulation.",
+    "gsa-15-first-and-last-day: forbade '100 percent', which the regulation itself uses for full days of travel.",
+    "gsa-16-mix-and-match: classed answerable, but GSA answers it from absence and the phrase appears nowhere in the corpus; refusing is correct, so it is a refusal case now."
+  ],
+  "what_it_deliberately_does_not_do": "It does not measure the shipped default: embeddings are off, so this is BM25 retrieval alone. It does not measure escalation - no API key was configured, and the point was the free tier. It is one corpus in one domain of one country's law; a corpus of HR policies or engineering runbooks would chunk and retrieve differently. And 19 cases is a small exam: the difference between 71.4% and 85.7% here is one case.",
+  "platform": {
+    "python": "3.11.15",
+    "machine": "x86_64",
+    "cpus": 4,
+    "model": "Qwen3-4B-Instruct-2507-Q4_K_M",
+    "retrieval": "BM25 only"
+  }
+}

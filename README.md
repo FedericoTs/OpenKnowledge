@@ -24,7 +24,20 @@ app or as one server the whole company reaches from a browser.
 | cost per question on the local tier | **$0.00000** |
 
 The corpus and the questions were written together, so this proves the pipeline behaves,
-not that it is accurate on your documents; that run is one command away, below. What a
+not that it is accurate on your documents. So there is a second table, on a corpus and an
+exam nobody here wrote — the US Federal Travel Regulation from eCFR, asked GSA's own
+per-diem FAQ, both committed under `evals/golden-ftr/` so you can rerun it:
+
+| | |
+|---|---:|
+| accuracy on questions the regulation answers | **71%** (5 of 7) |
+| false answers on questions it does not | **0** (12 cases) |
+| cost per question | **$0.00000** |
+
+Five of seven, not seven of seven, and the two failures are described in
+`evals/measured/thirtyninth-an-exam-nobody-here-wrote.json` rather than smoothed over.
+That gap between 100% and 71% is the honest distance between a demo and a deployment.
+Your own corpus is one command away, below. What a
 real deployment costs, and why the usual build costs ten cents a question, is worked
 through under *The problem*.
 
