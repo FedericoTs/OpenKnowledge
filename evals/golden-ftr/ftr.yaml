@@ -31,9 +31,16 @@
   question: What is the M&IE reimbursement rate during the first and last travel day?
   must_cite: [ftr-301-11]
   must_say: [["75 percent", "75%"]]
-  must_not_say: ["50 percent", "100 percent", "full M&IE rate on the first"]
+  must_not_say: ["50 percent"]
   tags: [per-diem, mie]
-  notes: GSA FAQ 15. Regulation at 301-11.20.
+  notes: >
+    GSA FAQ 15. Regulation at 301-11.20. The first version also forbade "100
+    percent", which the regulation itself uses for FULL days of travel - so a
+    correct answer that explained the contrast failed. Third defect this
+    corpus found in my own exam, and the same kind as the other two: a
+    substring that occurs inside right answers as well as wrong ones. What
+    pins the fact is must_say "75 percent"; "50 percent" is the only
+    plausible wrong figure left worth naming.
 
 - id: gsa-19-one-day-travel
   question: Do I receive a meal reimbursement for day travel away from my regular duty station?

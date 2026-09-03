@@ -1,83 +1,72 @@
-# An exam nobody here wrote
+# An exam neither of us wrote
 
-The other golden sets in this repository have a problem their own README admits:
-the corpus and the questions were written together, by the same person, in the
-same afternoon. That proves the pipeline behaves. It does not prove the system
-is accurate on documents it has never seen, and it is the first thing a buyer
-will ask about.
+The other golden sets in this repository share a weakness the README admits:
+the corpus and the questions were written together, so they prove the pipeline
+behaves rather than that it is accurate on documents it has never seen. This
+set exists to close that gap, and the first thing it did was produce a much
+worse number.
 
-This set fixes the provenance of both halves.
+## Provenance
 
-## The corpus
-
-`documents/` is the **US Federal Travel Regulation** — Title 41, Subtitle F,
-chapters 300 and 301 — fetched from the eCFR API on 2026-09-03:
+**The corpus** — `documents/`, 20 files, 159 kB, 205 sections — is the US
+Federal Travel Regulation: Title 41, Subtitle F, chapters 300 and 301
+(glossary, and temporary-duty travel allowances). Fetched from the eCFR API on
+2026-09-03:
 
 ```sh
 curl -sL --compressed \
   "https://www.ecfr.gov/api/versioner/v1/full/2026-09-01/title-41.xml?subtitle=F&chapter=301"
 ```
 
-Twenty documents, 159 kB, 205 sections: one Markdown file per part of the
-regulation, section headings preserved. A work of the US government, so it is
-public domain and committed here in full — this run is reproducible by anyone,
-which is the point.
+A work of the US federal government, so it is public domain and committed here
+in full. That matters: anybody can rerun this exact evaluation, which is not
+true of an eval measured against documents that cannot be redistributed.
 
-It is also the right *shape*. Thresholds with conditions attached ("more than
-12 but less than 24 hours"), rules that point at other rules, near-miss
-material a search can trip over (twenty-one parts covering allowances,
-transportation, lodging and claims), and definitions that live in a glossary
-three chapters away from the rule that uses them.
+**The questions** are GSA's own per-diem FAQ, verbatim, from
+<https://www.gsa.gov/travel/plan-a-trip/per-diem-rates/faqs>. GSA writes both
+the regulation and the FAQ, so the questions *and* the reference answers come
+from the body that made the rules — not from whoever is being graded.
 
-## The questions
+## How a case was classified
 
-GSA's own [per-diem FAQ](https://www.gsa.gov/travel/plan-a-trip/per-diem-rates/faqs),
-verbatim. GSA writes the regulation *and* the FAQ, so both the questions and
-the reference answers come from the body that made the rules — not from
-whoever is being graded.
-
-## How answerable and refusal were decided
-
-Not by taste. For each FAQ entry, search the corpus for the fact GSA's own
+Not by judgement. For each FAQ entry, search the corpus for the fact GSA's own
 answer turns on:
 
-- **present** → answerable, and `must_say` carries the regulation's figure;
-- **absent** — because GSA answered from its website, its rate-setting
-  process, or law outside these chapters → refusal, and the only correct
-  behaviour is to say the documents do not cover it.
+* **present** → answerable, and `must_say` carries the regulation's figure;
+* **absent** — GSA answered from its website, its rate-setting process, or law
+  outside these chapters → refusal, and the only correct behaviour is to say
+  the documents do not cover it.
 
-Eleven of nineteen came out refusals. That is not a thumb on the scale; it is
-what a real FAQ looks like beside a real regulation. It is also the half that
+Twelve of the nineteen are refusals. That is not a thumb on the scale; it is
+what a real FAQ looks like beside a real regulation, and it is the half that
 matters most, because a system that answers those is a system that invents.
 
-## What the run does and does not establish
+## What it found in the exam itself
 
-Retrieval ran **BM25 only**, with the embedding model switched off — the
-weaker of the two shipped configurations. The pre-flight
-(`openknowledge eval --dry-run`) confirmed every answerable case's evidence
-reaches the context that way, so a failure in the live run is the model's and
-not the corpus's. Hybrid retrieval can only do better at finding the passage.
+Three of the first run's failures were defects in *this file*, not in the
+product, and all three were the same mistake: a `must_not_say` substring that
+occurs inside correct answers as well as wrong ones.
 
-Escalation was off and no API key was present, so **every answer came from the
-free local tier** — a 4-bit Qwen3-4B on four CPU cores. That is the tier the
-`$0.00000` claim is about.
+| case | what I got wrong |
+|---|---|
+| `gsa-17-receipts` | forbade "receipts are not required", which a correct answer used for a true, scoped caveat from the regulation |
+| `gsa-15-first-and-last-day` | forbade "100 percent", which the regulation itself uses for *full* days of travel |
+| `gsa-16-mix-and-match` | classed as answerable, but GSA answers it from absence and the phrase is nowhere in the corpus — refusing is right |
 
-It is one corpus in one domain, graded against one organisation's FAQ. It says
-nothing about how the system reads a scanned PDF, a spreadsheet, or a corpus
-that contradicts itself. Those need their own sets, and saying so is cheaper
-than being caught.
+Each correction is in `ftr.yaml` with the reasoning in the case's own `notes`,
+and the number before and after is in the measured record. Writing a fair exam
+turned out to be harder than answering it.
 
-## One thing found on the way
-
-GSA's answer to "are lodging taxes included in the CONUS per diem rate" cites
-FTR **301-11.27**. In the current eCFR text that rule is at **301-11.16**. The
-fact is unchanged; the pointer has drifted — which is exactly the kind of rot
-this product exists to notice, found by accident while building its exam.
-
-## Rerunning it
+## Reproducing
 
 ```sh
-OK_DOCUMENTS_DIR=evals/golden-ftr/documents \
-OK_EMBEDDING_ENABLED=false \
-  uv run openknowledge eval --path evals/golden-ftr/ftr.yaml --verbose
+export OK_DOCUMENTS_DIR=$PWD/evals/golden-ftr/documents
+export OK_LOCAL_ENABLED=true OK_EMBEDDING_ENABLED=false OK_ESCALATION_ENABLED=false
+export OK_LOCAL_BASE_URL=http://127.0.0.1:8082/v1
+uv run openknowledge eval --path evals/golden-ftr/ftr.yaml --verbose
 ```
+
+Retrieval is BM25-only here (`OK_EMBEDDING_ENABLED=false`), which is the weaker
+of the two shipped configurations — so the accuracy below is a floor, not a
+ceiling. Anyone with the embedding model running should get the same set to
+score higher, and if it does not, that is worth knowing too.
