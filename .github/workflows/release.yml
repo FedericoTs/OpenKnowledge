@@ -69,6 +69,11 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
+      # Checkout comes first because it cleans the workspace, which would
+      # take the downloaded installer with it. Both are needed: the exe is
+      # the release, and this version's own notes live in the repository at
+      # the commit being released.
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           name: OpenKnowledge-Setup
@@ -81,45 +86,16 @@ jobs:
           TAG="${{ inputs.tag || github.ref_name }}"
           setup=$(ls OpenKnowledge-Setup-*.exe)
           sha=$(sha256sum "$setup" | cut -d' ' -f1)
-          signing=$(cat SIGNING.txt)
-          # The install paragraph tells the truth the build recorded: a signed
-          # installer may still meet SmartScreen while its signature is young,
-          # an unsigned one always does.
-          case "$signing" in
-            "Signed by"*)
-              install="**Install:** download \`$setup\` below and run it. The installer is
-          code-signed; if SmartScreen still warns while the signature is new,
-          choose **More info → Run anyway**. No administrator rights are needed;
-          it installs for your user only." ;;
-            *)
-              install="**Install:** download \`$setup\` below and run it. Windows SmartScreen
-          will warn about an unrecognised app because this build is not yet
-          code-signed - choose **More info → Run anyway**. No administrator
-          rights are needed; it installs for your user only." ;;
-          esac
-          cat > notes.md <<EOF
-          The Windows desktop app, as one installer.
-
-          $install
-
-          **First launch** (Start menu → OpenKnowledge) downloads the two
-          models it answers with - about 2.6 GB, once, each verified against a
-          pinned SHA-256 - starts the local inference servers, and opens the
-          chatbot in your browser. Add documents by dragging them into the
-          chat; manage everything at /manage. Nothing leaves your machine.
-
-          **Verified before publishing:** this pipeline silent-installed this
-          artifact on a clean Windows machine, sat through the real first run,
-          uploaded a document, and asked a real question - the answer had to be
-          grounded, cost \$0, and come back byte-identical when asked twice.
-          The first recorded run of that proof lives in
-          \`evals/measured/windows-e2e-first-run.json\`.
-
-          **Code signing:** $signing
-
-          SHA-256 of \`$setup\`:
-          \`$sha\`
-          EOF
+          # docs/release-notes/<tag>.md, when it exists, goes above the
+          # standing paragraphs - the install advice, the first launch, what
+          # the pipeline proved, whether the installer is signed - so a
+          # release page can say what changed in THIS version. With no such
+          # file the body is byte for byte what this project has always
+          # published, which tests/test_release_notes.py holds against the
+          # text v0.12.5 actually shipped.
+          python3 tools/release_notes.py \
+            --tag "$TAG" --setup "$setup" --sha "$sha" \
+            --signing-file SIGNING.txt > notes.md
           gh release create "$TAG" "$setup" \
             --target "${GITHUB_SHA}" \
             --title "OpenKnowledge ${TAG#v}" \

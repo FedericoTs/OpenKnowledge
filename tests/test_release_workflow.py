@@ -170,8 +170,16 @@ def test_the_downloaded_installer_is_checked_against_the_record() -> None:
 
 
 def test_the_release_notes_say_whether_the_installer_is_signed() -> None:
+    # The paragraphs themselves moved out of this heredoc and into
+    # tools/release_notes.py so a version can carry its own section above
+    # them; tests/test_release_notes.py holds the wording. What belongs here
+    # is the chain: the state the build recorded has to reach the page.
     script = _scripts("publish")
-    assert "SIGNING.txt" in script
-    assert "**Code signing:** $signing" in script
-    assert '"Signed by"*)' in script, "the install paragraph follows the recorded state"
-    assert "not yet" in script and "code-signed; if SmartScreen still warns" in script
+    assert "--signing-file SIGNING.txt" in script
+    assert "tools/release_notes.py" in script
+    notes = (ROOT / "tools/release_notes.py").read_text(encoding="utf-8")
+    assert "**Code signing:** {signing}" in notes
+    assert 'signing.startswith("Signed by")' in notes, (
+        "the install paragraph follows the recorded state"
+    )
+    assert "not yet" in notes and "code-signed; if SmartScreen still warns" in notes

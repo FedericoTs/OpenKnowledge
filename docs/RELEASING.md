@@ -6,8 +6,9 @@ PyPI. All three come from `.github/workflows/release.yml`; nothing is built by h
 
 ## Cutting one
 
-1. Bump `version` in `pyproject.toml`, run `uv lock`, commit, push to `main`, and
-   wait for CI to go green on that commit.
+1. Bump `version` in `pyproject.toml`, run `uv lock`, write
+   `docs/release-notes/vX.Y.Z.md` if this version has anything to say for
+   itself, commit, push to `main`, and wait for CI to go green on that commit.
 2. Dispatch **Release** on `main` with `tag: vX.Y.Z` (Actions → Release → Run
    workflow), or push the tag. The tag must equal the version in `pyproject.toml`;
    the first job checks and refuses otherwise.
@@ -15,6 +16,31 @@ PyPI. All three come from `.github/workflows/release.yml`; nothing is built by h
    `the app handed off its own upgrade while running, reopened, and served as
    X.Y.Z after Ns`. That line, the tag on the commit, and the asset on the release
    page are what "released" means here.
+
+## What the release page says
+
+Every release carries the same paragraphs - how to install, what the first launch
+does, what the pipeline proved before publishing, whether the installer is signed -
+built by `tools/release_notes.py` from the signing state the build recorded.
+
+A version that has something of its own to say puts it in
+`docs/release-notes/vX.Y.Z.md`, named for its tag. The `publish` job places that
+file above a rule, above the standing paragraphs, so the first thing a reader sees
+is what changed. Preview exactly what will be published:
+
+```
+python3 tools/release_notes.py --tag v0.13.0 \
+    --setup OpenKnowledge-Setup-0.13.0.exe --sha 0000 \
+    --signing "Not code-signed."
+```
+
+With no such file the body is byte for byte what this project has always
+published - a promise `tests/test_release_notes.py` holds against the text
+v0.12.5 actually shipped. Two ways a file goes quiet, both caught by that test
+rather than by a release page that already went out: named for no tag
+(`0.13.0.md`) it is never read, and holding only whitespace it is treated as
+absent so it cannot leave a bare rule on the page.
+[docs/release-notes/README.md](release-notes/README.md) has the convention.
 
 The `pypi` job runs last and only after the GitHub release exists. It builds the
 sdist and wheel with `uv build`, checks them with `twine`, installs the wheel into
