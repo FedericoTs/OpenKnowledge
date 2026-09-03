@@ -27,7 +27,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from ..addressed import examine
+from ..addressed import without_machine_talk
 from .base import Chunk, tokenize
 
 #: Citation markers the answer template asks models to emit, e.g. ``[hr-handbook]``.
@@ -325,10 +325,11 @@ def check_grounding(
     # words are still shown to the model, because "what does this document
     # say" has to stay answerable about exactly the documents that matter
     # most; they just stop counting as proof that an answer is true. When
-    # every scrap of evidence is addressed to the machine, none is kept: there
-    # is nothing there an answer could be true to.
-    evidence = [c for c in evidence if not examine(c.text)]
-    evidence_text = " ".join(c.text for c in evidence)
+    # every sentence of the evidence is addressed to the machine, nothing is
+    # left for an answer to be true to. Sentence by sentence rather than
+    # chunk by chunk: a payload can share a chunk with the very rule it is
+    # trying to override, and dropping the chunk drops the rule.
+    evidence_text = " ".join(without_machine_talk(c.text) for c in evidence)
     evidence_tokens = set(tokenize(evidence_text))
     evidence_numbers = {_normalise_number(n) for n in _NUMBER_RE.findall(evidence_text)}
     # The header line above every passage - [doc-id] Title (chunk 4) - is

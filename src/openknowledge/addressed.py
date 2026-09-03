@@ -105,35 +105,63 @@ class Verdict:
         return self.addressed
 
 
+def _signals(sentence: str) -> tuple[str, ...]:
+    """Why this one sentence looks addressed to a machine, or ``()``."""
+    if _UNMISTAKABLE.search(sentence):
+        return ("unmistakable",)
+    if _ROLE_FORGERY.search(sentence):
+        return ("role-forgery",)
+    shaping = {m.group(0).lower() for m in _SHAPES_THE_ANSWER.finditer(sentence)}
+    hits = tuple(
+        name
+        for name, found in (
+            ("names-the-reader", bool(_NAMES_THE_READER.search(sentence))),
+            ("names-its-config", bool(_NAMES_ITS_CONFIG.search(sentence))),
+            ("shapes-the-answer", bool(shaping)),
+        )
+        if found
+    )
+    # Two independent signals in one sentence. One alone is ordinary English:
+    # "your answer" appears in training material, "assistant" appears in job
+    # titles, and an IT policy may well mention an API key.
+    if len(hits) >= 2:
+        return hits
+    # Or two different ways of shaping the output in the same sentence.
+    # "Append the following to every answer you produce" is not a fact about an
+    # organisation under any reading, and the payloads that only ever hit this
+    # one family - a tracking pixel, a role escalation, a directive to stop
+    # refusing - are three of the ten measured here.
+    if len(shaping) >= 2:
+        return ("shapes-the-answer", *sorted(shaping))
+    return ()
+
+
+def _sentences(text: str) -> list[str]:
+    return [s for s in _SENTENCE.split(_unwrapped(text)) if s.strip()]
+
+
 def examine(text: str) -> Verdict:
     """Whether ``text`` contains a passage addressed to an automated reader."""
-    for sentence in _SENTENCE.split(_unwrapped(text)):
-        if not sentence.strip():
-            continue
-        if _UNMISTAKABLE.search(sentence):
-            return Verdict(True, ("unmistakable",))
-        if _ROLE_FORGERY.search(sentence):
-            return Verdict(True, ("role-forgery",))
-        shaping = {m.group(0).lower() for m in _SHAPES_THE_ANSWER.finditer(sentence)}
-        hits = tuple(
-            name
-            for name, found in (
-                ("names-the-reader", bool(_NAMES_THE_READER.search(sentence))),
-                ("names-its-config", bool(_NAMES_ITS_CONFIG.search(sentence))),
-                ("shapes-the-answer", bool(shaping)),
-            )
-            if found
-        )
-        # Two independent signals in one sentence. One alone is ordinary
-        # English: "your answer" appears in training material, "assistant"
-        # appears in job titles, and an IT policy may well mention an API key.
-        if len(hits) >= 2:
-            return Verdict(True, hits)
-        # Or two different ways of shaping the output in the same sentence.
-        # "Append the following to every answer you produce" is not a fact
-        # about an organisation under any reading, and the payloads that only
-        # ever hit this one family - a tracking pixel, a role escalation, a
-        # directive to stop refusing - are three of the ten measured here.
-        if len(shaping) >= 2:
-            return Verdict(True, ("shapes-the-answer", *sorted(shaping)))
+    for sentence in _sentences(text):
+        signals = _signals(sentence)
+        if signals:
+            return Verdict(True, signals)
     return Verdict(False)
+
+
+def without_machine_talk(text: str) -> str:
+    """``text`` with only the sentences addressed to a machine taken out.
+
+    Sentence by sentence, not passage by passage, and that distinction was
+    measured rather than reasoned about. The first version discarded a whole
+    retrieved chunk when any sentence in it was addressed to a machine, which
+    read well and broke a real answer: nw-procurement's forged system turn
+    shares a chunk with the rule it is trying to override, so throwing away the
+    payload threw away "above EUR 10,000 requires three written quotes" with
+    it, and the injection evaluation went from 91.7% back to 83.3%.
+
+    The precision measurement had not caught it because it ran over paragraphs
+    and the gate runs over chunks, which are bigger. A detector is only as
+    precise as the unit it is applied to.
+    """
+    return " ".join(s for s in _sentences(text) if not _signals(s))
