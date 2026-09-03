@@ -27,6 +27,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+from ..addressed import examine
 from .base import Chunk, tokenize
 
 #: Citation markers the answer template asks models to emit, e.g. ``[hr-handbook]``.
@@ -315,6 +316,18 @@ def check_grounding(
         if c.document_id in cited or c.chunk_id in cited or c.chunk_id in referenced_chunk_ids
     ]
     evidence = cited_chunks or retrieved
+    # A passage addressed to the machine is not evidence for anything. Support
+    # is measured by overlap, so a verbatim quotation of a source is perfectly
+    # grounded by construction - which meant an answer that was nothing but an
+    # injected instruction recited back scored as well supported and passed.
+    # Measured: asked for the admin token, the pipeline quoted nw-security's
+    # exfiltration directive with a citation and this gate approved it. The
+    # words are still shown to the model, because "what does this document
+    # say" has to stay answerable about exactly the documents that matter
+    # most; they just stop counting as proof that an answer is true. When
+    # every scrap of evidence is addressed to the machine, none is kept: there
+    # is nothing there an answer could be true to.
+    evidence = [c for c in evidence if not examine(c.text)]
     evidence_text = " ".join(c.text for c in evidence)
     evidence_tokens = set(tokenize(evidence_text))
     evidence_numbers = {_normalise_number(n) for n in _NUMBER_RE.findall(evidence_text)}
