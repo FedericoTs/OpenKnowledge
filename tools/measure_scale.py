@@ -88,6 +88,7 @@ def _peak_mb() -> float:
 def measure(size: int, corpus: Path, state: Path, queries: int) -> dict[str, object]:
     from openknowledge.api.engine import build_engine
     from openknowledge.config import Settings
+    from openknowledge.knowledge.claims import ClaimCache
 
     _grow(size, corpus)
     for stale in sorted(state.rglob("*"), reverse=True):
@@ -102,16 +103,22 @@ def measure(size: int, corpus: Path, state: Path, queries: int) -> dict[str, obj
         escalation_enabled=False,
     )
     engine = build_engine(settings)
+    # Building the engine already scans the folder, and the comparison it makes
+    # there is remembered. Without this the "cold" column below would be timing
+    # a cache hit - measured, and it read 1.56 s for a 500-document build whose
+    # real cost was 37 s. Cold has to mean cold.
+    engine.claims = ClaimCache()
 
     gc.collect()
     started = time.perf_counter()
     documents, chunks, _version, _evicted = engine.reindex()
     index_seconds = time.perf_counter() - started
 
-    # The second one is the number that reaches a user. The engine rebuilds on
-    # every upload, every delete and every access-rule change, so a corpus is
-    # re-indexed constantly once it is in use - with the parse and claim caches
-    # warm. A cold first build happens once; this happens all day.
+    # The second one is the number that reaches a user, and it is now a
+    # different number from the first. The engine rebuilds on every upload,
+    # every delete and every access-rule change; where the corpus itself has not
+    # moved - which is every access-rule change - the comparison is remembered
+    # rather than remade. A cold first build happens once; this happens all day.
     started = time.perf_counter()
     engine.reindex()
     again_seconds = time.perf_counter() - started

@@ -409,11 +409,16 @@ class ClaimCache:
     from.
     """
 
-    __slots__ = ("_deontic", "_numeric")
+    __slots__ = ("_comparison", "_deontic", "_numeric")
 
     def __init__(self) -> None:
         self._numeric: dict[tuple[str, str], tuple[Claim, ...]] = {}
         self._deontic: dict[tuple[str, str], tuple[object, ...]] = {}
+        #: The last comparison, and the corpus it was made over. One entry, not
+        #: a dictionary: a rebuild either faces the corpus the last one faced or
+        #: it does not, and keeping every corpus ever compared would be the leak
+        #: `keep_only` exists to prevent.
+        self._comparison: tuple[object, object] | None = None
 
     @staticmethod
     def _key(doc: Document) -> tuple[str, str]:
@@ -435,6 +440,28 @@ class ClaimCache:
             self._deontic[key] = cached
         return list(cached)
 
+    def comparison(self, fingerprint: object, compute: Callable[[], Any]) -> Any:
+        """The comparison over this exact corpus, made once.
+
+        Extraction is a pure function of one document; comparison is a pure
+        function of all of them, which is why it was re-derived on every scan
+        and why that was 98% of the clock. But "all of them" is a thing that can
+        be recognised: the same documents with the same text, compared with the
+        same thresholds, disagree in exactly the same places.
+
+        This does not make a rebuild after an upload cheaper - the corpus really
+        did change, and the salience weights every score depends on are computed
+        over the whole of it, so nothing from before still applies. What it
+        makes free is a rebuild where no document changed at all, which is what
+        every access-rule change is: an admin waited 32 seconds at 500 documents
+        for an answer that could not have moved.
+        """
+        if self._comparison is not None and self._comparison[0] == fingerprint:
+            return self._comparison[1]
+        result = compute()
+        self._comparison = (fingerprint, result)
+        return result
+
     def keep_only(self, documents: Iterable[Document]) -> None:
         """Forget documents that are no longer in the corpus.
 
@@ -446,6 +473,14 @@ class ClaimCache:
         for store in (self._numeric, self._deontic):
             for key in [k for k in store if k not in live]:
                 del store[key]
+        # The remembered comparison is deliberately left alone. It is a single
+        # entry, so it is not the leak this method exists to stop, and it is
+        # keyed by every document's id and content hash - a corpus that lost a
+        # document has a different key and misses on its own. Clearing it here
+        # was the first version, and it silently disabled the whole cache: the
+        # engine calls this on every rebuild, which is precisely the moment the
+        # comparison is meant to survive. The tests passed; the measurement is
+        # what noticed, because the warm column never moved.
 
 
 def compare_documents(
@@ -471,6 +506,45 @@ def compare_documents(
     from .deontic import conflicts_between, extract_deontic_claims
 
     cache = cache if cache is not None else ClaimCache()
+    # The same documents with the same text, compared with the same thresholds,
+    # disagree in exactly the same places. An upload changes the corpus and gets
+    # no benefit from this; an access-rule change does not, and stops paying for
+    # a comparison whose answer cannot have moved.
+    fingerprint = (
+        frozenset((doc.document_id, doc.content_hash) for doc in documents),
+        min_overlap,
+        min_shared_words,
+        deontic_strictness,
+    )
+
+    def compare() -> tuple[list[Conflict], dict[tuple[str, str], int]]:
+        return _compare_documents(
+            documents,
+            min_overlap=min_overlap,
+            min_shared_words=min_shared_words,
+            deontic_strictness=deontic_strictness,
+            cache=cache,
+            conflicts_between=conflicts_between,
+            extract_deontic_claims=extract_deontic_claims,
+        )
+
+    conflicts, agreements = cache.comparison(fingerprint, compare)
+    # Copies, because a caller that sorts or appends must not edit what the next
+    # rebuild will be handed.
+    return list(conflicts), dict(agreements)
+
+
+def _compare_documents(
+    documents: list[Document],
+    *,
+    min_overlap: float,
+    min_shared_words: int,
+    deontic_strictness: float,
+    cache: ClaimCache,
+    conflicts_between: Any,
+    extract_deontic_claims: Any,
+) -> tuple[list[Conflict], dict[tuple[str, str], int]]:
+    """The comparison itself, with nothing remembered."""
     # Worked out once for the corpus and shared by both detectors: which party
     # is *yours* is a property of the folder, not of a pair.
     scopes = counterparties(documents)

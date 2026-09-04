@@ -1,0 +1,45 @@
+{
+  "what": "The quadratic indexing recorded in fortyfirst-what-happens-at-a-thousand.json, worked on. Two exact changes: one halves the constant, one makes a rebuild that changes nothing nearly free. The exponent is unchanged and this file says so.",
+  "the_finding_being_worked_on": "reindex -> scan_documents -> compare_documents -> deontic.conflicts_between was 98% of an index, called C(N,2) times - every pair of documents - and a warm rebuild cost the same as a cold one.",
+  "change_one": {
+    "what": "Salience.total: a claim's own weighted mass, remembered. coefficient(a, b) needs mass(a), mass(b) and mass(a & b); the first two belong to a claim and were re-added for every pair it appeared in - 8.9 million additions over a few thousand distinct contexts at 300 documents. The third belongs to a pair and is deliberately NOT remembered: there are millions of those, and caching them inside mass - which the first version did - would have grown a dictionary the size of the comparison itself.",
+    "exact": "Byte-identical conflicts across every corpus committed here, and the labelled set still scores 100% precision and 100% recall."
+  },
+  "change_two": {
+    "what": "ClaimCache.comparison: the whole comparison, remembered against the corpus it was made over - every document's id and content hash, plus the thresholds. An upload changes the corpus and gets nothing from this. A rebuild where no document moved gets all of it, and that is what every access-rule change is.",
+    "exact": "Same key, same answer, by construction. Copies are handed out so a caller that sorts or clears its result cannot edit what the next rebuild is given."
+  },
+  "measured": {
+    "note": "Three different situations, measured separately, because they are three different costs and the harness only ever showed two of them. 4-core VM, BM25 only, embeddings off.",
+    "a_rebuild_after_an_upload": {
+      "what_it_is": "The corpus changed, so the comparison is remade. Claim extraction is cached for the documents that did not move. This is what the original ladder's 'cold' column measured.",
+      "before": {"100": 3.17, "300": 26.37, "500": 71.09},
+      "after": {"100": 1.37, "300": 11.52, "500": 31.7},
+      "gain": "2.2x at every size, from change one alone"
+    },
+    "a_rebuild_where_nothing_changed": {
+      "what_it_is": "Every access-rule change. The corpus is identical and the comparison cannot have moved.",
+      "before": {"100": 3.1, "300": 26.01, "500": 32.65},
+      "after": {"100": 0.19, "300": 0.66, "500": 1.47},
+      "gain": "at 500 documents, 32.7 seconds to 1.5 - and what is left is the rest of the rebuild, not the comparison"
+    },
+    "a_first_index_from_nothing": {
+      "what_it_is": "Nothing cached at all. The old harness never measured this: building the engine already scans the folder, so its 'cold' pass was always partly warm.",
+      "after": {"20": 0.32, "100": 2.61, "300": 15.27, "500": 38.1},
+      "before": null,
+      "why_null": "There is no comparable earlier number. Reporting the old 'cold' column against this one would compare a partly-cached build with a bare one, and the difference would flatter the change."
+    },
+    "query_latency_unchanged": {"300": 13.7, "500": 24.0, "p95_at_500": 109.5},
+    "peak_rss_mb": {"300": 176.8, "500": 258.5}
+  },
+  "still_quadratic": "300 to 500 documents is 1.67x the corpus and 2.5x the time, which is 1.67 squared. Nothing here changes the exponent; both changes are constants, and one of them happens to be a very large constant on the path that runs most often.",
+  "what_was_measured_and_not_built": {
+    "a_document_pair_prefilter": "Three necessary conditions for a document pair to contain a conflicting claim pair - differing forces, intersecting families, enough shared context words - were measured for how much they would prune before any of them was implemented. On the near-duplicate synthetic benchmark: 6.7%. On a heterogeneous corpus of regulation, policy and this project's own documentation: 34.8%. Another constant, smaller than the one already taken, and it costs a set intersection per pair to collect. Not built.",
+    "an_actual_asymptotic_fix": "Enumerating candidate pairs from an inverted index over rare words instead of comparing all of them - the standard similarity-join shape. That is the only thing here that would change the exponent, and it is a real rewrite of the one component in this repository with a precision and recall guarantee. Not attempted."
+  },
+  "two_mistakes_worth_recording": {
+    "the_cache_that_did_nothing": "Engine.reindex calls ClaimCache.keep_only on every scan, and the first version cleared the remembered comparison there - throwing the entry away at exactly the moment it existed to be used. Every unit test passed. What noticed was the ladder: the warm column never moved.",
+    "the_harness_that_measured_a_cache_hit": "Building an engine already scans the folder, so once the comparison was remembered the harness's 'cold' pass was timing a second call. It reported 1.56 seconds for a 500-document build whose real cost was 37. The harness now resets the claim cache before the cold pass, and the number above is what that produces."
+  },
+  "version": "0.12.6"
+}

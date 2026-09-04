@@ -52,24 +52,28 @@ through under *The problem*.
 Every accuracy number above was measured on twenty documents. Here is what indexing costs
 as the corpus grows — no model involved, BM25 only, on a four-core VM:
 
-| documents | chunks | first index | rebuild | query p50 | query p95 |
-|---:|---:|---:|---:|---:|---:|
-| 20 | 217 | 0.16 s | 0.15 s | 0.8 ms | 1.2 ms |
-| 100 | 1,085 | 3.17 s | 3.10 s | 4.4 ms | 6.9 ms |
-| 300 | 3,255 | 26.4 s | 26.0 s | 16.6 ms | 24.6 ms |
-| 500 | 5,425 | 71.1 s | — | 25.8 ms | 138 ms |
-| 2,000 | — | *did not finish in 26 minutes* | — | — | — |
+Contradiction detection compares every *pair* of documents — 44,850 comparisons for 300
+documents, which is exactly every pair — and that was 98% of an index. Three costs, because
+they are three different situations and only one of them is rare:
 
-**Indexing is quadratic in the number of documents, and the rebuild costs the same as the
-first build.** Five times the corpus is twenty times the time. A profile says why:
-contradiction detection compares every *pair* of documents — 44,850 comparisons for 300
-documents, which is exactly every pair — and that is 98% of the index. The parse cache
-saves re-reading files; it does not touch this. Since the engine rebuilds on every upload,
-every delete and every access-rule change, a 500-document corpus pays 71 seconds each time.
+| documents | first index | rebuild after an upload | rebuild, nothing changed | query p50 |
+|---:|---:|---:|---:|---:|
+| 100 | 2.6 s | 3.17 → **1.37 s** | 3.10 → **0.19 s** | 4.1 ms |
+| 300 | 15.3 s | 26.4 → **11.5 s** | 26.0 → **0.66 s** | 13.7 ms |
+| 500 | 38.1 s | 71.1 → **31.7 s** | 32.7 → **1.47 s** | 24.0 ms |
 
-Retrieval itself is fine: queries stay in tens of milliseconds and memory in hundreds of
-megabytes. It is one function, on every document pair, on every rebuild. Unfixed, and
-measured in `evals/measured/fortyfirst-what-happens-at-a-thousand.json` — rerun it with
+Two exact changes, neither of which alters a single conflict found: a claim's own weight is
+computed once instead of once per pair it appears in, and a comparison over an unchanged
+corpus is not made twice. The second is what every access-rule change was paying for — at
+500 documents an admin waited half a minute for an answer that could not have moved.
+
+**It is still quadratic.** 300 to 500 documents is 1.67× the corpus and 2.5× the time.
+Both changes are constants; the exponent is untouched, and closing it means enumerating
+candidate pairs from an index rather than comparing all of them. Retrieval is unaffected —
+queries stay in tens of milliseconds, memory in hundreds of megabytes.
+
+Measured in `evals/measured/fortyfourth-the-comparison-that-was-remade-every-time.json`,
+with the original finding in `fortyfirst-what-happens-at-a-thousand.json` — rerun with
 `uv run python tools/measure_scale.py --workdir /tmp/scale --sizes 20 100 300`.
 
 ### Documents that argue back
