@@ -239,6 +239,63 @@ as such: `rule-03` cites `finance-approval-limits` where `must_cite` demands
 is refused as contested because the corpus genuinely disagrees about the
 expense threshold - 500, 1,000, and a superseded 300.
 
+### The boundary arm, registered before it ran
+
+**What it changes.** One paragraph appended to rule 3, and nothing else.
+
+> Read a threshold exactly as the source words it. "Above X" and "more than X"
+> do not include X; "up to X", "at least X", and a band written "X to Y"
+> include both ends. A figure that sits exactly on a boundary belongs to the
+> band whose wording admits it, not to the next one up. Say which wording you
+> relied on.
+
+**Why only half of the reverted text.** The reverted paragraph had two halves.
+The first said comparing a figure against a threshold is not inventing a
+number; the gate fix shipped in v0.12.9 does that job in code, and in the
+prompt-only arm that half moved none of the nine refusals. So it is dropped.
+The second half is the boundary reading, which is the half that fixed rule-08.
+It is also rewritten rather than restored: the corpus states its bands as
+"EUR 5,001 to EUR 25,000", a form the reverted text never named, and rule-08
+turns on exactly that form. 77 tokens against the reverted paragraph's 189, in
+an 8,192-token window the system prompt already takes 1,073 of.
+
+**The failure it targets, quoted from the 57.1% arm.** Both cases put 25,000 in
+the band above it, and rule-07 does so while quoting the band that excludes it:
+
+- rule-07: *"Yes, a contract with an annual value of exactly EUR 25,000 needs
+  three competitive quotes. This is specified in the procurement policy under
+  the section for contracts valued between EUR 25,001 and EUR..."*
+- rule-08: *"The approval ... is required from the **Chief Financial
+  Officer**"*, where the table reads "EUR 5,001 to EUR 25,000 | Head of
+  Department".
+
+**Hypothesis.** This is a boundary-reading failure, not a retrieval or
+comparison one - the right passage is in front of the model in both cases and
+rule-07 even quotes it. So naming how each boundary wording is read should move
+rule-07 and rule-08 and leave the other twelve where they are.
+
+**What counts as green.**
+
+1. **The guard is absolute**, as before: zero false answers across all 32
+   refusal cases and across `golden-rules`' own two. Telling a model how to
+   read a threshold makes it readier to answer, which is exactly the change
+   that could break a refusal.
+2. **At least one of rule-07 and rule-08 must become correct.** This arm is
+   targeted at two named cases; moving neither is a rejection, and the attempt
+   gets recorded rather than reworded until it passes.
+3. **No regression.** None of the eight cases passing at 57.1% may break, and
+   accuracy may not fall.
+4. **The right answer for the right reason.** A case counts only if the answer
+   shows the boundary reasoning - names the wording it relied on, or places the
+   figure in the band that admits it. Landing on "Head of Department" while
+   quoting the 25,001 band is the failure this arm is about, not a pass.
+5. The full suite passes and `PROMPT_VERSION` moves v5 -> v6.
+
+**What this arm cannot establish.** Two named cases is weak evidence whatever
+happens. Pre-naming them, and criterion 4, are what separate it from fitting a
+prompt to a score; it is not a substitute for a boundary set large enough to
+carry a number, and no percentage from it should be quoted as one.
+
 **Risk.** Prompt changes have cost refusals before, and were reverted for it
 (`fortysecond-the-fix-that-cost-a-refusal.json`). Hence the set first, the
 change second, and one change at a time - which is why the prompt arm and the
