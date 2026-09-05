@@ -143,3 +143,22 @@ async def test_the_router_hands_the_question_to_the_gate(store, settings) -> Non
     )
     assert answer.tier is not Tier.REFUSED, answer.notes
     assert "40,000" in answer.text
+
+
+def test_the_grounding_policy_revision_moved() -> None:
+    """A shape that used to be refused is now allowed, so answers judged under
+    the old policy must not be served from cache.
+
+    The key's own comment states the rule - "answers judged under an earlier
+    policy could have been refused for shapes now allowed; do not serve their
+    absence" - and g2 set the precedent by making the context's header numbers
+    evidence. This change does the same for the question's numbers, and the
+    revision was almost shipped without moving.
+    """
+    import pathlib
+
+    router = (
+        pathlib.Path(__file__).resolve().parents[1] / "src/openknowledge/cascade/router.py"
+    ).read_text(encoding="utf-8")
+    assert '":g5"' in router
+    assert '":g4"' not in router
