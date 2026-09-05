@@ -112,12 +112,24 @@ always did.
 |---|---:|
 | accuracy · false answers · determinism · cost | **100% · 0 · 100% · $0** |
 
-Measured through the real cascade with no model configured, and CI runs exactly that. A
-summary — "summarise the first act" — reads the named section in order, as far as the
-model's window allows, instead of six ranked passages. **What a model then makes of that is
-not yet measured**: this machine answers one question every two to three minutes on four
-CPU cores and the before/after was still running when this shipped. The structure half
-above needs no model and is the half that is claimed.
+A summary — "summarise the first act" — reads the named section in order, as far as the
+model's window allows, instead of six ranked passages. With a real model on the whole
+ten-case set, before and after:
+
+| | before | after |
+|---|---:|---:|
+| accuracy | 42.9% | **100%** |
+| false answers | 1 | **0** |
+| determinism | 90% | **100%** |
+| same facts, other words | 75% | **100%** |
+| answered without a model | 0% | **50%** |
+
+The one false answer is the reason the refusals are written the way they are. Asked what
+happens in the fourth act of a three-act play, the system before this **invented one** —
+"the characters confront the truth about Jack's identity…", fluent and entirely made up —
+and the grounding gate approved it at 96% support, *above* the mean on answers that passed.
+An invented act reuses the play's own vocabulary, so measuring support by word overlap rates
+the fabrication higher than the truth. That gate is not fixed here; the number is recorded.
 
 Measured in `evals/measured/fortyfifth-the-answer-that-was-a-whole-document.json` and
 `fortysixth-the-document-that-answered-for-itself.json` — rerun with `uv run python tools/measure_scope.py` and

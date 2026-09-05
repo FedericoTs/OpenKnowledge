@@ -86,11 +86,18 @@ uv run openknowledge eval --path evals/golden-scope/scope.yaml --tag structure
 The two refusals are "the fourth act" of a three-act play and "chapter
 thirteen" of twelve, each refused with the count.
 
-The other three cases - the in-budget control, the Act I summary, and a refusal
-with no structure to lean on - need a model, and their before/after is **not
-measured yet**. No number is claimed for them until it is;
-`evals/measured/fortysixth-the-document-that-answered-for-itself.json` says so
-in the same words.
+With a real model over all ten cases: **42.9% to 100% accuracy, one false
+answer to none**, determinism 90% to 100%, paraphrase consistency 75% to 100%,
+and the run itself from 58 minutes to 14 because half the set stopped calling a
+model.
+
+The false answer is worth naming. Asked what happens in the fourth act of a
+three-act play, the system invented one - "the characters confront the truth
+about Jack's identity and the deception surrounding his supposed brother,
+Ernest" - and the grounding gate passed it at 96% support, higher than the mean
+on answers that passed. `cascade/scope.py` cites that risk as the reason an
+ordinal past the end refuses with the count; it was written as a hypothetical
+and turned out to be a transcript.
 
 ### The ceiling: `tools/measure_scope.py`
 

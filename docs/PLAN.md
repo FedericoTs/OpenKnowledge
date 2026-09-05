@@ -68,8 +68,13 @@ judgement, kept minimal and drawn from the text.
 
 ## P2 — Whole-document answering
 
-**Status: built, measured without a model; the model-in-the-loop numbers are in
-`evals/measured/fortysixth-the-document-that-answered-for-itself.json`.** Structure answers the seven cases it can — the
+**Status: done and measured.** With a real model over the whole set, accuracy
+went 42.9% to 100%, false answers 1 to 0, determinism 90% to 100%, paraphrase
+consistency 75% to 100%, and the run 58 minutes to 14 because half the set no
+longer calls a model. The one false answer before the change was an invented
+fourth act of a three-act play, which the grounding gate passed at 96% support -
+higher than its mean on answers that passed. Full numbers in
+`evals/measured/fortysixth-the-document-that-answered-for-itself.json`. Structure answers the seven cases it can — the
 cast list, the chapters, the 82 terms, the forty sections, an ordinal into each,
 and two ordinals past the end refused with the count — at 100%, 0 false answers,
 $0, deterministically, and CI runs exactly those. Assembly serves the summary

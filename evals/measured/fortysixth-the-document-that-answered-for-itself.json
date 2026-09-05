@@ -27,9 +27,44 @@
     "in_ci": "yes - a step on every push, so a regression here fails the build"
   },
   "model_in_the_loop": {
-    "status": "pending",
-    "why_pending": "This machine answers one question every two to three minutes on four CPU cores. The before/after over the three cases that still need a model - the in-budget control, the Act I summary, and a refusal with no structure to lean on - was still running when v0.12.8 was cut, and no number is claimed for it until it has finished.",
-    "what_it_will_say": "Whether a summary assembled from the named section in order beats six ranked passages, and whether the control stays complete."
+    "status": "measured",
+    "model": "Qwen3-4B-Instruct-2507 Q4_K_M, llama.cpp, n_ctx 8192, 4 CPU threads; BM25 only",
+    "before": {
+      "commit": "1e60c42 plus the scope set and the must_list scorer, without cascade/scope.py",
+      "accuracy_pct": 42.9,
+      "cases": 7,
+      "false_answers": 1,
+      "determinism_pct": 90.0,
+      "paraphrase_consistency_pct": 75.0,
+      "answered_without_a_model_pct": 0.0,
+      "tiers": {
+        "local": 5,
+        "refused": 5
+      },
+      "wall_clock": "58m24s"
+    },
+    "after": {
+      "commit": "2bfc2ea",
+      "accuracy_pct": 100.0,
+      "cases": 7,
+      "false_answers": 0,
+      "determinism_pct": 100.0,
+      "paraphrase_consistency_pct": 100.0,
+      "answered_without_a_model_pct": 50.0,
+      "tiers": {
+        "outline": 5,
+        "refused": 3,
+        "local": 2
+      },
+      "wall_clock": "13m38s"
+    },
+    "what_the_before_run_did": {
+      "invented_a_fourth_act": "scope-08 asks what happens in the fourth act of a three-act play. The model wrote 'In the fourth act of The Importance of Being Earnest, the characters confront the truth about Jack's identity and the deception surrounding his supposed brother, Ernest.' Fluent, plausible, entirely invented, and served as an answer. This was written into cascade/scope.py's docstring as the reason an ordinal past the end must refuse with the count - as a hypothetical. It is what the shipped system actually did.",
+      "the_gate_approved_the_fabrication": "Grounding support was 96% on the answers that FAILED and 94% on those that passed, and the eval's own report said 'DOES NOT separate on this set; do not present it to readers as a check'. An invented act reuses the play's vocabulary, so measuring support by word overlap rated the fabrication above the real answers. The same hole the injection work found, on a corpus where nobody was attacking anything.",
+      "listed_20_of_82": "The glossary case listed 20 of 82 terms - fewer than the 26 retrieval showed it, so the model did not even state everything it was given.",
+      "refused_three_it_could_answer": "the cast list, the section list, and the Act I summary"
+    },
+    "what_changed_it": "Five of the seven are now answered from the document's own structure, free and deterministically; the fourth act and chapter thirteen are refused with the count; the control and the Act I summary still go to the model, and both pass. Half the set no longer calls a model at all, which is also why the run went from 58 minutes to 14."
   },
   "how_it_works": {
     "two_votes": "A question is treated as whole-document only when it has the shape - list, all, every, summarise, what does it cover, an ordinal - AND a target: retrieval concentrating on one document, or the question naming its title. Either alone changes nothing, which is why every fact question in the four older golden sets takes the path it always did.",
@@ -51,6 +86,7 @@
   ],
   "not_built": [
     "map-reduce over windows for a document the context window cannot take",
-    "a completeness notion in the grounding gate: an answer listing 26 of 82 still passes as grounded"
+    "a completeness notion in the grounding gate: an answer listing 26 of 82 still passes as grounded",
+    "a grounding check that separates a faithful answer from a fluent fabrication: this set is the clearest evidence yet that word overlap does not, and the numbers above are recorded rather than acted on."
   ]
 }
