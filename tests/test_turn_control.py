@@ -24,6 +24,7 @@ in evals/measured/fortysecond-the-fix-that-cost-a-refusal.json.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from openknowledge.prompts import PROMPT_VERSION, format_context
@@ -85,9 +86,16 @@ def test_no_sources_is_unchanged() -> None:
 
 
 def test_the_prompt_version_moved_so_answers_from_the_old_one_are_not_reused() -> None:
-    """Answers cached before this were drafted from a context that still
-    carried live control tokens."""
-    assert PROMPT_VERSION == "v5"
+    """Answers cached under v4 or earlier were drafted from a context that still
+    carried live control tokens, so the key must never name one of those again.
+
+    This asserted `== "v5"` until a later prompt change had to edit it to keep
+    passing. An equality pins the wrong thing: it fails on every legitimate bump
+    and, once bumped, asserts a string that has nothing to do with control
+    tokens. The requirement is that the version is PAST the leak, which a
+    rollback to v4 still fails and a bump to v7 still satisfies."""
+    assert re.fullmatch(r"v\d+", PROMPT_VERSION), PROMPT_VERSION
+    assert int(PROMPT_VERSION[1:]) >= 5, PROMPT_VERSION
     router = (ROOT / "src/openknowledge/cascade/router.py").read_text(encoding="utf-8")
     assert 'prompt_version=f"{PROMPT_VERSION}' in router
 

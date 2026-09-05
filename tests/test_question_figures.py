@@ -162,3 +162,60 @@ def test_the_grounding_policy_revision_moved() -> None:
     ).read_text(encoding="utf-8")
     assert '":g5"' in router
     assert '":g4"' not in router
+
+
+def test_the_prompt_states_how_each_boundary_wording_is_read() -> None:
+    """Both exactly-EUR-25,000 cases failed by putting the figure in the band
+    above it, and rule-07 did so while quoting the band that excludes it - so
+    the passage was present and the misreading was of the boundary itself.
+
+    This is a change-detector, like the g5 test above, and it is here for the
+    same reason: the paragraph is part of the answer cache's key by way of
+    PROMPT_VERSION, so removing it without moving the version would serve
+    answers drafted under a rule the prompt no longer states.
+
+    The forms asserted are the forms `evals/corpus/aveline` actually uses -
+    "above EUR 25,000" in the quotes rule and "EUR 5,001 to EUR 25,000" in the
+    approval table - which is why the range form is named at all: the earlier,
+    reverted wording covered "above", "up to" and "at least" and never a band
+    written as a range, which is the one rule-08 turns on.
+    """
+    from openknowledge.prompts import SYSTEM_PROMPT
+
+    for wording in ('"Above X"', '"more than X"', '"up to X"', '"at least X"', '"X to Y"'):
+        assert wording in SYSTEM_PROMPT, wording
+    assert "do not include X" in SYSTEM_PROMPT
+    assert "include both ends" in SYSTEM_PROMPT
+
+
+def test_the_boundary_wordings_named_are_the_ones_the_corpus_uses() -> None:
+    """The paragraph above is only worth its tokens if it names the forms the
+    documents are actually written in. This reads the procurement policy and
+    fails if it states a threshold in a form the prompt does not cover - which
+    is how a future document shape gets noticed instead of quietly missed."""
+    import pathlib
+    import re
+
+    from openknowledge.prompts import SYSTEM_PROMPT
+
+    root = pathlib.Path(__file__).resolve().parents[1]
+    policy = (root / "evals/corpus/aveline/finance/procurement-policy.md").read_text(
+        encoding="utf-8"
+    )
+
+    # Every way this document introduces a monetary boundary.
+    forms = set()
+    if re.search(r"\babove\s+\*{0,2}EUR", policy, re.I):
+        forms.add('"Above X"')
+    if re.search(r"\bmore than\s+\*{0,2}EUR", policy, re.I):
+        forms.add('"more than X"')
+    if re.search(r"\bup to\s+\*{0,2}EUR", policy, re.I):
+        forms.add('"up to X"')
+    if re.search(r"\bat least\s+\*{0,2}EUR", policy, re.I):
+        forms.add('"at least X"')
+    if re.search(r"EUR\s[\d,]+\s+to\s+EUR\s[\d,]+", policy, re.I):
+        forms.add('"X to Y"')
+
+    assert forms, "found no monetary boundary in the policy - the regexes have drifted"
+    unnamed = sorted(f for f in forms if f not in SYSTEM_PROMPT)
+    assert not unnamed, f"the policy states thresholds the prompt does not read: {unnamed}"

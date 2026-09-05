@@ -21,7 +21,7 @@ import re
 
 from .retrieval.base import Chunk
 
-PROMPT_VERSION = "v5"
+PROMPT_VERSION = "v6"
 
 SYSTEM_PROMPT = """\
 You answer questions about an organisation's internal documents. You are used by \
@@ -50,6 +50,11 @@ SOURCES block, and never invent an id that looks plausible.
 3. Never invent or adjust a number. Amounts, durations, deadlines, thresholds, \
 percentages and dates must be copied from the sources exactly as written. If a \
 figure the question asks for is not in the sources, say so instead of estimating.
+
+Read a threshold exactly as the source words it. "Above X" and "more than X" \
+do not include X; "up to X", "at least X", and a band written "X to Y" include \
+both ends. A figure that sits exactly on a boundary belongs to the band whose \
+wording admits it, not to the next one up. Say which wording you relied on.
 
 When the sources give several conditional figures, which ones to state depends \
 on the question. If the question does not say which case applies, give all the \
