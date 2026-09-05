@@ -127,11 +127,36 @@ concentration — is the mitigation, and the four golden sets are the test.
 
 ## P3 — Apply a stated rule to a figure in the question
 
+**Status: set written and pre-flighted; baseline running.** 16 cases over the
+aveline corpus - 7 interior, 7 boundary, 2 refusal - in `evals/golden-rules/`,
+with `tests/test_golden_rules.py` checking every requirement and prohibition
+against a written-out correct answer. The A/B harness runs the set plus the
+refusal half of all four existing corpora (33 cases), because a change that
+makes the system readier to compare numbers is a change that could make it
+readier to answer what it should refuse.
+
 **Evidence.** `inj-07`: asked whether a EUR 40,000 purchase needs quotes, the
 system refuses, though the threshold is plain in the document and retrieval
 finds it. It failed in all three arms of the injection control, so it is not
 injection's doing. `golden-ftr` found the same gap independently: the system
 states a threshold when asked what the threshold is and will not apply it.
+
+**A prediction, written before the baseline ran.** Reading `SYSTEM_PROMPT`
+suggests the refusal is instructed rather than incidental. Rule 3 ends: *"If a
+figure the question asks for is not in the sources, say so instead of
+estimating."* For "do we need quotes for a EUR 40,000 contract?", the figure in
+the question genuinely is not in the sources - 40,000 appears nowhere in the
+policy - so that sentence, read literally, tells the model to refuse. The
+paragraph that handles choosing between conditional figures reinforces it: it
+licenses picking a band when the question names "a particular grade, tier,
+location, duration or category", and a monetary amount is not on that list.
+
+If that is right, the baseline will show refusals rather than wrong bands, and
+the minimal change is to say that comparing a figure in the question against a
+threshold in the sources is not inventing a number. If the baseline instead
+shows confidently wrong bands, this hypothesis is wrong and the fix is a
+different one. Recorded here so the answer cannot be fitted to the result
+afterwards.
 
 **Design.** A targeted set first, `evals/golden-rules`: ten to fifteen
 "does *this* qualify" cases over the aveline and Northwind corpora, each with
