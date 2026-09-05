@@ -257,6 +257,7 @@ def check_grounding(
     answer_text: str,
     retrieved: list[Chunk],
     *,
+    question: str = "",
     min_support_ratio: float = 0.45,
     require_citations: bool = True,
     min_support_ratio_cited: float = 0.30,
@@ -342,13 +343,38 @@ def check_grounding(
         for c in retrieved
         for n in _NUMBER_RE.findall(f"{c.document_id} {c.document_title} {c.locator or ''}")
     )
+    # The asker's own figures, which the model was also shown. "Does a EUR
+    # 40,000 contract need quotes?" cannot be answered without saying 40,000,
+    # and 40,000 appears in no policy - so this check called a correct answer an
+    # invention and the cascade turned it into "that isn't covered by the
+    # documents I have". Measured on evals/golden-rules: six of six correct
+    # answers rejected when they repeated the figure from the question, six of
+    # six passed when they avoided it. That was the whole apply-the-rule gap.
+    #
+    # But admitting them outright opens a hole, and attacking the first version
+    # of this fix found it: asked "is the limit EUR 87,500?", an answer of "yes,
+    # the limit is EUR 87,500" went from rejected to accepted, because the
+    # figure was in the question. A leading question could put a number into
+    # policy simply by containing it.
+    #
+    # So the asker's figure is admitted only in an answer that ALSO states a
+    # figure from the sources. That is the difference between comparing and
+    # parroting: "EUR 40,000 is above EUR 25,000" carries the threshold it was
+    # compared against, while "the limit is EUR 87,500" carries nothing but the
+    # question's own number and stays rejected.
+    question_numbers = {_normalise_number(n) for n in _NUMBER_RE.findall(question)}
+    stated = tuple(
+        dict.fromkeys(
+            _NUMBER_RE.findall(_strip_enumeration_markers(_CITATION_RE.sub("", scrubbed)))
+        )
+    )
+    compares_against_a_source = any(_normalise_number(n) in evidence_numbers for n in stated)
 
     answer_numbers = tuple(
-        dict.fromkeys(
-            n
-            for n in _NUMBER_RE.findall(_strip_enumeration_markers(_CITATION_RE.sub("", scrubbed)))
-            if _normalise_number(n) not in evidence_numbers
-        )
+        n
+        for n in stated
+        if _normalise_number(n) not in evidence_numbers
+        and not (compares_against_a_source and _normalise_number(n) in question_numbers)
     )
     if answer_numbers:
         reasons.append(f"figures not found in the cited text: {', '.join(answer_numbers)}")

@@ -583,6 +583,7 @@ class Cascade:
                     verdict = check_grounding(
                         entry.answer,
                         chunks[: self.settings.retrieval_k],
+                        question=question,
                         min_support_ratio=self.settings.min_support_ratio,
                         require_citations=self.settings.require_citations,
                         min_support_ratio_cited=self.settings.min_support_ratio_cited,
@@ -754,6 +755,7 @@ class Cascade:
                         rung.tier,
                         rung_chunks,
                         key,
+                        question=question,
                         near_misses=near_misses,
                     )
                     if not completion.usage.input_tokens and not completion.usage.output_tokens:
@@ -900,7 +902,9 @@ class Cascade:
                 reached_model=False,
             )
 
-        return self._gate(provider, completion, tier, chunks, key, near_misses=near_misses)
+        return self._gate(
+            provider, completion, tier, chunks, key, question=question, near_misses=near_misses
+        )
 
     def _gate(
         self,
@@ -910,6 +914,7 @@ class Cascade:
         chunks: list[Chunk],
         key: str,
         *,
+        question: str = "",
         near_misses: int = 0,
     ) -> _Attempt:
         """Judge one completion, however it arrived - streamed or whole.
@@ -923,6 +928,7 @@ class Cascade:
         report = check_grounding(
             completion.text,
             chunks,
+            question=question,
             min_support_ratio=self.settings.min_support_ratio,
             require_citations=self.settings.require_citations,
             min_support_ratio_cited=self.settings.min_support_ratio_cited,
