@@ -136,9 +136,14 @@ concentration — is the mitigation, and the four golden sets are the test.
 aveline corpus - 7 interior, 7 boundary, 2 refusal - in `evals/golden-rules/`,
 with `tests/test_golden_rules.py` checking every requirement and prohibition
 against a written-out correct answer. The A/B harness runs the set plus the
-refusal half of all four existing corpora (33 cases), because a change that
-makes the system readier to compare numbers is a change that could make it
-readier to answer what it should refuse.
+refusal half of all four existing corpora - **32 cases**: 12 from golden-ftr, 9
+from aveline, 6 from injection, 5 from golden - because a change that makes the
+system readier to compare numbers is a change that could make it readier to
+answer what it should refuse.
+
+(Commit `6d2cfcf` and its message say 33. That count came from grepping
+`kind: refusal`, which also matched the sentence in golden.yaml's header
+explaining what the field means. The loader says 5 refusals there, not 6.)
 
 **Evidence.** `inj-07`: asked whether a EUR 40,000 purchase needs quotes, the
 system refuses, though the threshold is plain in the document and retrieval
