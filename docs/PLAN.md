@@ -176,6 +176,28 @@ states a threshold and the question states a figure, compare them and say
 which side it falls — with `PROMPT_VERSION` bumped. Accepted only if the four
 existing sets keep zero false answers.
 
+**What counts as green, decided before the after arm ran.**
+
+1. **The guard is absolute.** Zero false answers across all 32 refusal cases,
+   and zero across `golden-rules`' own two. A false answer fails the change
+   outright, whatever it did for accuracy: this product's position is that a
+   confident wrong answer about policy is worse than a refusal, and a change
+   that trades refusals for answers is exactly the change most likely to break
+   it.
+2. **The rules set must improve materially**, not by one case. A one-case move
+   over sixteen is inside the noise of a model this size, and the honest
+   response to it is another arm rather than a release.
+3. **Boundary cases carry more weight than interior ones.** Getting "EUR 40,000
+   is above EUR 25,000" right while getting "exactly EUR 25,000" wrong is a
+   system that pattern-matches to the nearest band, which is the failure the
+   set was built to expose.
+4. The full suite passes, and `PROMPT_VERSION` moved so no answer cached under
+   v5 is reused.
+
+If 1 fails, the change is reverted and the arm is recorded as a rejected
+attempt, as `fortysecond-the-fix-that-cost-a-refusal.json` was. If 2 fails, the
+number is recorded and nothing ships.
+
 **Proof.** `golden-rules` before and after; the other sets unmoved.
 
 **Risk.** Prompt changes have cost refusals before, and were reverted for it
