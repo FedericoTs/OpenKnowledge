@@ -1,0 +1,89 @@
+{
+  "what": "The apply-the-rule refusals, and the false answer found while fixing them",
+  "when": "2026-09-05",
+  "set": "evals/golden-rules/rules.yaml - 16 cases over evals/corpus/aveline",
+  "model": "Qwen3-4B-Instruct-2507 Q4_K_M, llama.cpp, n_ctx 8192, 4 CPU threads; BM25 only",
+  "the_question_it_answers": "Asked 'what is the procurement threshold?' the system answers. Asked 'we want to buy a EUR 40,000 platform, do we need quotes?' it refused. Two earlier evaluations found this independently and neither was built to measure it.",
+  "a_prediction_that_was_half_wrong": {
+    "recorded_before_the_data": "commit 6d2cfcf",
+    "predicted": "Rule 3 of SYSTEM_PROMPT ends 'if a figure the question asks for is not in the sources, say so instead of estimating', which reads as an instruction to refuse these. Prediction: refusals rather than wrong bands.",
+    "observed": "8 refusals, and also 2 wrong answers - both boundary cases at exactly EUR 25,000, each placing it in the 25,001-50,000 band. Refusals dominated, so the shape was right; 'rather than' was wrong.",
+    "and_the_cause_was_wrong_too": "A prompt addition saying comparing is not inventing moved accuracy 28.6% -> 35.7%: one case in fourteen, with the tier distribution byte-identical and all nine refusals unchanged. It failed the materiality bar pre-registered in ebf8d38 and was not shipped. The boundary half of it did fix rule-08."
+  },
+  "the_actual_cause": {
+    "found_by": "dumping the context and then gating a correct answer, model-free",
+    "what": "check_grounding rejects any figure appearing in no source - the rule that stops a model inventing numbers. The asker's own figure appears in no source by definition. 'EUR 40,000 is above EUR 25,000' was therefore an invention, and the cascade turned that into 'I don't know - that isn't covered by the documents I have'. The model was answering; the gate was discarding it.",
+    "measured_model_free": {
+      "answer_avoids_the_askers_figure": "6 of 6 pass",
+      "answer_states_the_askers_figure": "6 of 6 rejected"
+    }
+  },
+  "the_fix": {
+    "what": "The question's figures count as evidence, as the passage headers already do.",
+    "narrowed_after_attacking_it": "Admitting them outright let a leading question write a number into policy: asked 'is the limit EUR 87,500?', an answer of 'yes, the limit is EUR 87,500' went from rejected to accepted. So the asker's figure is admitted only in an answer that ALSO states a figure from the sources - the difference between comparing and parroting.",
+    "cache": "grounding-policy revision g4 -> g5, per the key's own convention; g2 set the precedent."
+  },
+  "result": {
+    "before": {
+      "accuracy_pct": 28.6,
+      "cases": 14,
+      "false_answers": 0,
+      "determinism_pct": 100.0,
+      "tiers": {
+        "refused": 9,
+        "local": 6,
+        "contested": 1
+      }
+    },
+    "after": {
+      "accuracy_pct": 57.1,
+      "cases": 14,
+      "false_answers": 0,
+      "determinism_pct": 93.8,
+      "tiers": {
+        "local": 11,
+        "refused": 4,
+        "contested": 1
+      }
+    },
+    "fixed": [
+      "rule-01-40k-needs-quotes",
+      "rule-02-40k-approver",
+      "rule-04-60k-board",
+      "rule-13-analyst-cannot-approve-1200"
+    ],
+    "guard": {
+      "sets": 4,
+      "refusal_cases": 32,
+      "false_answers": 0,
+      "note": "ftr 0, injection 0, aveline 0 (after the coverage fix below), golden 0"
+    }
+  },
+  "the_false_answer_the_guard_found": {
+    "it_was_not_this_change": "Tier `outline` - the whole-document feature shipped in v0.12.8 that same afternoon. The outline path yields and returns before any gate call, so the grounding fix cannot reach it, and the recogniser still fires with the new guard removed.",
+    "case": "refuse-adoption-leave, evals/golden-aveline",
+    "question": "Does the parental leave policy cover adoption?",
+    "answered": "Parental Leave Policy has 4 sections: 1. Entitlement 2. Notice 3. Taking leave 4. Return to work",
+    "why_that_is_a_false_answer": "The corpus never mentions adoption. A non-answer in the shape of an answer, about a legal entitlement. The case's own note anticipated it: 'a helpful-sounding yes here is a fabrication'.",
+    "cause": "The recogniser fired on the word 'cover' plus a document title. The corpus tier already had the rule - a question qualifies only when removing its vocabulary leaves nothing behind, which is why it refuses 'which documents mention adoption' - and the coverage branch did not reuse it.",
+    "fix": "The coverage branch now requires no leftover subject, forgiving the document's own name.",
+    "confirmed": "aveline refusal half re-run: 0 false answers, refused=8 contested=1, PASSED."
+  },
+  "still_failing_and_not_addressed": {
+    "boundaries": "Both exactly-EUR-25,000 cases: quotes still called required, and the CFO still named where the Head of Department approves. The reverted prompt change fixed the second. Combining the two is the next arm.",
+    "exam_defects_mine_not_the_systems": [
+      "rule-03 cites finance-approval-limits where must_cite demands finance-procurement-policy, though both state the same bands.",
+      "rule-06 is refused as contested because the corpus genuinely disagrees about the expense threshold - 500, 1,000, and a superseded 300. Refusing is defensible; the case cannot pass as written."
+    ],
+    "determinism": "93.8% - rule-14 gave two different answers when asked twice.",
+    "a_pre_existing_coarseness": "The figure check is set membership over normalised numbers, so a small integer appearing anywhere in the evidence - a locator like 'chunk 7' - is already admitted. '7 competitive quotes' passes, and passed before this change too."
+  },
+  "mistakes": [
+    "The patch matched rule 3 as it renders rather than as it is written; the gate caught it.",
+    "The parroting test was vacuous - 0.20 support meant it failed for the wrong reason and still passed with the figure rule removed. Rewritten in the policy's own words it scores 0.82.",
+    "Nothing tested that the router forwards the question; a sabotage passed silently until a cascade-level test was added.",
+    "The first coverage guard tested `wants is None` and so caught the summarise branch, breaking 'summarize the feedback from caterina'.",
+    "A `git reset --hard` to tidy a branch reverted the working tree mid-arm; the harness re-reads it per set, so the guard would have measured the wrong prompt. Caught before the guard began.",
+    "pgrep -f matched the shell running it, three times."
+  ]
+}
