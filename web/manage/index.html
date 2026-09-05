@@ -661,7 +661,7 @@ async function refreshProposals() {
 
 // The tiers that answer without calling a model at all. Kept in step with
 // the widget's own list; both read the same tier names off the ledger.
-const NO_MODEL_TIERS = new Set(['pinned', 'exact', 'semantic', 'corpus']);
+const NO_MODEL_TIERS = new Set(['pinned', 'exact', 'semantic', 'corpus', 'outline']);
 
 function money(usd) {
   if (usd === 0) return '$0.00';

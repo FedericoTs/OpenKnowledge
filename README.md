@@ -96,8 +96,30 @@ what it saw and says the rest is not in the sources.
 A closed list that fits inside one chunk scores 4/4 at every budget, which is the control
 that says this measures the system rather than the harness.
 
-Measured in `evals/measured/fortyfifth-the-answer-that-was-a-whole-document.json` —
-rerun with `uv run python tools/measure_scope.py`.
+**So the document's own structure answers what it can, and no model is asked.** A
+document's parsed blocks already know its headings, its lists, its glossary's term
+paragraphs. "What are the chapters?" is the headings; "who are the persons in the play?"
+is the list under the heading that says so; "what terms does the glossary define?" is the
+82 paragraphs that open with one. These are read from the structure — $0, deterministic,
+complete by construction — and an ordinal indexes the same list: "the second chapter" is
+named, "the fourth act" of a three-act play is refused *with the count*, because the
+alternative is a model inventing one. Two votes are needed before any of this runs: the
+question's shape, and retrieval concentrating on one document. Either alone changes
+nothing, and every fact question in the four older golden sets still takes the path it
+always did.
+
+| the seven questions structure can answer | result |
+|---|---:|
+| accuracy · false answers · determinism · cost | **100% · 0 · 100% · $0** |
+
+Measured through the real cascade with no model configured, and CI runs exactly that. A
+summary — "summarise the first act" — reads the named section in order, as far as the
+model's window allows, instead of six ranked passages; what a model then makes of it is in
+the measured record.
+
+Measured in `evals/measured/fortyfifth-the-answer-that-was-a-whole-document.json` and
+`fortysixth-the-document-that-answered-for-itself.json` — rerun with `uv run python tools/measure_scope.py` and
+`uv run openknowledge eval --path evals/golden-scope/scope.yaml --tag structure`.
 
 ### Documents that argue back
 

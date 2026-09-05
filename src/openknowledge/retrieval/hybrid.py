@@ -24,6 +24,7 @@ import logging
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 
+from ..documents.blocks import Block
 from .base import Chunk, Document, ScoredChunk, demote_superseded
 from .bm25 import BM25Retriever
 from .embed import Embedder, EmbeddingError, normalise, text_key
@@ -145,6 +146,12 @@ class HybridRetriever:
 
     def describe_document(self, document_id: str) -> tuple[str, str] | None:
         return self.lexical.describe_document(document_id)
+
+    def blocks_of(self, document_id: str) -> tuple[Block, ...]:
+        return self.lexical.blocks_of(document_id)
+
+    def chunks_of(self, document_id: str) -> tuple[Chunk, ...]:
+        return self.lexical.chunks_of(document_id)
 
     def document_ids(self) -> frozenset[str]:
         return self.lexical.document_ids()

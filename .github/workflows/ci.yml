@@ -58,6 +58,20 @@ jobs:
       - name: What retrieval can show for a whole-document question
         run: uv run python tools/measure_scope.py --k 6 12 25 50
 
+      # The other half of that measurement, and also modelless: the questions a
+      # document's own structure answers - its chapters, its cast list, its
+      # glossary, an ordinal into any of them - run through the real cascade
+      # with no model configured. Every one must be answered or refused from
+      # structure alone, deterministically, for $0.
+      - name: Whole-document questions the structure answers, no model
+        env:
+          OK_DOCUMENTS_DIR: evals/golden-scope/documents
+          OK_DATA_DIR: ${{ runner.temp }}/scope-data
+          OK_LOCAL_ENABLED: "false"
+          OK_EMBEDDING_ENABLED: "false"
+          OK_ESCALATION_ENABLED: "false"
+        run: uv run openknowledge eval --path evals/golden-scope/scope.yaml --tag structure
+
   # The product's final deliverable is a Windows install, and "the suite is
   # green" meant nothing about Windows until it ran there: every path,
   # process-spawn and file-locking difference is invisible from Linux. Tests

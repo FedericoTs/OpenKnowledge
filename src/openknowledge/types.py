@@ -20,6 +20,7 @@ class Tier(StrEnum):
     SEMANTIC_CACHE = "semantic"  # near-identical question; $0
     DRAFT = "draft"  # auto-drafted at ingest, gate-passed, unreviewed; $0
     CORPUS = "corpus"  # a question about the collection, answered from the index; $0
+    OUTLINE = "outline"  # a document's own structure - its headings, list, or glossary; $0
     LOCAL = "local"  # self-hosted model; no per-token invoice
     FRONTIER = "frontier"  # paid API call
     REFUSED = "refused"  # nothing grounded enough to answer with
@@ -40,6 +41,7 @@ class Tier(StrEnum):
             Tier.SEMANTIC_CACHE,
             Tier.DRAFT,
             Tier.CORPUS,
+            Tier.OUTLINE,
         )
 
     @property

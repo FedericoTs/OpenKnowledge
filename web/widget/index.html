@@ -677,10 +677,11 @@ const form = document.getElementById('form');
 const input = document.getElementById('q');
 const send = document.getElementById('send');
 
-const FREE_TIERS = new Set(['pinned', 'exact', 'semantic', 'corpus']);
+const FREE_TIERS = new Set(['pinned', 'exact', 'semantic', 'corpus', 'outline']);
 const TIER_LABEL = {
   pinned: 'pinned answer', exact: 'from cache', semantic: 'from cache',
-  corpus: 'from the index', local: 'local model', frontier: 'escalated',
+  corpus: 'from the index', outline: "from the document's structure",
+  local: 'local model', frontier: 'escalated',
   contested: 'contested', refused: 'no answer',
 };
 

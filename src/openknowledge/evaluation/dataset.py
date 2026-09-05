@@ -57,6 +57,14 @@ class Case:
     must_say: tuple[tuple[str, ...], ...] = ()
     #: Substrings that must NOT appear - usually the plausible wrong answer.
     must_not_say: tuple[str, ...] = ()
+    #: Items a complete answer lists, scored as a share rather than all-or-
+    #: nothing. ``must_say`` demands every fact, which is right for "how much"
+    #: and wrong for "what are all the": an 82-term glossary scored that way
+    #: is 82 impossible requirements, and the interesting number - listed 26
+    #: of 82 - is exactly the one that check cannot report.
+    must_list: tuple[str, ...] = ()
+    #: The share of ``must_list`` that has to appear. 1.0 means all of it.
+    min_share: float = 1.0
     #: Same question, different words. Must yield the same facts.
     paraphrases: tuple[str, ...] = ()
     #: Groups the asker belongs to, for access-control cases.
@@ -148,6 +156,9 @@ def parse_cases(raw: Any, *, source: str = "<memory>") -> list[Case]:
             raise DatasetError(f"case {case_id!r}: kind must be 'answerable' or 'refusal'")
 
         principals = entry.get("principals")
+        min_share = entry.get("min_share", 1.0)
+        if not isinstance(min_share, int | float) or not 0 < min_share <= 1:
+            raise DatasetError(f"case {case_id!r}: min_share must be a number in (0, 1]")
         cases.append(
             Case(
                 id=case_id,
@@ -156,6 +167,8 @@ def parse_cases(raw: Any, *, source: str = "<memory>") -> list[Case]:
                 must_cite=_as_tuple(entry.get("must_cite"), "must_cite", case_id),
                 must_say=_as_alternatives(entry.get("must_say"), "must_say", case_id),
                 must_not_say=_as_tuple(entry.get("must_not_say"), "must_not_say", case_id),
+                must_list=_as_tuple(entry.get("must_list"), "must_list", case_id),
+                min_share=float(min_share),
                 paraphrases=_as_tuple(entry.get("paraphrases"), "paraphrases", case_id),
                 principals=(
                     tuple(_as_tuple(principals, "principals", case_id))

@@ -32,16 +32,17 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "src"))
 
+from openknowledge.cascade.scope import TERM_PATTERN  # noqa: E402
 from openknowledge.retrieval.base import Document  # noqa: E402
 from openknowledge.retrieval.bm25 import BM25Retriever  # noqa: E402
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 DOCUMENTS = ROOT / "evals" / "golden-ftr" / "documents"
 
-#: A defined term opens its paragraph: "Accompanied baggage. Government
-#: property ...". Sub-clauses - "(i) A military department" - are numbered and
-#: excluded, and a match longer than six words is a sentence, not a term.
-_TERM = re.compile(r"^([A-Z][A-Za-z0-9\-/'’()., ]{1,60}?)\.\s")
+#: The one definition of what a glossary entry looks like lives in the code
+#: that answers from it, so this harness cannot drift from the product.
+_TERM = TERM_PATTERN
+#: Sub-clauses - "(i) A military department" - are numbered and excluded.
 _SUBCLAUSE = re.compile(r"^\(?[ivx0-9]+\)")
 
 

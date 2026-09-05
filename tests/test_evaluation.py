@@ -23,7 +23,14 @@ from openknowledge.evaluation import (
     parse_cases,
     run_eval,
 )
-from openknowledge.evaluation.runner import CaseResult, EvalReport, _normalise, _score, _states
+from openknowledge.evaluation.runner import (
+    CaseResult,
+    EvalReport,
+    _facts_present,
+    _normalise,
+    _score,
+    _states,
+)
 from openknowledge.types import Answer, Citation, Tier
 
 GOOD_LEAVE = (
@@ -769,3 +776,74 @@ def test_skipping_the_check_does_not_fail_the_run_nor_pass_it_falsely() -> None:
     case = Case(id="a", question="Q?", must_say=(("x",),))
     assert EvalReport(results=[_result(case, deterministic=None)]).passed
     assert not EvalReport(results=[_result(case, deterministic=False)]).passed
+
+
+# --- must_list: a share, not a verdict per item -------------------------------
+
+
+def _listing_case(**overrides: object) -> Case:
+    fields: dict[str, object] = {
+        "id": "list",
+        "question": "what are all the chapters?",
+        "must_list": ("Down the Rabbit-Hole", "The Pool of Tears", "A Caucus-Race", "Advice"),
+        "min_share": 0.75,
+    }
+    fields.update(overrides)
+    return Case(**fields)  # type: ignore[arg-type]
+
+
+def _listed_answer(text: str) -> Answer:
+    return Answer(text=text, tier=Tier.LOCAL, model_id="m", cache_key="k", grounded=True)
+
+
+def test_listing_enough_of_the_items_passes() -> None:
+    """Three of four at a 75% bar is a pass; must_say would have failed it."""
+    passed, failures, _ = _score(
+        _listing_case(),
+        _listed_answer(
+            "The chapters are Down the Rabbit-Hole, The Pool of Tears and A Caucus-Race."
+        ),
+    )
+    assert passed, failures
+
+
+def test_listing_too_few_reports_the_share_not_the_items() -> None:
+    """The number that matters is how much of the list was managed.
+
+    Eighty missing-item lines would bury it; one line states it.
+    """
+    passed, failures, _ = _score(
+        _listing_case(), _listed_answer("The first chapter is Down the Rabbit-Hole.")
+    )
+    assert not passed
+    assert failures == ("listed 1 of 4 required items (25%), needed 75%",)
+
+
+def test_min_share_of_one_means_all_of_it() -> None:
+    passed, _, _ = _score(
+        _listing_case(min_share=1.0),
+        _listed_answer("Down the Rabbit-Hole, The Pool of Tears, A Caucus-Race."),
+    )
+    assert not passed
+
+
+def test_listed_items_count_as_facts_for_paraphrase_consistency() -> None:
+    """Two phrasings that list different subsets of the same glossary disagree."""
+    case = _listing_case()
+    one = _listed_answer("Down the Rabbit-Hole and The Pool of Tears.")
+    other = _listed_answer("Down the Rabbit-Hole and A Caucus-Race.")
+    assert _facts_present(case, one) != _facts_present(case, other)
+
+
+@pytest.mark.parametrize("bad", [0, 1.5, -0.2, "most"])
+def test_min_share_outside_zero_one_is_rejected(bad: object) -> None:
+    with pytest.raises(DatasetError, match="min_share"):
+        parse_cases([{"id": "x", "question": "q?", "must_list": ["a"], "min_share": bad}])
+
+
+def test_must_list_loads_from_yaml_shape() -> None:
+    (case,) = parse_cases(
+        [{"id": "x", "question": "q?", "must_list": ["a", "b"], "min_share": 0.5}]
+    )
+    assert case.must_list == ("a", "b")
+    assert case.min_share == 0.5

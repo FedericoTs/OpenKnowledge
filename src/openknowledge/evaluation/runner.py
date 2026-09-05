@@ -248,10 +248,27 @@ def _score(case: Case, answer: Answer) -> tuple[bool, tuple[str, ...], bool]:
         if _states(text, wrong):
             failures.append(f"contains incorrect content {wrong!r}")
 
+    if case.must_list:
+        # A share, not a verdict per item: the question this exists to answer
+        # is "how much of the list did it manage", and a line per missing term
+        # would bury that number under eighty lines nobody reads.
+        listed = _items_listed(case, text)
+        share = len(listed) / len(case.must_list)
+        if share < case.min_share:
+            failures.append(
+                f"listed {len(listed)} of {len(case.must_list)} required items "
+                f"({share:.0%}), needed {case.min_share:.0%}"
+            )
+
     if not answer.grounded:
         failures.append("answer was not grounded")
 
     return not failures, tuple(failures), False
+
+
+def _items_listed(case: Case, normalised_text: str) -> tuple[str, ...]:
+    """Which of ``must_list`` the (already normalised) answer states."""
+    return tuple(item for item in case.must_list if _states(normalised_text, item))
 
 
 def _describe(alternatives: tuple[str, ...]) -> str:
@@ -270,11 +287,14 @@ def _facts_present(case: Case, answer: Answer) -> frozenset[str]:
     than the wording is what keeps that from reading as an inconsistency.
     """
     text = _normalise(answer.text)
-    return frozenset(
+    facts = frozenset(
         alternatives[0]
         for alternatives in case.must_say
         if any(_states(text, form) for form in alternatives)
     )
+    # Listed items count as facts too, so a paraphrase that lists a different
+    # subset of the same glossary is reported as the inconsistency it is.
+    return facts | frozenset(_items_listed(case, text))
 
 
 async def run_case(cascade: Cascade, case: Case, *, check_determinism: bool = True) -> CaseResult:

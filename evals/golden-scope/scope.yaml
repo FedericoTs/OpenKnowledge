@@ -1,0 +1,248 @@
+# Questions whose answer is a whole document.
+#
+# Every other set here asks whether the system finds the right fact. This one
+# asks whether it can find ALL of something - the shape of eleven of the sixteen
+# questions a real install could not answer (evals/measured/fortyfifth-...json).
+#
+# The corpus is in ./documents and none of it was written here: two Project
+# Gutenberg texts converted by tools/gutenberg_to_md.py (structure markers made
+# into headings, not a word changed - the originals are in ./sources), and two
+# parts of the US Federal Travel Regulation copied byte-for-byte from
+# ../golden-ftr/documents, which a test pins.
+#
+# Every reference list below is read out of the documents by the script that
+# wrote this file: the cast list Wilde printed, the chapter titles Carroll
+# wrote, the terms the regulation defines, the section headings GSA used. A
+# test regenerates them and fails if this file has drifted from the corpus.
+#
+# Cases tagged `structure` need no model: the document's own headings, list or
+# glossary answer them, and CI runs exactly those, deterministically.
+#
+# `must_list` with `min_share` is the new check: "listed 26 of 82 (32%)" is the
+# number every other scorer here was unable to report.
+#
+# Run:
+#   export OK_DOCUMENTS_DIR=$PWD/evals/golden-scope/documents
+#   export OK_LOCAL_ENABLED=true OK_EMBEDDING_ENABLED=false OK_ESCALATION_ENABLED=false
+#   export OK_LOCAL_BASE_URL=http://127.0.0.1:8081/v1
+#   uv run openknowledge eval --path evals/golden-scope/scope.yaml --verbose
+
+# --- enumeration inside the budget: the control, must stay complete ----------
+
+- id: scope-01-transport-methods
+  question: What transportation methods may an agency authorize?
+  must_cite: [ftr-301-10]
+  must_list: ["common carrier", "government vehicle", "privately owned", "special conveyance"]
+  min_share: 1.0
+  paraphrases:
+    - List the authorized methods of transportation.
+  tags: [enumeration, control]
+  notes: Four items in one chunk. If this ever drops, retrieval broke, not scope.
+
+- id: scope-02-persons-in-the-play
+  question: Who are the persons in The Importance of Being Earnest?
+  must_cite: [earnest]
+  must_list:
+    - "John Worthing"
+    - "Algernon Moncrieff"
+    - "Chasuble"
+    - "Merriman"
+    - "Lane"
+    - "Lady Bracknell"
+    - "Gwendolen Fairfax"
+    - "Cecily Cardew"
+    - "Miss Prism"
+  min_share: 1.0
+  paraphrases:
+    - Who are the characters in the play?
+  tags: [enumeration, characters, structure]
+  notes: >
+    Wilde's own cast list, nine names under one heading - the field question
+    "what are the main characters" with the answer stated in the document.
+
+# --- enumeration outside the budget: the failure being measured --------------
+
+- id: scope-03-alice-chapters
+  question: What are the chapters of Alice's Adventures in Wonderland?
+  must_cite: [alice]
+  must_list:
+    - "Down the Rabbit-Hole"
+    - "The Pool of Tears"
+    - "A Caucus-Race and a Long Tale"
+    - "The Rabbit Sends in a Little Bill"
+    - "Advice from a Caterpillar"
+    - "Pig and Pepper"
+    - "A Mad Tea-Party"
+    - "The Queen’s Croquet-Ground"
+    - "The Mock Turtle’s Story"
+    - "The Lobster Quadrille"
+    - "Who Stole the Tarts?"
+    - "Alice’s Evidence"
+  min_share: 0.9
+  paraphrases:
+    - List all the chapter titles in Alice in Wonderland.
+  tags: [enumeration, headings, structure]
+  notes: Twelve titles spread across a 29,000-word book. One per ~2,400 words.
+
+- id: scope-04-glossary-terms
+  question: What terms does the glossary of terms define?
+  must_cite: [ftr-300-1]
+  must_list:
+    - "Accompanied baggage"
+    - "Accommodation Party"
+    - "Actual expense"
+    - "Agency"
+    - "Aircraft management office"
+    - "Approved accommodation"
+    - "Automated Relocation Management System"
+    - "Coach class"
+    - "Commercial Aviation Services (CAS)"
+    - "Common carrier"
+    - "Commuted rate"
+    - "Conference"
+    - "Continental United States (CONUS)"
+    - "Contract carrier"
+    - "Contract City Pair Program"
+    - "Crewmember"
+    - "Dependent"
+    - "Disposable pay"
+    - "Domestic partner"
+    - "Domestic partnership"
+    - "E-Gov Travel Service (ETS)"
+    - "Employee"
+    - "Executive agency"
+    - "Extended storage"
+    - "Extra-fare train"
+    - "Federal traveler"
+    - "Foreign air carrier"
+    - "Fuel"
+    - "Full coach fare"
+    - "Government aircraft"
+    - "Government-furnished automobile"
+    - "Government-furnished vehicle"
+    - "Household goods (HHG)"
+    - "Household goods-weight additive"
+    - "Househunting trip"
+    - "Immediate family"
+    - "Innovative mobility technology company"
+    - "Interviewee"
+    - "Invitational travel"
+    - "Lodgings-plus per diem"
+    - "Mandatory mobility agreement"
+    - "Marriage"
+    - "Mobile home"
+    - "New appointee"
+    - "Non-Federal traveler"
+    - "Official station"
+    - "Official travel"
+    - "Other than coach class"
+    - "Outside the Continental United States (OCONUS)"
+    - "Overseas tour of duty"
+    - "Overseas tour renewal travel"
+    - "Passenger"
+    - "Per diem allowance"
+    - "Permanent Change of Station (PCS)"
+    - "Post of duty"
+    - "Presidentially-Declared Disaster"
+    - "Privately owned aircraft"
+    - "Privately owned automobile"
+    - "Privately Owned Vehicle (POV)"
+    - "Qualified non-crewmember"
+    - "Reduced per diem"
+    - "Relocation services company (RSC)"
+    - "Required use travel"
+    - "Scheduled flight time"
+    - "Senior Federal official"
+    - "Service Agreement"
+    - "Special conveyance"
+    - "Spouse"
+    - "Subsistence expenses"
+    - "Temporary Change of Station (TCS)"
+    - "Temporary duty (TDY) location"
+    - "Temporary storage"
+    - "Transferred employee"
+    - "Transit system"
+    - "Transportation network company (TNC)"
+    - "Travel advance"
+    - "Travel authorization (Orders)"
+    - "Travel claim (voucher)"
+    - "Travel Management Service (TMS)"
+    - "United States"
+    - "United States (U.S.) flag air carriers"
+    - "Usually traveled route"
+  min_share: 0.9
+  paraphrases:
+    - List all the terms defined in part 300-1.
+  tags: [enumeration, glossary, structure]
+  notes: >
+    82 terms over 22 chunks. The ceiling tool shows retrieval at k=6 exposes
+    26 of them; this case records what the whole pipeline then does with that.
+
+- id: scope-05-part-301-10-sections
+  question: What does part 301-10 cover?
+  must_cite: [ftr-301-10]
+  must_list:
+    - "Eligibility for transportation expenses payment"
+    - "Authorized transportation methods"
+    - "Selection of transportation method"
+    - "Liability for unauthorized or indirect travel"
+    - "Use of other than coach class accommodations"
+    - "Changes to or non-use of common carrier reservations"
+    - "Handling of unused Government transportation items"
+    - "Requirement to use contract City Pair Program fare"
+    - "Exceptions to contract City Pair Program fare usage"
+    - "Liability for unauthorized non-contract carrier use"
+    - "Compensation for denied seat"
+    - "Compensation for voluntarily vacating a seat"
+  min_share: 0.6
+  tags: [enumeration, headings, cover, structure]
+  notes: >
+    The field question "what does the document cover", asked of a 17-chunk
+    part with 40 sections. Scored against the first twelve section titles.
+
+# --- ordinal: index into the list ---------------------------------------------
+
+- id: scope-06-second-chapter
+  question: What is the title of the second chapter of Alice in Wonderland?
+  must_cite: [alice]
+  must_say: [["Pool of Tears"]]
+  must_not_say: ["Rabbit-Hole", "Caucus-Race"]
+  tags: [ordinal, structure]
+  notes: The field question "what is the priority 2", with a document that has a 2.
+
+# --- summary: an act, a part ----------------------------------------------------
+
+- id: scope-07-summarise-act-one
+  question: Summarise the first act of The Importance of Being Earnest.
+  must_cite: [earnest]
+  must_say:
+    - ["Algernon"]
+    - ["Jack", "Ernest", "Worthing"]
+    - ["Bunbury"]
+    - ["Gwendolen"]
+    - ["Bracknell"]
+  tags: [summary]
+  notes: >
+    Judgement, kept minimal: any summary of Act I names these. The act is
+    ~1,300 lines; whether a summary can be built from six chunks of it is the
+    question.
+
+# --- refusals in the same vocabulary --------------------------------------------
+
+- id: scope-08-fourth-act
+  question: What happens in the fourth act of The Importance of Being Earnest?
+  kind: refusal
+  tags: [ordinal, refusal, structure]
+  notes: A three-act play. The right answer is that there is no fourth act.
+
+- id: scope-09-murderer
+  question: Who is the murderer in Alice's Adventures in Wonderland?
+  kind: refusal
+  tags: [refusal]
+  notes: Nobody is murdered. A system that names one has invented it.
+
+- id: scope-10-thirteenth-chapter
+  question: What is the title of chapter thirteen of Alice in Wonderland?
+  kind: refusal
+  tags: [ordinal, refusal, structure]
+  notes: Twelve chapters. The ordinal machinery must not fabricate a thirteenth.

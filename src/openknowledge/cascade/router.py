@@ -49,6 +49,7 @@ from .corpus import (
 )
 from .followup import resolve
 from .ladder import Ladder, Rung
+from .scope import assemble, outline, recognise_scope, render, section_chunks
 
 log = logging.getLogger(__name__)
 
@@ -455,6 +456,10 @@ class Cascade:
         # picks from.
         candidates = max(wanted, self.settings.rerank_candidates) if self.reranker else wanted
         hits = self.retriever.search(question, k=candidates, principals=principals)
+        # Kept from before reranking: the reranker caps every document at two
+        # passages, which is right for a fact and would blind the whole-document
+        # vote below to a document that dominated the ranking.
+        ranked = hits
         if self.reranker is not None:
             hits = self.reranker.rerank(question, hits, k=wanted)
         chunks = [h.chunk for h in hits]
@@ -606,6 +611,89 @@ class Cascade:
                         "semantic nominee rejected by the gate (%s); continuing to the ladder",
                         "; ".join(verdict.reasons),
                     )
+
+        # A question whose answer is a whole document rather than a passage of
+        # it: "what are the chapters?", "who are the characters?", "summarise
+        # the first act." Ranked passages cannot answer these - measured, a
+        # 22-chunk glossary shows the model one chunk at k=6 and 89% of its
+        # terms at k=50 (evals/golden-scope) - so two things happen instead.
+        # An enumeration the document's own structure answers is answered from
+        # the structure: no model, $0, complete by construction, and an ordinal
+        # past the end is a refusal that says how many there are. Anything
+        # else - a summary, or a list no structure holds - reads the document
+        # in order, as far as the window allows, instead of six ranked chunks.
+        # Two votes are needed to get here at all: the question's shape and
+        # retrieval concentrating on one document. Either alone changes nothing.
+        scope = recognise_scope(question, ranked)
+        if scope is not None:
+            document = list(self.retriever.chunks_of(scope.document_id))
+            if document:
+                title = document[0].document_title
+                blocks = self.retriever.blocks_of(scope.document_id)
+                if scope.kind == "enumerate":
+                    found = outline(blocks, scope.wants, question, noun=scope.noun)
+                    if found is not None:
+                        text, refused = render(
+                            found, title=title, document_id=scope.document_id, ordinal=scope.ordinal
+                        )
+                        evidence = (
+                            section_chunks(document, found.under) if found.under else document
+                        )
+                        yield _final(
+                            Answer(
+                                text=text,
+                                tier=Tier.REFUSED if refused else Tier.OUTLINE,
+                                model_id="none",
+                                cache_key=key,
+                                citations=_citations(evidence or document),
+                                grounded=True,
+                                notes=(
+                                    f"answered from the structure of {title}; no model was called",
+                                ),
+                            )
+                        )
+                        return
+                # A summary, or an enumeration the structure did not hold. Read
+                # the document - or the one section an ordinal names - in order.
+                pool = document
+                if scope.ordinal is not None and scope.ordinal_noun:
+                    sections = outline(blocks, "headings", question, noun=scope.ordinal_noun)
+                    if sections is not None:
+                        index = len(sections.items) if scope.ordinal == -1 else scope.ordinal
+                        if not 1 <= index <= len(sections.items):
+                            text, _ = render(
+                                sections,
+                                title=title,
+                                document_id=scope.document_id,
+                                ordinal=scope.ordinal,
+                            )
+                            yield _final(
+                                Answer(
+                                    text=text,
+                                    tier=Tier.REFUSED,
+                                    model_id="none",
+                                    cache_key=key,
+                                    citations=_citations(document),
+                                    notes=(f"{title} has no such section; no model was called",),
+                                )
+                            )
+                            return
+                        pool = section_chunks(document, sections.items[index - 1]) or document
+                reserved = len(system) // 4 + len(question) // 4 + self.settings.max_answer_tokens
+                assembled, left_out = assemble(
+                    pool,
+                    context_tokens=self.settings.local_context_tokens,
+                    reserved_tokens=reserved,
+                    fallback_max=3 * self.settings.retrieval_k,
+                )
+                chunks = assembled
+                read = f"read {title} in order"
+                if left_out:
+                    read += (
+                        f" - the first {len(assembled)} of {len(pool)} passages; the rest did "
+                        "not fit the model's window"
+                    )
+                notes.append(read)
 
         yield {"type": "status", "stage": "answering", "passages": len(chunks)}
 

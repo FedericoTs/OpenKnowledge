@@ -18,6 +18,7 @@ from collections import Counter
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 
+from ..documents.blocks import Block
 from .base import Chunk, Document, ScoredChunk, demote_superseded, tokenize
 from .derived import DerivedCache, fingerprint
 from .tags import fold_tags, guarantee_routed, rank_tags, route_by_tags
@@ -53,6 +54,11 @@ class _Index:
     doc_principals: dict[str, frozenset[str]] = field(default_factory=dict)
     doc_tags: dict[str, tuple[str, ...]] = field(default_factory=dict)
     doc_tags_folded: dict[str, frozenset[str]] = field(default_factory=dict)
+    #: Each document's parsed structure, by id. A reference to what the
+    #: connector already holds, not a copy: this is what lets "what are the
+    #: chapters?" be answered from the headings rather than from six passages
+    #: ranked by words the question does not contain.
+    doc_blocks: dict[str, tuple[Block, ...]] = field(default_factory=dict)
 
 
 class BM25Retriever:
@@ -182,6 +188,7 @@ class BM25Retriever:
         doc_principals: dict[str, frozenset[str]] = {}
         doc_tags: dict[str, tuple[str, ...]] = {}
         doc_tags_folded: dict[str, frozenset[str]] = {}
+        doc_blocks: dict[str, tuple[Block, ...]] = {}
 
         derived = [
             self._derived.get(
@@ -202,6 +209,7 @@ class BM25Retriever:
             tags = rank_tags(one.tag_sources, one.tag_body, corpus_df, len(documents))
             doc_tags[doc.document_id] = tags
             doc_tags_folded[doc.document_id] = fold_tags(tags)
+            doc_blocks[doc.document_id] = doc.blocks
             chunks.extend(one.chunks)
             term_freqs.extend(one.term_freqs)
             lengths.extend(one.lengths)
@@ -231,6 +239,7 @@ class BM25Retriever:
             doc_principals=doc_principals,
             doc_tags=doc_tags,
             doc_tags_folded=doc_tags_folded,
+            doc_blocks=doc_blocks,
         )
         # Everything this build saw. Without it the cache grows by an entry
         # per edit for ever, each holding a copy of a document's passages.
@@ -358,6 +367,25 @@ class BM25Retriever:
         ranking problem look identical in a report and need opposite fixes.
         """
         return frozenset(c.document_id for c in self._index.chunks)
+
+    def blocks_of(self, document_id: str) -> tuple[Block, ...]:
+        """A document's parsed structure - headings, list items, paragraphs.
+
+        Empty for a document supplied as bare text, and for an id the index
+        does not hold; callers treat both as "no structure to read".
+        """
+        return self._index.doc_blocks.get(document_id, ())
+
+    def chunks_of(self, document_id: str) -> tuple[Chunk, ...]:
+        """Every passage of one document, in the order the document has them.
+
+        Chunks are appended per document at index time, so filtering the
+        snapshot keeps that order; the id carries the position too
+        (``doc#7``) and this sorts on it rather than trusting adjacency.
+        """
+        mine = [c for c in self._index.chunks if c.document_id == document_id]
+        mine.sort(key=lambda c: int(c.chunk_id.rsplit("#", 1)[1]))
+        return tuple(mine)
 
     def describe_document(self, document_id: str) -> tuple[str, str] | None:
         """Return ``(title, snippet)`` for an indexed document, or None.
