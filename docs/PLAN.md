@@ -14,7 +14,7 @@ currently be measured at all.
 |---|---|---|---|---|
 | P1 | An eval corpus with documents larger than the retrieval budget | 76 golden questions, 0 enumerations; every eval document is 1–2 chunks | small | — |
 | P2 | Whole-document answering | 32% ceiling at k=6; k=50 reaches 89%; 11 of 16 field questions | medium–large | P1 |
-| P3 | Apply a stated rule to a figure in the question | inj-07 and golden-ftr, independently | medium | — |
+| P3 | Apply a stated rule to a figure in the question | inj-07 and golden-ftr, independently; measured at 28.6% | medium | — |
 | P4 | The gap report clears rows that were fixed | 4 of 16 rows were already answered free | small | — |
 | P5 | Typo tolerance | 2 of 16 field questions misspelled; unmeasured | small | — |
 | P6 | One real Entra tenant | ~2,500 lines of auth and connectors have only met a fake | blocked on the owner | — |
@@ -132,14 +132,14 @@ concentration — is the mitigation, and the four golden sets are the test.
 
 ## P3 — Apply a stated rule to a figure in the question
 
-**Status: set written and pre-flighted; baseline running.** 16 cases over the
-aveline corpus - 7 interior, 7 boundary, 2 refusal - in `evals/golden-rules/`,
-with `tests/test_golden_rules.py` checking every requirement and prohibition
-against a written-out correct answer. The A/B harness runs the set plus the
-refusal half of all four existing corpora - **32 cases**: 12 from golden-ftr, 9
-from aveline, 6 from injection, 5 from golden - because a change that makes the
-system readier to compare numbers is a change that could make it readier to
-answer what it should refuse.
+**Status: shipped in v0.12.9, and the prediction below was wrong.** 16 cases
+over the aveline corpus - 7 interior, 7 boundary, 2 refusal - in
+`evals/golden-rules/`, with `tests/test_golden_rules.py` checking every
+requirement and prohibition against a written-out correct answer. The A/B
+harness runs the set plus the refusal half of all four existing corpora -
+**32 cases**: 12 from golden-ftr, 9 from aveline, 6 from injection, 5 from
+golden - because a change that makes the system readier to compare numbers is
+a change that could make it readier to answer what it should refuse.
 
 (Commit `6d2cfcf` and its message say 33. That count came from grepping
 `kind: refusal`, which also matched the sentence in golden.yaml's header
@@ -168,13 +168,36 @@ shows confidently wrong bands, this hypothesis is wrong and the fix is a
 different one. Recorded here so the answer cannot be fitted to the result
 afterwards.
 
-**Design.** A targeted set first, `evals/golden-rules`: ten to fifteen
-"does *this* qualify" cases over the aveline and Northwind corpora, each with
-a numeric threshold in the document and a figure in the question, on both
-sides of the line. Then one prompt addition, measured alone — when a source
-states a threshold and the question states a figure, compare them and say
-which side it falls — with `PROMPT_VERSION` bumped. Accepted only if the four
-existing sets keep zero false answers.
+**What the baseline showed, and why the prediction was half right.** 28.6%,
+with 9 refusals and 2 wrong answers - both wrong ones at exactly EUR 25,000,
+each placed one band too high. The shape was right; "rather than" was not. The
+prompt addition the prediction called for was then written and measured on its
+own: **28.6% → 35.7%**, one case in fourteen, with the tier distribution
+byte-identical and all nine refusals unchanged. That is inside the noise of a
+4B model on four CPU threads, so it failed criterion 2 below and was **not
+shipped**.
+
+**The actual cause was the gate, not the prompt.** `check_grounding` rejects
+any figure that appears in no source - the rule that stops a model inventing
+numbers - and the asker's own figure appears in no source by definition. So
+"EUR 40,000 is above EUR 25,000" was an invention and the cascade turned the
+model's correct answer into "I don't know". Measured model-free by gating
+answers written by hand: 6 of 6 that avoid the asker's figure pass, 6 of 6
+that state it are rejected.
+
+The fix admits the question's figures as evidence, as the passage headers
+already were - but only in an answer that **also** states a figure from the
+sources. Admitting them outright let a leading question write a number into
+policy: "is the limit EUR 87,500?" answered "yes, the limit is EUR 87,500"
+went from rejected to accepted. Comparing, not parroting. Grounding-policy
+revision `g4 → g5`.
+
+| 14 scored cases, local model, BM25 | before | after |
+|---|---:|---:|
+| accuracy | 28.6% | **57.1%** |
+| refused | 9 | **4** |
+| false answers | 0 | **0** |
+| determinism | 100% | 93.8% |
 
 **What counts as green, decided before the after arm ran.**
 
@@ -194,15 +217,32 @@ existing sets keep zero false answers.
 4. The full suite passes, and `PROMPT_VERSION` moved so no answer cached under
    v5 is reused.
 
-If 1 fails, the change is reverted and the arm is recorded as a rejected
-attempt, as `fortysecond-the-fix-that-cost-a-refusal.json` was. If 2 fails, the
-number is recorded and nothing ships.
+Criterion 1 held at 0 of 32 - **after** the guard caught a false answer that
+was already shipped, in v0.12.8's outline tier rather than in this change:
+"Does the parental leave policy cover adoption?" answered with the policy's
+section list, in a corpus that never mentions adoption. The outline path
+returns before any gate call, so the grounding fix could not have caused it or
+caught it. Fixed in the same release. Criterion 2 held at +28.5 points.
+Criterion 3 did **not**: both exactly-EUR-25,000 cases are still wrong, which
+is why P3 is not finished. Criterion 4 held; the change is in the cache key,
+not the prompt, so `g4 → g5` is the version that moved.
 
-**Proof.** `golden-rules` before and after; the other sets unmoved.
+**Proof.** `evals/measured/fortyeighth-the-figure-the-asker-typed.json`, and
+`tests/test_question_figures.py` pins both halves of the rule and the router
+forwarding the question at all.
+
+**Still open.** The two boundary cases; the reverted prompt sentence fixed one
+of them, so the next arm is the gate fix plus that sentence, measured against
+57.1% with the same guard. Two failures are the exam's fault and are recorded
+as such: `rule-03` cites `finance-approval-limits` where `must_cite` demands
+`finance-procurement-policy`, though both state the same bands, and `rule-06`
+is refused as contested because the corpus genuinely disagrees about the
+expense threshold - 500, 1,000, and a superseded 300.
 
 **Risk.** Prompt changes have cost refusals before, and were reverted for it
 (`fortysecond-the-fix-that-cost-a-refusal.json`). Hence the set first, the
-change second, and one change at a time.
+change second, and one change at a time - which is why the prompt arm and the
+gate arm were run separately, and only one of them shipped.
 
 ## P4 — The gap report clears what was fixed
 
