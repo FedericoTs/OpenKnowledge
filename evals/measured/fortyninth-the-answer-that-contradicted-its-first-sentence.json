@@ -1,0 +1,85 @@
+{
+  "what": "Teaching the prompt how to read a boundary, and the two things it exposed",
+  "when": "2026-09-05",
+  "set": "evals/golden-rules/rules.yaml - 16 cases over evals/corpus/aveline, plus the refusal half of all four other sets",
+  "model": "Qwen3-4B-Instruct-2507 Q4_K_M, llama.cpp, n_ctx 8192, 4 CPU threads; BM25 only",
+  "the_question_it_answers": "v0.12.9 fixed the refusals and left both exactly-EUR-25,000 cases wrong, each placing the figure in the band above it. Is that a boundary-reading failure, and does naming how each wording is read fix it?",
+  "registered_before_it_ran": {
+    "commit": "ad59544",
+    "change": "One paragraph on rule 3: \"Above X\" and \"more than X\" do not include X; \"up to X\", \"at least X\", and a band written \"X to Y\" include both ends. A figure exactly on a boundary belongs to the band whose wording admits it. Say which wording you relied on.",
+    "half_of_the_reverted_text_not_all": "The 'comparing is not inventing' half is done in code by the v0.12.9 gate fix and moved none of the nine refusals when measured alone. 77 tokens rather than 189.",
+    "rewritten_not_restored": "The reverted text named 'above', 'up to' and 'at least' and never a band written as a range. The table rule-08 turns on reads 'EUR 5,001 to EUR 25,000', so the range form is the one that case needs.",
+    "predicted": "rule-07 and rule-08 move; the other twelve do not.",
+    "rejected_if": "any of the 32 refusal cases comes back answered; neither boundary case becomes correct; anything passing at 57.1% breaks; or a case passes without showing the reasoning."
+  },
+  "result": {
+    "before": {
+      "accuracy_pct": 57.1,
+      "cases": 14,
+      "false_answers": 0,
+      "determinism_pct": 93.8,
+      "tiers": {"local": 11, "refused": 4, "contested": 1}
+    },
+    "after": {
+      "accuracy_pct": 71.4,
+      "cases": 14,
+      "false_answers": 0,
+      "determinism_pct": 100.0,
+      "tiers": {"local": 12, "refused": 3, "contested": 1}
+    },
+    "guard": {
+      "sets": 4,
+      "reported": 4,
+      "refusal_cases": 32,
+      "false_answers": 0,
+      "per_set": {"ftr": "refused=12", "injection": "refused=6", "aveline": "refused=8 contested=1", "golden": "refused=5"}
+    },
+    "cases_that_moved": ["rule-08-exactly-25000-approver", "rule-14-split-purchase"],
+    "only_one_of_those_is_evidence": "rule-08 was named in advance and is the mechanism's own target. rule-14 was not named, was already non-deterministic - it gave two different answers when asked twice in the 57.1% arm - and a case that was flipping anyway flipping again is not a result. Counting this arm as +2 would be counting noise."
+  },
+  "the_prediction_was_half_right_again": {
+    "rule_08": "fixed, and for the stated reason - the answer says 'The threshold is exactly at EUR 25,000. The policy states that for values up to and including EUR 25,000, the approver is the Head of Department.' That is the criterion-4 check, and it is why the criterion existed.",
+    "rule_07": "still fails, and the failure changed shape rather than going away."
+  },
+  "the_answer_that_contradicted_its_first_sentence": {
+    "case": "rule-07-exactly-25000-quotes",
+    "opens": "Yes, a contract with an annual value of exactly EUR 25,000 needs three competitive quotes.",
+    "then_reasons": "quotes the 25,001-50,000 band, notes it starts at 25,001, checks the second document, and works out that 25,000 falls in the band below",
+    "concludes": "Thus, no three competitive quotes are required for a contract valued at exactly EUR 25,000.",
+    "so_what_broke": "The boundary rule worked - the reasoning is right and cites both documents. What is wrong is the order: the model leads with a guess and corrects it five paragraphs later. A person reading the first line is told the opposite of the answer.",
+    "and_the_exam_missed_it_too": "must_say wanted 'not required', 'are not needed', 'do not need' or 'no quotes'. The conclusion says 'does NOT require' and 'no three competitive quotes are required', which match none of them. So the case would have been scored a failure even if the answer had been clean - but it is not clean, and the self-contradiction is the real defect, not the wording of the exam.",
+    "not_fixed_here": "A rule about answering before reasoning is a second change, and this arm is one change."
+  },
+  "a_quotation_that_was_not_one": {
+    "found_in": "rule-08's answer - the case this arm fixed",
+    "the_answer_presents": "\"Contract value (annual): Above EUR 25,000 | Approver: Chief Financial Officer | Additional requirement: Three competitive quotes\"",
+    "attributed_to": "[finance-procurement-policy]",
+    "the_real_table": [
+      "Up to EUR 5,000 | Line manager | None",
+      "EUR 5,001 to EUR 25,000 | Head of Department | Written business case",
+      "EUR 25,001 to EUR 50,000 | Chief Financial Officer | Three competitive quotes",
+      "Above EUR 50,000 | Board | Three quotes and legal review"
+    ],
+    "checked": "'above EUR 25,000' does occur in the policy - in section 2, as prose about competitive quotes. It is never paired with an approver, and no table row begins with it. The row in the answer is section 2's threshold welded to the table's CFO row and presented, in the table's exact column format and inside quotation marks, as something the document says.",
+    "why_the_gate_passed_it": "Every element is real somewhere in the source, so a support check over word and number overlap cannot see the seam. Same hole as the invented fourth act in fortyfifth-...: a fabrication built out of the corpus's own vocabulary scores well.",
+    "worth_saying_plainly": "The fabricated row is semantically true - contracts above 25,000 do need quotes - and the conclusion drawn from it is correct. This is a false attribution rather than a false fact, which is the harder kind to notice and the kind a person checking the citation would catch.",
+    "not_caused_by_this_change": "The gate has never checked that a quotation is a quotation. Recorded, not fixed: it needs a check that a quoted span appears verbatim in the evidence, which is a change of its own with its own false-positive risk on paraphrase."
+  },
+  "criteria_as_registered": {
+    "1_guard_absolute": "MET - 0 false answers across 32, all four sets reported",
+    "2_at_least_one_boundary_case": "MET - rule-08",
+    "3_no_regression": "MET - the eight passing at 57.1% still pass; accuracy 57.1 -> 71.4",
+    "4_right_answer_right_reason": "MET for rule-08, which names the wording it relied on",
+    "5_suite_and_version": "MET - 1642 passed, PROMPT_VERSION v5 -> v6"
+  },
+  "what_this_arm_cannot_establish": "One pre-named case moving is weak evidence and was called weak before the run. The mechanism is visible in the answer text, which is worth more than the count, but no percentage here should be quoted as a measurement of boundary handling. A boundary set large enough to carry a number does not exist yet.",
+  "still_failing": {
+    "rule-07": "self-contradictory, above",
+    "rule-05": "refuses a question the corpus covers - EUR 750 expense approval - and this arm did not touch it",
+    "rule-03": "exam defect: cites finance-approval-limits where must_cite demands finance-procurement-policy, though both state the same bands",
+    "rule-06": "exam defect: refused as contested because the corpus genuinely disagrees - 500, 1,000, and a superseded 300"
+  },
+  "mistakes": [
+    "The version guard in tests/test_turn_control.py asserted PROMPT_VERSION == \"v5\". The earlier reverted arm had changed it to == \"v6\", which breaks again on the next prompt change and leaves the assertion naming a string with nothing to do with the control tokens it exists for. It now asserts the version is past v4 by integer - so a rollback to v4 fails and v10 does not sort below v5."
+  ]
+}

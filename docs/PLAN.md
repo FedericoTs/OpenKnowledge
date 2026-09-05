@@ -231,9 +231,9 @@ not the prompt, so `g4 → g5` is the version that moved.
 `tests/test_question_figures.py` pins both halves of the rule and the router
 forwarding the question at all.
 
-**Still open.** The two boundary cases; the reverted prompt sentence fixed one
-of them, so the next arm is the gate fix plus that sentence, measured against
-57.1% with the same guard. Two failures are the exam's fault and are recorded
+**Still open.** `rule-07`, which now reaches the right conclusion and opens
+with the wrong one, and `rule-05`, which refuses a question the corpus covers.
+Two further failures are the exam's fault and are recorded
 as such: `rule-03` cites `finance-approval-limits` where `must_cite` demands
 `finance-procurement-policy`, though both state the same bands, and `rule-06`
 is refused as contested because the corpus genuinely disagrees about the
@@ -295,6 +295,59 @@ rule-07 and rule-08 and leave the other twelve where they are.
 happens. Pre-naming them, and criterion 4, are what separate it from fitting a
 prompt to a score; it is not a substitute for a boundary set large enough to
 carry a number, and no percentage from it should be quoted as one.
+
+**What it did.** 57.1% -> 71.4%, refusals 4 -> 3, determinism 93.8% -> 100%,
+guard 0 of 32 with all four sets reporting. Every criterion above was met, so
+the change ships.
+
+| 14 scored cases | gate fix | + boundary |
+|---|---:|---:|
+| accuracy | 57.1% | **71.4%** |
+| refused | 4 | **3** |
+| determinism | 93.8% | **100%** |
+| false answers, 32 refusal cases | 0 | **0** |
+
+Two cases moved and only one of them is evidence. `rule-08` was named in
+advance and is the mechanism's own target; it now answers *"The threshold is
+exactly at EUR 25,000. The policy states that for values up to and including
+EUR 25,000, the approver is the Head of Department"* - criterion 4 in the
+answer's own words. `rule-14` also flipped, but it was not named, and it was
+already giving two different answers when asked twice; a case that was
+flipping anyway flipping again is not a result, and counting this arm as +2
+would be counting noise.
+
+**`rule-07` still fails, and the failure changed shape.** The boundary rule
+worked on it: the answer quotes the 25,001 band, notices it starts at 25,001,
+checks the second document, and concludes *"no three competitive quotes are
+required for a contract valued at exactly EUR 25,000."* But it **opens** with
+*"Yes, a contract with an annual value of exactly EUR 25,000 needs three
+competitive quotes."* It leads with a guess and corrects it five paragraphs
+later, so a person reading the first line is told the opposite of the answer.
+The exam missed it too - none of `must_say`'s four phrasings match "does NOT
+require" - but the self-contradiction is the real defect and the exam wording
+is not why this case should fail. Answering before reasoning is a second
+change and this arm is one change.
+
+**A quotation that was not one, found in the case this arm fixed.** `rule-08`'s
+answer presents, in the table's exact column format and inside quotation marks,
+a row attributed to `finance-procurement-policy`:
+
+> "Contract value (annual): Above EUR 25,000 | Approver: Chief Financial
+> Officer | Additional requirement: Three competitive quotes"
+
+There is no such row. "Above EUR 25,000" occurs in section 2 as prose about
+quotes and is never paired with an approver; the answer welds it to the table's
+CFO row. Every element is real somewhere in the document, so a support check
+over word and number overlap cannot see the seam - the same hole as the
+invented fourth act in `fortyfifth-...`. The fabricated row is semantically
+true and the conclusion drawn from it is correct, which makes it a false
+attribution rather than a false fact: the harder kind to notice, and the kind a
+reader checking the citation would catch. Not caused by this change, and not
+fixed here - the gate has never checked that a quotation is a quotation, and
+adding that is a change of its own with its own false-positive risk on
+paraphrase.
+
+Full record: `evals/measured/fortyninth-the-answer-that-contradicted-its-first-sentence.json`.
 
 **Risk.** Prompt changes have cost refusals before, and were reverted for it
 (`fortysecond-the-fix-that-cost-a-refusal.json`). Hence the set first, the
