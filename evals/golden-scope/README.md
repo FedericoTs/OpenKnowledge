@@ -84,10 +84,13 @@ uv run openknowledge eval --path evals/golden-scope/scope.yaml --tag structure
 ```
 
 The two refusals are "the fourth act" of a three-act play and "chapter
-thirteen" of twelve, each refused with the count. The other three cases - the
-in-budget control, the Act I summary, and a refusal with no structure to lean
-on - need a model; their numbers, before and after this change, are in
-`evals/measured/fortysixth-the-document-that-answered-for-itself.json`.
+thirteen" of twelve, each refused with the count.
+
+The other three cases - the in-budget control, the Act I summary, and a refusal
+with no structure to lean on - need a model, and their before/after is **not
+measured yet**. No number is claimed for them until it is;
+`evals/measured/fortysixth-the-document-that-answered-for-itself.json` says so
+in the same words.
 
 ### The ceiling: `tools/measure_scope.py`
 

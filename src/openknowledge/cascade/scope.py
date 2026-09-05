@@ -311,13 +311,16 @@ def _target(lowered: str, hits: list[ScoredChunk], titles: Mapping[str, str]) ->
         return named[0]
     if len(named) > 1:
         return None
-    # Otherwise the hits must agree: at least half of them from one document,
-    # and never fewer than two.
+    # Otherwise the hits must agree: unanimously, or by a majority of at least
+    # two. Unanimity is the case a bare majority rule gets wrong - a small
+    # install with one short document retrieves exactly one passage, and
+    # demanding a second means the desktop app's commonest shape, one uploaded
+    # handbook, could never reach this path at all.
     if not hits:
         return None
     counts = Counter(h.chunk.document_id for h in hits)
     doc, n = counts.most_common(1)[0]
-    if n >= max(2, math.ceil(len(hits) / 2)):
+    if n == len(hits) or n >= max(2, math.ceil(len(hits) / 2)):
         return doc
     return None
 

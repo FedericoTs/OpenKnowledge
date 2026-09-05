@@ -1,0 +1,66 @@
+{
+  "what": "What one typo costs at the retrieval layer, and the decision not to fix it",
+  "when": "2026-09-05",
+  "why": "Two of the sixteen questions a real install could not answer were misspelled - 'summaryze the second document', 'what is the list of priroities'. BM25 matches terms exactly, so a misspelled content word contributes nothing. Nobody had measured what that costs, and the plan said measure before building.",
+  "how": "uv run python tools/measure_typos.py --set <set> --documents <corpus>",
+  "method": "No model. For every golden case that names the document it must cite, the longest content word of the question - the most distinctive one, so the worst case for a single typo - is mangled four ways, and the question is asked again. The measure is whether the cited document is still among the six passages retrieved. A fact the model never sees is one it cannot state.",
+  "per_set": {
+    "ftr": {
+      "cases_naming_a_document": 7,
+      "found_when_spelled_correctly": 7,
+      "found_after_one_typo": {
+        "dropped": 6,
+        "doubled": 6,
+        "transposed": 6,
+        "substituted": 6
+      }
+    },
+    "injection": {
+      "cases_naming_a_document": 12,
+      "found_when_spelled_correctly": 12,
+      "found_after_one_typo": {
+        "dropped": 12,
+        "doubled": 12,
+        "transposed": 12,
+        "substituted": 12
+      }
+    },
+    "aveline": {
+      "cases_naming_a_document": 14,
+      "found_when_spelled_correctly": 14,
+      "found_after_one_typo": {
+        "dropped": 14,
+        "doubled": 14,
+        "transposed": 14,
+        "substituted": 14
+      }
+    },
+    "scope": {
+      "cases_naming_a_document": 7,
+      "found_when_spelled_correctly": 7,
+      "found_after_one_typo": {
+        "dropped": 7,
+        "doubled": 7,
+        "transposed": 7,
+        "substituted": 7
+      }
+    }
+  },
+  "total": {
+    "cases_scored": 40,
+    "question_typo_pairs": 160,
+    "still_found": 156,
+    "survival_rate_pct": 97.5,
+    "cases_lost_by_any_edit": [
+      "gsa-17-receipts"
+    ]
+  },
+  "the_decision": "Not built. 40 cases across four corpora, 160 question-and-typo pairs, and 156 still retrieve the document they need (97.5%) - one case in 40 is lost, and only in golden-ftr. A question carries several content words and BM25 finds the document on the others, so the single misspelling that motivated this is mostly absorbed already. A term-repair pass would be new machinery on the hot path of every query for 2.5% of one layer's recall.",
+  "not_measured": [
+    "Whether a typo confuses the model even when retrieval succeeds. This is the retrieval ceiling only.",
+    "Two typos in one question, or a typo in a short content word rather than the longest.",
+    "Whether the embedding half of hybrid retrieval absorbs typos better than BM25; these runs are BM25-only."
+  ],
+  "a_mistake_worth_recording": "The first version of this harness listed one directory level and only Markdown. evals/corpus/aveline is a tree with a spreadsheet and a PDF in it, so the harness measured an empty corpus and reported 0 of 14 found - a number that looked like a catastrophic finding and was a bug in the ruler. It now loads through the product's own parser, derives ids the way the connector does, and refuses to run on a corpus it cannot read or a case citing a document that is not there.",
+  "a_second_mistake": "The sentence above was first written with numbers I had worked out in my head - 39 cases, 155 pairs - before the script printed 40 and 156. Nothing turned on the difference, which is exactly why it would have survived."
+}

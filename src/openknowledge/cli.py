@@ -19,6 +19,7 @@ from typing import Any
 from .canonical import canonicalize_query
 from .config import load_settings
 from .costs import load_price_table
+from .gaps import mark_answerable
 from .paths import state_paths
 from .types import Tier
 
@@ -284,7 +285,9 @@ def _cmd_gaps(args: argparse.Namespace) -> int:
 
     engine = _engine()
     since = time.time() - args.days * 86400 if args.days > 0 else None
-    gaps = engine.store.knowledge_gaps(since=since, limit=args.limit)
+    gaps = mark_answerable(
+        engine.store.knowledge_gaps(since=since, limit=args.limit), engine.retriever
+    )
 
     if args.json:
         print(json.dumps(gaps, indent=2))
@@ -295,8 +298,17 @@ def _cmd_gaps(args: argparse.Namespace) -> int:
         print(f"Nothing went unanswered in {window} - the documents covered what was asked.")
         return 0
 
-    print(f"Questions the documents did not fully answer (last {args.days} days):")
-    print()
+    # A question somebody has since made answerable is not a gap any more, and
+    # leaving it at the top of the list competing with the real ones is how
+    # this report wasted a reader's attention on four rows out of sixteen.
+    closed = [g for g in gaps if g["answered_now"]]
+    gaps = [g for g in gaps if not g["answered_now"]]
+
+    if not gaps and closed:
+        print(f"Nothing is still unanswered (last {args.days} days).")
+    elif gaps:
+        print(f"Questions the documents did not fully answer (last {args.days} days):")
+        print()
     for gap in gaps:
         asked = gap["asked"]
         times = "once" if asked == 1 else f"{asked} times"
@@ -305,6 +317,12 @@ def _cmd_gaps(args: argparse.Namespace) -> int:
         half = "  (answered in part)" if gap["kind"] == "partial" else ""
         print(f"  {times:>10}  {gap['question']}{half}")
     print()
+    if closed:
+        print(f"{len(closed)} question(s) here are answered now and were not when asked:")
+        for gap in closed:
+            how = "from the index" if gap["answered_now"] == "corpus" else "from the document"
+            print(f"  {gap['question']}  ({how})")
+        print()
     print("Each line is a document worth writing, or a question worth pinning.")
     print("'Answered in part' has two causes and this cannot tell them apart:")
     print("the section is missing, or the answer was spread over more of the")

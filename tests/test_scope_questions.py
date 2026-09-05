@@ -382,3 +382,16 @@ def test_generic_heading_words_do_not_filter() -> None:
 def test_defined_is_an_enumeration_cue() -> None:
     scope = recognise_scope("what terms are defined?", _concentrated())
     assert scope is not None and scope.wants == "terms"
+
+
+def test_one_document_one_passage_is_a_target() -> None:
+    """The desktop app's commonest shape: one handbook uploaded, one passage
+    retrieved. A "never fewer than two" rule would lock it out of this path
+    entirely, and it was found by a test written for the gap report."""
+    scope = recognise_scope("what are the priorities?", [_hit("handbook", 0)])
+    assert scope is not None and scope.document_id == "handbook"
+
+
+def test_a_lone_dissenting_hit_still_blocks() -> None:
+    """Two documents, one passage each: no majority, no unanimity, no target."""
+    assert recognise_scope("what are the priorities?", [_hit("a", 0), _hit("b", 0)]) is None

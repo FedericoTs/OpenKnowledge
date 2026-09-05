@@ -56,6 +56,7 @@ from ..configview import describe as describe_settings
 from ..contacts import ContactError, ContactStore, clean
 from ..desktop import setup as first_run
 from ..disk import free_bytes, no_room_for
+from ..gaps import mark_answerable
 from ..health import HealthMonitor
 from ..health import targets as health_targets
 from ..knowledge.store import Actor
@@ -1470,8 +1471,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         for is not everybody's business.
         """
         since = time.time() - days * 86400 if days > 0 else None
-        gaps = engine.store.knowledge_gaps(since=since, limit=limit)
-        return {"days": days, "gaps": gaps, "total": len(gaps)}
+        gaps = mark_answerable(
+            engine.store.knowledge_gaps(since=since, limit=limit), engine.retriever
+        )
+        closed = sum(1 for g in gaps if g["answered_now"])
+        return {"days": days, "gaps": gaps, "total": len(gaps), "answered_now": closed}
 
     @app.get("/admin/questions", dependencies=[CuratorOnly])
     async def questions(engine: EngineDep, limit: int = 20, days: int = 0) -> dict[str, Any]:

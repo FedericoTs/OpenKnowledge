@@ -149,6 +149,14 @@ change second, and one change at a time.
 
 ## P4 — The gap report clears what was fixed
 
+**Status: built.** `src/openknowledge/gaps.py` re-tries every row against the
+free tiers - the corpus recogniser, the assistant safety net, and a document's
+own structure - and the CLI and `/manage` both separate rows that are answered
+now from rows that are still open. Found on the way, by a test written for
+this: the whole-document target vote demanded two agreeing passages, so a
+one-document install - the desktop app's commonest shape - could never reach
+the outline tier at all. Unanimity now counts.
+
 **Evidence.** Four of the sixteen rows were answered free at the time of
 reading; they had been fixed on 2026-08-29. The query clears a row only when
 the question is asked again and succeeds, and nobody re-asks a question that
@@ -164,6 +172,15 @@ cascade on demand; it is never automatic, because it costs a model call.
 recogniser now answers; the CLI and the panel both label it.
 
 ## P5 — Typo tolerance
+
+**Status: measured, and deliberately not built.** 40 cases across four corpora,
+160 question-and-typo pairs, 156 still retrieve the document they need - 97.5%.
+One case in forty is lost, in `golden-ftr` alone. A question carries several
+content words and BM25 finds the document on the others, so the misspelling
+that motivated this is mostly absorbed already; a term-repair pass would be new
+machinery on the hot path of every query for 2.5% of one layer's recall. The
+harness is committed so the decision can be re-taken when the number moves:
+`evals/measured/fortyseventh-what-a-typo-costs.json`.
 
 **Evidence.** `summaryze`, `priroities`. Two of sixteen. BM25 on a misspelled
 content word finds nothing, and nothing here has measured how often that

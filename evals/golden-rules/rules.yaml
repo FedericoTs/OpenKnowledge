@@ -1,0 +1,222 @@
+# Does it apply the rule, or only recite it?
+#
+# Asked "what is the procurement threshold?" the system answers correctly. Asked
+# "we want to buy a EUR 40,000 platform - do we need quotes?" it refuses, though
+# the rule is plain in the document and retrieval finds it. Two evaluations
+# found this independently: inj-07 in golden-injection, where it failed in all
+# three arms of the control and so is not injection's doing, and golden-ftr,
+# whose notes name the same gap. Neither set was built to measure it, so
+# neither can say whether a change helps.
+#
+# This one is. Every case states a figure and needs it compared against a
+# threshold in the corpus. The corpus is evals/corpus/aveline, already
+# committed and used by golden-aveline; nothing here is new writing, and each
+# case's `notes` quotes the sentence it turns on so the exam can be checked
+# against the documents rather than trusted.
+#
+# The boundary cases are the point. "Up to EUR 5,000", "above EUR 25,000", "at
+# or below EUR 500", "more than 20 working days" - a system that pattern-matches
+# a number to a nearby band gets the interior right and the edges wrong, and the
+# edges are where somebody is told they may commit money they may not.
+#
+# Scoring an inference set with substring matching takes some care, and the
+# first draft of this file got it wrong twice.
+#
+# `must_not_say: [no]` fails a *correct* answer, because "not" contains "no" -
+# the same mistake golden-ftr's notes record, made again here and caught by
+# checking each forbidden phrase against a right answer before trusting it.
+# Every `must_not_say` below is now a phrase a correct answer cannot contain,
+# and where none exists the field is absent rather than approximated.
+#
+# The refusal is the failure being measured, and the scorer already fails an
+# answerable case that is refused. So `must_say` carries the document's own
+# words - the band, the figure, the named approver - and a wrong band fails on
+# that alone. That is why most cases need no `must_not_say` at all.
+#
+# Hence the two-group shape of several cases: one group is the derived verdict
+# and one is the document's own words. `openknowledge eval --dry-run` checks
+# that a case's phrases appear in the retrieved text, which assumes the answer
+# is quoted from the corpus - and an inference set breaks that assumption, since
+# "not required" is the answer to rule-07 and appears nowhere in the policy. The
+# pre-flight fails a case only when *every* one of its fact groups is missing,
+# which it documents as deliberate, so the extractive group confirms retrieval
+# reached the right passage while the derived group is expected to be absent.
+# Checked rather than assumed: for rule-07 none of the verdict phrasings appear
+# in what retrieval returns, and the set passes the pre-flight anyway.
+#
+#   export OK_DOCUMENTS_DIR=$PWD/evals/corpus/aveline
+#   uv run openknowledge eval --path evals/golden-rules/rules.yaml --verbose
+
+# --- interior: the figure is clearly inside one band -------------------------
+
+- id: rule-01-40k-needs-quotes
+  question: We want to buy a platform with an annual value of EUR 40,000. Do we need competitive quotes?
+  must_cite: [finance-procurement-policy]
+  must_say:
+    - ["three competitive quotes", "three quotes"]
+  must_not_say: ["quotes are not required", "no quotes are required"]
+  paraphrases:
+    - Does a EUR 40,000 annual contract require competitive quotes?
+  tags: [procurement, interior]
+  notes: >
+    "Three competitive quotes are required for any contract with an annual
+    value above EUR 25,000." 40,000 is above 25,000. This is the field failure
+    inj-07 recorded, moved to a corpus where it can be measured.
+
+- id: rule-02-40k-approver
+  question: Who has to approve a EUR 40,000 annual contract?
+  must_cite: [finance-procurement-policy]
+  must_say:
+    - ["Chief Financial Officer", "CFO"]
+  tags: [procurement, interior]
+  notes: '"EUR 25,001 to EUR 50,000 | Chief Financial Officer". 40,000 is in that band.'
+
+- id: rule-03-3k-approver
+  question: A team wants to spend EUR 3,000 a year on a subscription. Who approves it?
+  must_cite: [finance-procurement-policy]
+  must_say:
+    - ["line manager"]
+  tags: [procurement, interior]
+  notes: '"Up to EUR 5,000 | Line manager | None". 3,000 is inside it.'
+
+- id: rule-04-60k-board
+  question: Does a EUR 60,000 annual contract need board approval?
+  must_cite: [finance-procurement-policy]
+  must_say:
+    - ["Board"]
+    - ["legal review"]
+  tags: [procurement, interior]
+  notes: '"Above EUR 50,000 | Board | Three quotes and legal review".'
+
+- id: rule-05-750-expense-approval
+  question: I need to book a EUR 750 flight. Do I need approval before I book it?
+  must_cite: [hr-expenses-policy]
+  must_say:
+    - ["written approval", "prior approval"]
+    - ["EUR 500", "500"]
+  must_not_say: ["no approval is needed", "without prior approval"]
+  tags: [expenses, interior]
+  notes: '"Any single item of travel expenditure above EUR 500 requires written approval ... before".'
+
+# --- the boundaries, where a near-miss becomes a wrong answer ----------------
+
+- id: rule-06-exactly-500
+  question: Do I need prior approval for a travel expense of exactly EUR 500?
+  must_cite: [hr-expenses-policy]
+  must_say:
+    - ["without prior approval", "at or below", "does not require", "no prior approval"]
+    - ["EUR 500", "500"]
+  tags: [expenses, boundary]
+  notes: >
+    "Expenditure at or below EUR 500 may be claimed without prior approval."
+    The threshold sentence says *above* EUR 500, so 500 itself is not above it.
+
+- id: rule-07-exactly-25000-quotes
+  question: Does a contract with an annual value of exactly EUR 25,000 need three competitive quotes?
+  must_cite: [finance-procurement-policy]
+  must_say:
+    - ["not required", "are not needed", "do not need", "no quotes"]
+    - ["EUR 25,000", "25,000"]
+  tags: [procurement, boundary]
+  notes: >
+    Quotes are required "above EUR 25,000"; 25,000 is not above 25,000. The
+    approval band "EUR 5,001 to EUR 25,000" also includes it, so the same
+    figure sits inside one rule and outside the other - which is exactly the
+    case a system that matches a number to the nearest band gets wrong.
+
+- id: rule-08-exactly-25000-approver
+  question: Who approves a contract with an annual value of exactly EUR 25,000?
+  must_cite: [finance-procurement-policy]
+  must_say:
+    - ["Head of Department"]
+  tags: [procurement, boundary]
+  notes: '"EUR 5,001 to EUR 25,000 | Head of Department" - inclusive of 25,000.'
+
+- id: rule-09-exactly-5000
+  question: A EUR 5,000 annual contract - does it need a written business case?
+  must_cite: [finance-procurement-policy]
+  must_say:
+    - ["line manager"]
+  tags: [procurement, boundary]
+  notes: >
+    "Up to EUR 5,000 | Line manager | None" - 5,000 is the top of that band. No
+    `must_not_say` is possible: "business case is required" is a substring of
+    "no business case is required", which is how a correct answer phrases it.
+
+- id: rule-10-exactly-20-days-abroad
+  question: I want to work from another country for exactly 20 working days this year. Will that be approved?
+  must_cite: [hr-remote-work]
+  must_say:
+    - ["20 working days", "20 days"]
+  tags: [remote, boundary]
+  notes: >
+    "Requests to work from another country for more than 20 working days in a
+    rolling 12 months will not be approved." 20 is not more than 20 - though
+    prior written approval from People Operations is still required, so an
+    answer saying yes-with-approval is correct. No `must_not_say` is possible
+    here: a correct answer quotes "will not be approved" while explaining that
+    20 does not reach it, so the obvious forbidden phrase fails right answers.
+
+- id: rule-11-exactly-12-months-service
+  question: I will have exactly 12 months of continuous service when my baby is due. How many weeks of fully paid parental leave do I get?
+  must_cite: [hr-parental-leave]
+  must_say:
+    - ["20 weeks", "twenty weeks"]
+  tags: [leave, boundary]
+  notes: >
+    "Employees with 12 months of continuous service at the expected date of
+    birth ... are entitled to 20 weeks of fully paid parental leave." The
+    12-week rule is for *less than* 12 months, so the plausible wrong answer
+    is the other figure in the same paragraph.
+
+- id: rule-12-exactly-14-character-password
+  question: Is a 14 character password long enough?
+  must_cite: [security-information-security]
+  must_say:
+    - ["14 characters"]
+  must_not_say: ["at least 15", "at least 16", "not long enough"]
+  tags: [security, boundary]
+  notes: '"Passwords must be at least 14 characters." 14 satisfies "at least 14".'
+
+# --- the figure is outside every band, or the rule does not reach it ---------
+
+- id: rule-13-analyst-cannot-approve-1200
+  question: Can an Analyst approve a EUR 1,200 expense claim?
+  must_cite: [hr-expenses-policy]
+  must_say:
+    - ["EUR 500", "500"]
+    - ["Manager"]
+  must_not_say: ["an Analyst may approve", "an analyst can approve"]
+  tags: [expenses, interior]
+  notes: '"Analyst | EUR 500 | Manager" - 1,200 is over an Analyst''s limit.'
+
+- id: rule-14-split-purchase
+  question: Can we split a EUR 60,000 purchase into three orders of EUR 20,000 to avoid board approval?
+  must_cite: [finance-procurement-policy]
+  must_say:
+    - ["disciplinary"]
+  must_not_say: ["that is acceptable", "you can split"]
+  tags: [procurement, interior]
+  notes: >
+    "Splitting a purchase to stay below a threshold is a disciplinary matter."
+    Applying the rule here means recognising the arithmetic in the question as
+    the thing the sentence forbids.
+
+# --- must refuse: the corpus states no threshold for these -------------------
+
+- id: rule-15-crypto-payment
+  question: We want to pay a EUR 30,000 invoice in cryptocurrency. Is that allowed?
+  kind: refusal
+  tags: [procurement, refusal]
+  notes: >
+    The corpus sets thresholds by value and says nothing about payment method.
+    A system that has learned to answer threshold questions must not answer
+    this one because it contains a figure.
+
+- id: rule-16-relocation-allowance
+  question: What is the relocation allowance for an employee moving to Dublin on a EUR 90,000 salary?
+  kind: refusal
+  tags: [expenses, refusal]
+  notes: >
+    No relocation policy is in this corpus. The figure and the city are both
+    there to make an invented band look plausible.

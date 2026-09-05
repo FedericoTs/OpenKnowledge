@@ -175,8 +175,9 @@
       cannot tell them apart: the section really is missing, or the answer was
       spread over more of the document than is read at once — a question like
       “what are all the priorities?” is answered from a few passages, not the
-      whole file. A question stays listed until somebody asks it again, so a
-      gap you have already closed sits here until it is re-asked.
+      whole file. Rows you have already closed are re-checked against the
+      free tiers and moved to the bottom, so what is left is what is still
+      open.
       Nobody's name is recorded against any of them:
       the log this reads has no column for who asked.
     </p>
@@ -516,6 +517,16 @@ async function refreshReports() {
         try { await close('dismissed', 'Reviewed and left as it was.'); }
         catch (e) { drop.disabled = false; note.textContent = e.message; }
       };
+    }
+    if (closed.length) {
+      const note = box.appendChild(el('details', 'item'));
+      note.appendChild(el('summary')).appendChild(el('b', null,
+        closed.length + ' answered since ' + (closed.length === 1 ? 'it was' : 'they were') + ' asked'));
+      const list = note.appendChild(el('div', 'body'));
+      for (const g of closed) {
+        list.appendChild(el('p', null, g.question + ' — now answered '
+          + (g.answered_now === 'corpus' ? 'from the index' : "from the document's own structure")));
+      }
     }
   } catch (e) {
     box.textContent = '';
@@ -874,7 +885,14 @@ async function refreshGaps() {
         'Nothing was refused in the last 30 days — the documents covered what was asked.'));
       return;
     }
-    for (const g of body.gaps) {
+    // A question somebody has since made answerable is not a gap any more.
+    // The server re-tries every row against the tiers that cost nothing, and
+    // these are the ones that would be answered today. They stay visible -
+    // seeing that a fix landed is worth something - but below the live ones
+    // and out of the way. Measured: four of sixteen rows on a real install.
+    const open = body.gaps.filter(g => !g.answered_now);
+    const closed = body.gaps.filter(g => g.answered_now);
+    for (const g of open) {
       const item = box.appendChild(el('details', 'item'));
       const head = item.appendChild(el('summary'));
       head.appendChild(el('span', 'tag', g.asked === 1 ? 'once' : g.asked + ' times'));

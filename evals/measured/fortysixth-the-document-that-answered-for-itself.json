@@ -1,0 +1,56 @@
+{
+  "what": "Whole-document questions: what the document's own structure can answer, free",
+  "when": "2026-09-05",
+  "why": "Eleven of the sixteen questions a real install could not answer were one shape - list all of, name the characters, summarise. fortyfifth-... measured the ceiling: at the shipped k=6 a 22-chunk glossary shows the model one chunk and 26 of its 82 terms, and raising k eight-fold reaches 89%, not 100%. Ranking cannot fix a question whose answer is the whole document.",
+  "set": "evals/golden-scope/scope.yaml - 10 cases over 4 documents nobody here wrote",
+  "measured_without_a_model": {
+    "how": "uv run openknowledge eval --path evals/golden-scope/scope.yaml --tag structure, with OK_LOCAL_ENABLED=false - the real cascade, no model reachable",
+    "cases": 7,
+    "accuracy_pct": 100.0,
+    "false_answers": 0,
+    "determinism_pct": 100.0,
+    "paraphrase_consistency_pct": 100.0,
+    "cost_usd": 0.0,
+    "tiers": {
+      "outline": 5,
+      "refused": 2
+    },
+    "what_the_seven_are": [
+      "the nine persons Wilde printed, from the list under the heading that says so",
+      "the twelve chapters Carroll wrote, from the headings",
+      "the 82 terms the regulation defines, from the paragraphs that open with one",
+      "the forty section titles of FTR part 301-10",
+      "the second chapter of Alice, by ordinal into the same list",
+      "the fourth act of a three-act play: refused, with the count",
+      "chapter thirteen of twelve: refused, with the count"
+    ],
+    "in_ci": "yes - a step on every push, so a regression here fails the build"
+  },
+  "model_in_the_loop": {
+    "status": "pending",
+    "why_pending": "This machine answers one question every two to three minutes on four CPU cores. The before/after over the three cases that still need a model - the in-budget control, the Act I summary, and a refusal with no structure to lean on - was still running when v0.12.8 was cut, and no number is claimed for it until it has finished.",
+    "what_it_will_say": "Whether a summary assembled from the named section in order beats six ranked passages, and whether the control stays complete."
+  },
+  "how_it_works": {
+    "two_votes": "A question is treated as whole-document only when it has the shape - list, all, every, summarise, what does it cover, an ordinal - AND a target: retrieval concentrating on one document, or the question naming its title. Either alone changes nothing, which is why every fact question in the four older golden sets takes the path it always did.",
+    "structure_first": "Headings answer 'what are the chapters'; a list under a matching heading answers 'who are the persons'; paragraphs that open with a defined term answer 'what terms does it define'. No model, $0, deterministic, tier `outline`.",
+    "assembly_second": "A summary reads the document - or the one section an ordinal names - in order, up to what the model's window takes. 8,192 tokens less a ~1,070 token system prompt is about ten passages; a longer document is read from the start and the notes say so."
+  },
+  "sabotages": [
+    "recogniser off: the cast list reaches a model",
+    "heading-noun filter off: 'the fourth act' answers SECOND ACT instead of refusing",
+    "assembly cap ignored: the whole act goes to the model",
+    "target vote off: shape alone picks a document",
+    "vote reads post-rerank hits: 'who are the characters?' loses its target",
+    "heading noun ignored without an ordinal: 'what are the chapters?' lists a play's acts"
+  ],
+  "corrections_along_the_way": [
+    "I believed the reranker's two-per-document cap made the concentration vote impossible. Measured, the cap is soft and 'part 301-10' still concentrated 5 of 6 after reranking. The vote reads pre-rerank candidates anyway, because 'who are the characters?' spreads to 2/2/2 after reranking and concentrates 16 of 30 before it.",
+    "The target vote demanded two agreeing passages, so a one-document install - the desktop app's commonest shape - could never reach this path at all. Found by a test written for the gap report, not by this set. Unanimity now counts.",
+    "'part 301-10' parsed as ordinal 301; 'summarise the first act' was classed as an enumeration; 'the fourth act' indexed all five headings of the play. All three caught by a dry run before the router was touched."
+  ],
+  "not_built": [
+    "map-reduce over windows for a document the context window cannot take",
+    "a completeness notion in the grounding gate: an answer listing 26 of 82 still passes as grounded"
+  ]
+}

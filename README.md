@@ -114,8 +114,10 @@ always did.
 
 Measured through the real cascade with no model configured, and CI runs exactly that. A
 summary — "summarise the first act" — reads the named section in order, as far as the
-model's window allows, instead of six ranked passages; what a model then makes of it is in
-the measured record.
+model's window allows, instead of six ranked passages. **What a model then makes of that is
+not yet measured**: this machine answers one question every two to three minutes on four
+CPU cores and the before/after was still running when this shipped. The structure half
+above needs no model and is the half that is claimed.
 
 Measured in `evals/measured/fortyfifth-the-answer-that-was-a-whole-document.json` and
 `fortysixth-the-document-that-answered-for-itself.json` — rerun with `uv run python tools/measure_scope.py` and
