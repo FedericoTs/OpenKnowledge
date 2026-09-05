@@ -54,6 +54,8 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
 
 from ..documents.blocks import Block, BlockKind
+from .corpus import _EMPTY as _NO_SUBJECT_WORDS
+from .corpus import _META as _COLLECTION_NOUNS
 
 if TYPE_CHECKING:
     from ..retrieval.base import Chunk, ScoredChunk
@@ -272,6 +274,40 @@ def recognise_scope(
     target = _target(lowered, list(hits), titles or {})
     if target is None:
         return None
+
+    # "Does the parental leave policy cover adoption?" is not "what does it
+    # cover?". Both contain "cover" and name a document, and only the first
+    # asks about something in particular - so listing the document's headings
+    # answers it with a non-answer wearing the shape of an answer. Shipped in
+    # v0.12.8 and caught by the aveline safety set: the question above was
+    # answered with "Parental Leave Policy has 4 sections: Entitlement,
+    # Notice, Taking leave, Return to work", and the corpus says nothing about
+    # adoption at all.
+    #
+    # The corpus tier already had the rule and this did not reuse it: a
+    # question qualifies only when removing the vocabulary leaves nothing
+    # behind. Here "nothing behind" also forgives the document's own name,
+    # because naming the document you are asking about is not a subject.
+    #
+    # Only the coverage branch needs it, and "coverage branch" means exactly
+    # that: an enumeration whose shape came from the word "cover" alone. A
+    # question that names what it wants - the chapters, the persons, the terms -
+    # has already said so. And a summary keeps its subject: "summarise the
+    # feedback from Caterina" names what to summarise, which the first version
+    # of this guard rejected because it tested `wants is None` and caught the
+    # summarise branch with it.
+    if enumerate_ and wants is None:
+        title_words = {w for w in _WORDS.findall((titles or {}).get(target, target).lower())}
+        residue = [
+            w
+            for w in words
+            if w not in _COVERAGE
+            and w not in _NO_SUBJECT_WORDS
+            and w not in _COLLECTION_NOUNS
+            and w not in title_words
+        ]
+        if residue:
+            return None
 
     # A summary cue wins: "summarise the first act" wants the act summarised,
     # and the ordinal scopes which section is read rather than what is listed.

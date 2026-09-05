@@ -395,3 +395,52 @@ def test_one_document_one_passage_is_a_target() -> None:
 def test_a_lone_dissenting_hit_still_blocks() -> None:
     """Two documents, one passage each: no majority, no unanimity, no target."""
     assert recognise_scope("what are the priorities?", [_hit("a", 0), _hit("b", 0)]) is None
+
+
+# --- "does X cover Y?" is not "what does X cover?" ------------------------------
+
+
+def _titled(doc: str = "hr-parental-leave", title: str = "Parental Leave Policy"):
+    return [_hit(doc, i, title) for i in range(6)], {doc: title}
+
+
+def test_a_coverage_question_about_something_in_particular_is_not_ours() -> None:
+    """Shipped in v0.12.8 and caught by the aveline safety set.
+
+    "Does the parental leave policy cover adoption?" was answered with
+    "Parental Leave Policy has 4 sections: Entitlement, Notice, Taking leave,
+    Return to work" - a non-answer in the shape of an answer, to a question the
+    corpus does not address at all. The scorer called it a false answer and was
+    right: adoption appears nowhere in that corpus.
+    """
+    hits, titles = _titled()
+    for question in (
+        "Does the parental leave policy cover adoption?",
+        "Does the parental leave policy cover fathers?",
+        "Does the handbook cover redundancy?",
+        "Does this document cover contractors?",
+    ):
+        assert recognise_scope(question, hits, titles=titles) is None, question
+
+
+def test_a_question_about_the_document_as_a_whole_still_fires() -> None:
+    """The other side of the same line - and the reason the guard forgives the
+    document's own name, because naming what you are asking about is not a
+    subject."""
+    hits, titles = _titled()
+    for question in (
+        "What does the parental leave policy cover?",
+        "What does this document cover?",
+        "what does the document covers",
+        "What are the contents of the parental leave policy?",
+    ):
+        assert recognise_scope(question, hits, titles=titles) is not None, question
+
+
+def test_naming_the_wanted_structure_is_not_leftover_subject() -> None:
+    """ "What are the chapters of Alice in Wonderland?" says what it wants, so
+    the noun is the answer rather than a subject the guard should reject."""
+    hits = [_hit("alice", i, "Alice's Adventures in Wonderland") for i in range(6)]
+    titles = {"alice": "Alice's Adventures in Wonderland"}
+    scope = recognise_scope("What are the chapters of Alice in Wonderland?", hits, titles=titles)
+    assert scope is not None and scope.wants == "headings"
