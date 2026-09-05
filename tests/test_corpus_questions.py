@@ -251,3 +251,44 @@ def test_managing_verbs_do_not_hijack_real_work() -> None:
         "can you read the expenses policy?",
     ):
         assert recognise(question) is None, question
+
+
+def test_one_named_document_is_not_the_whole_shelf() -> None:
+    """"What does this document cover?" is about a document, not the index.
+
+    This is the worst failure the corpus tier can produce, and the only one
+    it produces silently. Every other question in the gap report came back a
+    refusal; this one came back a confident inventory of the whole server,
+    marked grounded, from the first branch of the cascade - before the cache,
+    before retrieval, before the contradiction check, and before anything that
+    could have disagreed with it. A person asks what they just uploaded and is
+    told what else is on the shelf.
+    """
+    for question in (
+        "what does the document covers",
+        "what does the document cover",
+        "what does this document cover",
+        "what is in the document",
+        "what does the file contain",
+        "what does that report say",
+        "what does the handbook cover",
+    ):
+        assert recognise(question) is None, question
+
+
+def test_the_collection_still_answers_for_itself() -> None:
+    """The other side of the same line, and the reason the fix is narrow.
+
+    "What are the macro-categories of info they covers?" is the field
+    question that put "cover"/"covers" into the no-subject vocabulary in the
+    first place. Fixing the singular case by dropping those words again would
+    trade one field failure for the other.
+    """
+    for question in (
+        "what do the documents cover",
+        "what documents do you have",
+        "what topics do the documents cover",
+        "what are the macro-categories of info they covers",
+        "how many documents do you have",
+    ):
+        assert recognise(question) is not None, question

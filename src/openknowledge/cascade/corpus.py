@@ -222,6 +222,34 @@ _EMPTY = frozenset(
 )
 
 
+#: One named document, not the collection. "What does *this* document cover?"
+#: is asked with a file open or just uploaded, and answering it with an
+#: inventory of everything on the server is not a near miss - it is a confident
+#: answer to a question nobody asked, and it is delivered free, ungated, from
+#: the first branch of the cascade.
+#:
+#: Grammatical number carries the whole distinction and this used to discard
+#: it: "cover" and "covers" joined the no-subject vocabulary in 17818b9 so that
+#: "what are the macro-categories of info they covers?" would be recognised,
+#: and the side effect was that "what does the document cover?" stopped having
+#: a subject too. A singular collection noun under a definite or demonstrative
+#: determiner is that subject, and it belongs to retrieval.
+_ONE_DOCUMENT = re.compile(
+    r"\b(?:the|this|that)\s+"
+    r"(?:document|file|doc|paper|report|attachment|policy|handbook)\b"
+)
+
+
+def _names_one_document(question: str) -> bool:
+    """Whether the question is about a single document rather than the shelf.
+
+    Plurals are deliberately not matched: "what do the documents cover?" and
+    "what documents do you have?" are questions about the collection and must
+    keep their free answer.
+    """
+    return _ONE_DOCUMENT.search(question.lower()) is not None
+
+
 @dataclass(frozen=True, slots=True)
 class CorpusQuestion:
     """A recognised question about the collection, and which kind it is."""
@@ -242,6 +270,10 @@ def recognise(question: str) -> CorpusQuestion | None:
     """
     words = _WORDS.findall(question.lower())
     if not words:
+        return None
+    # "What does this document cover?" names a subject; it is just not a
+    # subject made of content words, so the residue test below cannot see it.
+    if _names_one_document(question):
         return None
     vocabulary = set(words)
     about_collection = bool(_META & vocabulary)

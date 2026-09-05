@@ -52,6 +52,12 @@ jobs:
       - name: Contradiction detection holds its precision and recall
         run: uv run openknowledge eval-conflicts
 
+      # Also modelless, and the numbers belong in the log rather than only in
+      # a passing assertion: this is the ceiling on any question whose answer
+      # is a whole document. tests/test_scope_ceiling.py pins both ends of it.
+      - name: What retrieval can show for a whole-document question
+        run: uv run python tools/measure_scope.py --k 6 12 25 50
+
   # The product's final deliverable is a Windows install, and "the suite is
   # green" meant nothing about Windows until it ran there: every path,
   # process-spawn and file-locking difference is invisible from Linux. Tests

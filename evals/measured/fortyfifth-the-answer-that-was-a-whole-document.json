@@ -1,0 +1,249 @@
+{
+  "what": "How much of a whole-document answer retrieval can show the model",
+  "when": "2026-09-05",
+  "why": "The /manage gap report on a real install listed sixteen unanswered questions. Eleven were one shape: enumerate a list, name the characters, summarise a document. They route to retrieval correctly and fail after it. This measures the ceiling - no model is called, because a model cannot list what it was never shown.",
+  "how": "uv run python tools/measure_scope.py --k 6 12 25 50",
+  "corpus": {
+    "documents": 20,
+    "chunks": 92,
+    "source": "evals/golden-ftr/documents - US Federal Travel Regulation, public domain",
+    "note": "Deliberately not written here. An enumeration corpus I wrote myself would be one where I had unconsciously kept the answer inside the budget."
+  },
+  "shipped_defaults": {
+    "retrieval_k": 6,
+    "chunk_target_words": 350,
+    "context_ceiling_words": 2100
+  },
+  "the_number": {
+    "question": "what terms does the glossary define",
+    "answer_spans_chunks": 22,
+    "items_in_a_complete_answer": 82,
+    "at_k_6": {
+      "chunks_shown": 1,
+      "terms_visible": 26,
+      "percent": 32
+    },
+    "at_k_50": {
+      "chunks_shown": 12,
+      "terms_visible": 73,
+      "percent": 89
+    },
+    "shown_everything": {
+      "chunks_shown": 22,
+      "terms_visible": 82,
+      "percent": 100
+    }
+  },
+  "the_finding": "Raising k does not fix this. k=50 is eight times the shipped budget and more than half the entire corpus, and still reaches only 89%. BM25 ranks by term overlap and the query shares no vocabulary with the terms it is asking to enumerate. A whole-document question needs the document assembled, not ranked.",
+  "control": {
+    "question": "what transportation methods are authorized",
+    "answer_spans_chunks": 1,
+    "at_k_6": "4/4, 100% - and at every other k",
+    "floor": "Unrelated queries still score 1-2 of 4, because 'common carrier' and 'privately owned' are ordinary phrasing in a travel regulation. The control's signal is 4/4 against that floor, not against zero."
+  },
+  "sabotages": [
+    "Shown all 92 chunks the glossary case reaches exactly 82/82 and 22/22 - the one that makes the 32% believable rather than a broken substring check.",
+    "Unrelated queries drop the control from 4/4 to 1-2/4, so it is not passing on ambient vocabulary.",
+    "Breaking the term extractor's word limit fails both the reference-list test and the shown-everything test."
+  ],
+  "not_measured": "Whether the model, shown 26 of 82 terms, lists 26 or invents 82. That needs a model and belongs in a generation set. Only the ceiling is established here.",
+  "also_found": {
+    "already_fixed": "Four of the sixteen field questions were fixed on 2026-08-29 in 17818b9 and c56ada2 and are answered free today. They still appear because the gap query only clears a row when the question is asked again, and nobody re-asks a question that failed.",
+    "answered_wrongly": "'what does this document cover' was caught by the corpus tier and answered with an inventory of the whole collection - the only silent wrong answer among the sixteen, delivered grounded and ungated from the first branch of the cascade. Collateral from 17818b9, which put 'cover'/'covers' into the no-subject vocabulary so that 'what are the macro-categories of info they covers' would be recognised. Fixed here.",
+    "panel_copy": "The report told the reader that 'answered in part' means the document is missing a section. For these eleven questions the section is not missing - it was in chunk seven. Both surfaces now name both causes."
+  },
+  "rows": [
+    {
+      "id": "scope-01-glossary",
+      "note": "82 terms over 22 chunks - the shape of 'what are the priorities?'",
+      "rows": [
+        {
+          "question": "what terms does the glossary define",
+          "k": 6,
+          "chunks_from_home": 1,
+          "chunks_in_home": 22,
+          "found": 26,
+          "expected": 82,
+          "percent": 32
+        },
+        {
+          "question": "what terms does the glossary define",
+          "k": 12,
+          "chunks_from_home": 5,
+          "chunks_in_home": 22,
+          "found": 46,
+          "expected": 82,
+          "percent": 56
+        },
+        {
+          "question": "what terms does the glossary define",
+          "k": 25,
+          "chunks_from_home": 9,
+          "chunks_in_home": 22,
+          "found": 63,
+          "expected": 82,
+          "percent": 77
+        },
+        {
+          "question": "what terms does the glossary define",
+          "k": 50,
+          "chunks_from_home": 12,
+          "chunks_in_home": 22,
+          "found": 73,
+          "expected": 82,
+          "percent": 89
+        },
+        {
+          "question": "list all the terms defined in the glossary of terms",
+          "k": 6,
+          "chunks_from_home": 4,
+          "chunks_in_home": 22,
+          "found": 26,
+          "expected": 82,
+          "percent": 32
+        },
+        {
+          "question": "list all the terms defined in the glossary of terms",
+          "k": 12,
+          "chunks_from_home": 6,
+          "chunks_in_home": 22,
+          "found": 40,
+          "expected": 82,
+          "percent": 49
+        },
+        {
+          "question": "list all the terms defined in the glossary of terms",
+          "k": 25,
+          "chunks_from_home": 9,
+          "chunks_in_home": 22,
+          "found": 61,
+          "expected": 82,
+          "percent": 74
+        },
+        {
+          "question": "list all the terms defined in the glossary of terms",
+          "k": 50,
+          "chunks_from_home": 16,
+          "chunks_in_home": 22,
+          "found": 74,
+          "expected": 82,
+          "percent": 90
+        },
+        {
+          "question": "what are all the definitions in part 300-1",
+          "k": 6,
+          "chunks_from_home": 1,
+          "chunks_in_home": 22,
+          "found": 21,
+          "expected": 82,
+          "percent": 26
+        },
+        {
+          "question": "what are all the definitions in part 300-1",
+          "k": 12,
+          "chunks_from_home": 2,
+          "chunks_in_home": 22,
+          "found": 33,
+          "expected": 82,
+          "percent": 40
+        },
+        {
+          "question": "what are all the definitions in part 300-1",
+          "k": 25,
+          "chunks_from_home": 3,
+          "chunks_in_home": 22,
+          "found": 48,
+          "expected": 82,
+          "percent": 59
+        },
+        {
+          "question": "what are all the definitions in part 300-1",
+          "k": 50,
+          "chunks_from_home": 10,
+          "chunks_in_home": 22,
+          "found": 69,
+          "expected": 82,
+          "percent": 84
+        }
+      ]
+    },
+    {
+      "id": "scope-02-transport-methods",
+      "note": "the control: a closed list inside a single chunk, must stay at 100%",
+      "rows": [
+        {
+          "question": "what transportation methods are authorized",
+          "k": 6,
+          "chunks_from_home": 1,
+          "chunks_in_home": 17,
+          "found": 4,
+          "expected": 4,
+          "percent": 100
+        },
+        {
+          "question": "what transportation methods are authorized",
+          "k": 12,
+          "chunks_from_home": 1,
+          "chunks_in_home": 17,
+          "found": 4,
+          "expected": 4,
+          "percent": 100
+        },
+        {
+          "question": "what transportation methods are authorized",
+          "k": 25,
+          "chunks_from_home": 6,
+          "chunks_in_home": 17,
+          "found": 4,
+          "expected": 4,
+          "percent": 100
+        },
+        {
+          "question": "what transportation methods are authorized",
+          "k": 50,
+          "chunks_from_home": 11,
+          "chunks_in_home": 17,
+          "found": 4,
+          "expected": 4,
+          "percent": 100
+        },
+        {
+          "question": "list the authorized methods of transportation",
+          "k": 6,
+          "chunks_from_home": 1,
+          "chunks_in_home": 17,
+          "found": 4,
+          "expected": 4,
+          "percent": 100
+        },
+        {
+          "question": "list the authorized methods of transportation",
+          "k": 12,
+          "chunks_from_home": 2,
+          "chunks_in_home": 17,
+          "found": 4,
+          "expected": 4,
+          "percent": 100
+        },
+        {
+          "question": "list the authorized methods of transportation",
+          "k": 25,
+          "chunks_from_home": 8,
+          "chunks_in_home": 17,
+          "found": 4,
+          "expected": 4,
+          "percent": 100
+        },
+        {
+          "question": "list the authorized methods of transportation",
+          "k": 50,
+          "chunks_from_home": 13,
+          "chunks_in_home": 17,
+          "found": 4,
+          "expected": 4,
+          "percent": 100
+        }
+      ]
+    }
+  ]
+}

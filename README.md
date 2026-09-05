@@ -76,6 +76,29 @@ Measured in `evals/measured/fortyfourth-the-comparison-that-was-remade-every-tim
 with the original finding in `fortyfirst-what-happens-at-a-thousand.json` — rerun with
 `uv run python tools/measure_scale.py --workdir /tmp/scale --sizes 20 100 300`.
 
+### Questions whose answer is a whole document
+
+Ask "what are all the priorities?" of a long file and you will get some of them. The
+answer to that kind of question is not a sentence in one passage — it is the document —
+and retrieval hands the model six chunks of about 350 words. Measured on a public-domain
+regulation, asking a 22-chunk glossary to name the 82 terms it defines:
+
+| chunks retrieved | 6 (shipped) | 12 | 25 | 50 | all 92 |
+|---|---:|---:|---:|---:|---:|
+| terms the model is shown | **32%** | 56% | 77% | 89% | 100% |
+
+**Raising the budget does not fix it.** 50 chunks is more than half that corpus and still
+reaches 89%, because ranking by term overlap cannot help when the query shares no
+vocabulary with the terms it is asking to enumerate. A whole-document question needs the
+document assembled, not ranked; that is not built, and the system currently answers with
+what it saw and says the rest is not in the sources.
+
+A closed list that fits inside one chunk scores 4/4 at every budget, which is the control
+that says this measures the system rather than the harness.
+
+Measured in `evals/measured/fortyfifth-the-answer-that-was-a-whole-document.json` —
+rerun with `uv run python tools/measure_scope.py`.
+
 ### Documents that argue back
 
 A knowledge base ingests documents from outside, and any of them can contain text

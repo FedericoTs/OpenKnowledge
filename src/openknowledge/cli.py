@@ -300,12 +300,16 @@ def _cmd_gaps(args: argparse.Namespace) -> int:
     for gap in gaps:
         asked = gap["asked"]
         times = "once" if asked == 1 else f"{asked} times"
-        # A question answered halfway needs a section written, not a document.
+        # Answered halfway. Which of the two reasons it was is not knowable
+        # from the ledger - see the note printed below.
         half = "  (answered in part)" if gap["kind"] == "partial" else ""
         print(f"  {times:>10}  {gap['question']}{half}")
     print()
     print("Each line is a document worth writing, or a question worth pinning.")
-    print("Nobody's name is recorded against any of them.")
+    print("'Answered in part' has two causes and this cannot tell them apart:")
+    print("the section is missing, or the answer was spread over more of the")
+    print("document than is read at once. A question stays listed until it is")
+    print("asked again. Nobody's name is recorded against any of them.")
     return 0
 
 
