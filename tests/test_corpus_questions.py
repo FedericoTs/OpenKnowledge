@@ -254,7 +254,7 @@ def test_managing_verbs_do_not_hijack_real_work() -> None:
 
 
 def test_one_named_document_is_not_the_whole_shelf() -> None:
-    """"What does this document cover?" is about a document, not the index.
+    """ "What does this document cover?" is about a document, not the index.
 
     This is the worst failure the corpus tier can produce, and the only one
     it produces silently. Every other question in the gap report came back a
