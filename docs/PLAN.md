@@ -409,3 +409,101 @@ Drive and Teams connectors (1,743) have only ever met a fake. The deliverable
 here is a runbook with the five checks to make in the first hour: sign-in,
 group claims arriving as ACL principals, token refresh across an hour, sign-out,
 and a SharePoint delta sync where one folder is denied to the test user.
+
+## P7 — A quotation must be a quotation
+
+**Status: measured, registered, being built.** v0.12.10 shipped a correct
+answer carrying a fabricated citation, and named this as the largest open hole.
+`fortyninth-...` recorded it; this is the fix.
+
+**The failure.** Asked who approves a contract of exactly EUR 25,000, the model
+answered *Head of Department* - right - and supported it with what reads as a
+row of the policy table:
+
+> "Contract value (annual): Above EUR 25,000 | Approver: Chief Financial
+> Officer | Additional requirement: Three competitive quotes"
+
+No such row exists. "Above EUR 25,000" occurs in the document as prose about
+competitive quotes and is never paired with an approver. Every element is real
+somewhere in the document, so a gate that scores word and number overlap sees
+nothing wrong. The same gate passed an invented fourth act of a three-act play
+in v0.12.8.
+
+**Measured before anything was built.** `tools/measure_quotations.py`, over
+every answer this repository kept from its own evaluation runs, each paired
+with the documents that answer cited:
+
+| | |
+|---|---:|
+| answers examined | 674 |
+| answers containing a quotation | 71 (10.5%) |
+| quoted spans of 4+ words | 99 |
+| found verbatim, whitespace and markdown and case normalised | 94 (94.9%) |
+| found at no rung | 5 (5.1%) |
+
+The normalisation ladder is the useful part. Exact matching finds 70.7%;
+dropping Markdown emphasis adds 21.2 points, case-folding another 3.0. A rung
+that also folded table separators and dashes recovered **nothing**, so the
+loosest rule considered is not needed and is not included.
+
+**Then the five were read rather than counted, and three were honest.**
+
+| span | words | what it is |
+|---|---:|---|
+| "Contract value (annual): Above EUR 25,000 \| Approver: …" | 17 | the fabrication above |
+| "The per diem allowance covers meals, including taxes and tips" | 10 | a paraphrase in quotation marks; the source says the allowance is *"a daily payment instead of reimbursement for actual expenses for lodging, meals, and related incidental expenses"* |
+| "from X to Y" | 4 | a schematic placeholder - *"both documents use "from X to Y" bands"* - claiming nothing about any document's words |
+| "equal to or above," | 4 | quoted **in order to deny it**: *"the policy specifies "above EUR 25,000" and not "equal to or above""* |
+| "equal to or above," | 4 | the same answer, from a second run |
+
+So a check that fires on every unmatched quotation would be **40% precise** -
+rejecting three honest answers for two fabrications. That is the risk v0.12.10
+named, now a number rather than a worry.
+
+**What separates them.** A floor on length, swept rather than guessed:
+
+| floor | spans checked | rejected | genuine |
+|---:|---:|---:|---|
+| 4 | 99 | 5 | 2 of 5 |
+| 5 to 10 | 93 | 2 | **2 of 2** |
+| 11+ | 86 | 1 | loses the per-diem one |
+
+Both false positives are exactly 4 words; both fabrications are 10 and 17. The
+plateau from 5 to 10 is what makes this a threshold rather than a fitted point,
+and there is a reason behind it: a four-word quoted fragment *mentions* a
+phrase, while a longer span *claims what a document says*. **Eight words**, the
+middle of the plateau, with four words of margin below and two above.
+
+**The change.** A fifth check in the gate: a quoted span of eight or more words
+must appear in the evidence, after collapsing whitespace and dropping Markdown
+emphasis and case. Checked against the raw cited text rather than the
+machine-talk-filtered version, because "does this document contain these words"
+is a question about the document as written. Quotations of the question, and of
+the passage headers the context introduced, count as found - the model was
+shown those too. A span quoted inside a negation is exempt regardless of
+length, because that is quoting in order to deny, and the sample contains two
+of them.
+
+**Registered before the arm runs.**
+
+1. **This will cost a passing case, and that is the point.** The fabricated row
+   is in `rule-08`'s answer, which passes today. Rejecting it takes
+   `golden-rules` from 71.4% to **64.3%**. Predicted here so it cannot be
+   explained away afterwards: an answer whose citation is invented should not
+   be served, and a gate that only fires on wrong answers would not be a gate.
+2. **The guard cannot regress, and is run anyway.** A stricter gate can only
+   turn answers into refusals; it cannot manufacture a false answer. Zero false
+   answers across the 32 refusal cases, as always, and no refusal case may
+   change tier.
+3. **No other answerable case may break.** Anything passing at 71.4% other than
+   `rule-08` must still pass.
+4. **The historical sample must reject exactly the two fabrications** - re-run
+   `measure_quotations.py` with the shipped rule and get 2, not 5 and not 0.
+5. Full suite passes; the grounding-policy revision moves g5 -> g6.
+
+**What this cannot establish.** Two fabrications is a small sample of the thing
+being caught, and both come from one model on two corpora. The 94 spans it must
+not disturb are the stronger half of the evidence. A frontier model quoting
+across a hundred corpora could easily produce a form of faithful quotation this
+ladder has never seen, and the honest response then is another rung with its
+own measurement, not a loosened floor.
