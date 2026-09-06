@@ -1,0 +1,94 @@
+{
+  "what": "A fifth grounding check: a quotation must appear in the document it is attributed to",
+  "when": "2026-09-06",
+  "set": "evals/golden-rules/rules.yaml plus the refusal half of all four other sets; and 674 archived answers",
+  "model": "Qwen3-4B-Instruct-2507 Q4_K_M, llama.cpp, n_ctx 8192, 4 CPU threads; BM25 only",
+  "the_hole": {
+    "shipped_in": "v0.12.10, which named it as the largest open one",
+    "answer": "Asked who approves a contract of exactly EUR 25,000, the model said Head of Department - correct - and supported it with \"Contract value (annual): Above EUR 25,000 | Approver: Chief Financial Officer | Additional requirement: Three competitive quotes\", in the table's own column format and inside quotation marks.",
+    "why_it_is_false": "No such row exists. 'Above EUR 25,000' is in section 2 as prose about competitive quotes and is never paired with an approver; the answer welded it to the CFO row.",
+    "why_the_gate_could_not_see_it": "Checks 3 and 4 are number membership and word overlap. Every element of the fabricated row is real somewhere in the document, so a sentence assembled from the corpus's own vocabulary is grounded by construction. The same blindness passed an invented fourth act of a three-act play at 96% support in v0.12.8.",
+    "the_shape_of_it": "A false attribution rather than a false fact: the invented row is semantically true and the conclusion drawn from it is correct."
+  },
+  "measured_before_building": {
+    "tool": "tools/measure_quotations.py",
+    "method": "every answer this repository kept from its own evaluation runs, each paired with the documents that answer cited",
+    "answers_examined": 674,
+    "answers_containing_a_quotation": 71,
+    "quoted_spans_4_words_or_more": 99,
+    "normalisation_ladder": {
+      "exact": "70 spans, 70.7%",
+      "whitespace_only": "0 more",
+      "markdown_emphasis_dropped": "21 more, cumulative 91.9%",
+      "case_folded": "3 more, cumulative 94.9%",
+      "table_separators_and_dashes_folded": "0 more - the loosest rung considered recovered nothing and is not shipped",
+      "found_at_no_rung": "5 spans, 5.1%"
+    },
+    "and_then_the_five_were_read_rather_than_counted": {
+      "genuine_fabrications": [
+        "the 17-word table row above",
+        "'The per diem allowance covers meals, including taxes and tips' (10 words) - a paraphrase in quotation marks; ftr-300-1 says the allowance is 'a daily payment instead of reimbursement for actual expenses for lodging, meals, and related incidental expenses'"
+      ],
+      "honest_spans_a_naive_check_would_reject": [
+        "'from X to Y' (4 words) - a schematic placeholder: 'both documents use \"from X to Y\" bands'",
+        "'equal to or above' (4 words, twice) - quoted IN ORDER TO DENY IT: 'the policy specifies \"above EUR 25,000\" and not \"equal to or above\"'"
+      ],
+      "so_the_naive_check_would_be": "40% precise - three honest answers rejected for two fabrications. That is the risk v0.12.10 named, turned into a number."
+    },
+    "the_floor_was_swept_not_guessed": {
+      "4": "5 rejections, 2 genuine",
+      "5_to_10": "2 rejections, 2 genuine - a plateau, not a point",
+      "11_and_up": "1 rejection, loses the per-diem fabrication",
+      "chosen": "8, the middle of the plateau. Both false positives are 4 words; both fabrications 10 and 17.",
+      "and_a_reason_behind_it": "a four-word quoted fragment mentions a phrase; a longer span claims what a document says."
+    }
+  },
+  "the_change": {
+    "rule": "A span in quotation marks of 8+ words must appear in the cited text, after collapsing whitespace and dropping Markdown emphasis and case.",
+    "checked_against": "the raw cited text, not the machine-talk-filtered evidence - 'does this document contain these words' is a question about the document as written; whether those words prove anything is what the support ratio is for. Passage headers count, being text the model was shown.",
+    "denial_exemption": "a span quoted inside a negation is exempt at any length. The floor already excludes both denials in the sample, at four words each; this covers the longer one the sample did not happen to contain.",
+    "the_asker_is_not_a_source": "The first version admitted the QUESTION as quotable text, by analogy with the figure check admitting the asker's numbers. The analogy is wrong. A number in the question must be repeatable or 'is EUR 40,000 above the limit?' cannot be answered - and even there it is admitted only beside a figure from the sources, because attacking that fix showed a leading question could otherwise write a number into policy. Quoted prose has no such need and the identical hole: it would let `Does the policy say \"all contracts require three quotes regardless of value\"?` legitimise its own answer. Removed, and pinned by a test.",
+    "cache": "grounding-policy revision g5 -> g6."
+  },
+  "registered_before_the_arm": {
+    "commit": "7c0e12f",
+    "prediction": "This costs a passing case. The fabricated row is in rule-08's answer, which passes today, so golden-rules falls from 71.4% to 64.3%.",
+    "why_that_is_the_point": "An answer whose citation is invented should not be served, and a gate that only ever fired on wrong answers would not be a gate.",
+    "observed": "64.3%. Exactly."
+  },
+  "result": {
+    "before": {"accuracy_pct": 71.4, "cases": 14, "false_answers": 0, "determinism_pct": 100.0,
+               "tiers": {"local": 12, "refused": 3, "contested": 1}},
+    "after":  {"accuracy_pct": 64.3, "cases": 14, "false_answers": 0, "determinism_pct": 93.8,
+               "tiers": {"local": 11, "refused": 4, "contested": 1}},
+    "only_one_case_moved": "rule-08, from answered to refused. The other thirteen are unchanged.",
+    "guard": {"sets": 4, "reported": 4, "refusal_cases": 32, "false_answers": 0,
+              "tiers_identical_to_the_previous_arm": true},
+    "historical_sample": "the shipped rule, imported by the measurement tool rather than reimplemented, rejects exactly 2 of the 99 spans - both fabrications, neither honest span."
+  },
+  "the_determinism_drop_is_the_finding": {
+    "numbers": "100% -> 93.8%, and it is not a regression",
+    "what_the_ledger_shows": {
+      "boundary_arm": "ask 1 -> local, ask 2 -> exact",
+      "quote_arm": "ask 1 -> refused, ask 2 -> local"
+    },
+    "so": "In the old arm the second ask never reached the model: the fabricated answer had been cached, and every later ask replayed it verbatim. Determinism read 100% because the fabrication was frozen and re-served. Refusals are never cached, so once the gate rejects the first answer the second ask really does call the model, and the model's second answer differed.",
+    "the_uncomfortable_part": "Caching a fabricated citation makes it look perfectly deterministic. The metric was measuring the cache, not the model.",
+    "what_this_does_not_establish": "How often the model fabricates here. Two generations is not a rate, and the second one passed."
+  },
+  "sabotages": [
+    "check removed entirely (v0.12.10 behaviour) - 3 tests fail",
+    "Markdown-emphasis rung dropped - fails",
+    "case folding dropped - fails",
+    "floor lowered to 4 words, the naive check - fails",
+    "denial exemption removed - fails",
+    "question re-admitted as quotable text - fails"
+  ],
+  "still_failing_and_untouched": {
+    "rule-07": "reaches the right conclusion and opens with the wrong one",
+    "rule-05": "refuses a question the corpus covers",
+    "rule-03": "exam defect: must_cite too narrow, both documents state the same bands",
+    "rule-06": "exam defect: the corpus genuinely disagrees - 500, 1,000, and a superseded 300"
+  },
+  "what_this_cannot_establish": "Two fabrications is a small sample of the thing being caught, both from one model on two corpora. The 94 spans the check must NOT disturb are the stronger half of the evidence. A frontier model quoting across a hundred corpora could produce a form of faithful quotation this ladder has never seen; the honest response then is another rung with its own measurement, not a loosened floor."
+}

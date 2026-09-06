@@ -412,7 +412,7 @@ and a SharePoint delta sync where one folder is denied to the test user.
 
 ## P7 — A quotation must be a quotation
 
-**Status: measured, registered, being built.** v0.12.10 shipped a correct
+**Status: shipped, and it cost a passing case exactly as predicted.** v0.12.10 shipped a correct
 answer carrying a fabricated citation, and named this as the largest open hole.
 `fortyninth-...` recorded it; this is the fix.
 
@@ -507,3 +507,47 @@ not disturb are the stronger half of the evidence. A frontier model quoting
 across a hundred corpora could easily produce a form of faithful quotation this
 ladder has never seen, and the honest response then is another rung with its
 own measurement, not a loosened floor.
+
+**What it did.** Every criterion met, so it ships.
+
+| 14 scored cases | v0.12.10 | + quotation check |
+|---|---:|---:|
+| accuracy | 71.4% | **64.3%** |
+| refused | 3 | **4** |
+| false answers, 32 refusal cases | 0 | **0** |
+
+64.3% is the number registered before the run, to the case. `rule-08` is the
+only one that moved, from answered to refused; the other thirteen are
+unchanged, and all four guard sets came back with tiers identical to the
+previous arm. Over the historical sample the shipped rule - imported by the
+measurement tool rather than reimplemented, so the two cannot drift - rejects
+exactly the two fabrications and neither honest span.
+
+**One design decision changed while the tests were being written.** The first
+version admitted the *question* as quotable text, by analogy with the figure
+check admitting the asker's numbers. The analogy is wrong. A number in the
+question must be repeatable or "is EUR 40,000 above the limit?" cannot be
+answered at all - and even there it is admitted only beside a figure from the
+sources, because attacking that fix showed a leading question could otherwise
+write a number into policy. Quoted prose has no such need and the identical
+hole: it would let `Does the policy say "all contracts require three quotes
+regardless of value"?` legitimise its own answer. The asker is not a source.
+
+**Determinism fell 100% -> 93.8%, and that is the most useful thing the arm
+produced.** The ledger says why:
+
+| | ask 1 | ask 2 |
+|---|---|---|
+| v0.12.10 | `local` | `exact` |
+| with the check | `refused` | `local` |
+
+In the old arm the second ask never reached the model. The fabricated answer
+had been **cached**, and every later ask replayed it verbatim - so determinism
+read 100% because the fabrication was frozen and re-served. Refusals are never
+cached, so once the gate rejects the first answer the second ask really does
+call the model, and its second answer differed. Caching a fabricated citation
+makes it look perfectly deterministic; the metric was measuring the cache, not
+the model. What this does *not* establish is how often the model fabricates
+here - two generations is not a rate.
+
+Full record: `evals/measured/fiftieth-the-quotation-that-was-not-one.json`.
