@@ -45,6 +45,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "src"))
 
 from openknowledge.connectors.local_files import document_id_for  # noqa: E402
 from openknowledge.documents import parse_file  # noqa: E402
+from openknowledge.retrieval.grounding import _unquotable  # noqa: E402
 
 #: A quoted span: straight or curly double quotes, not spanning a blank line.
 #: Single quotes are excluded - apostrophes make them ambiguous, and no model
@@ -157,6 +158,7 @@ def main() -> int:
     spans_total = 0
     found_at: dict[str, int] = {name: 0 for name, _ in RUNGS}
     unmatched: list[tuple[str, str]] = []
+    gated: list[tuple[str, str]] = []
 
     seen: set[tuple[str, str]] = set()
     for pattern, root in pairs:
@@ -186,6 +188,7 @@ def main() -> int:
                     text for did, text in corpora[root].items() if not cited or did in cited
                 )
                 prepared = {name: fn(evidence) for name, fn in RUNGS}
+                gated.append((answer, evidence))
                 for span in spans:
                     spans_total += 1
                     hit = None
@@ -215,6 +218,18 @@ def main() -> int:
             running += found_at[name]
             print(f"    {name:12s} {found_at[name]:5d}   cumulative {running / spans_total:6.1%}")
         print(f"    {'NOT FOUND':12s} {len(unmatched):5d}   {len(unmatched) / spans_total:6.1%}")
+    print()
+    # The ladder above is exploration. This is the check that actually ships,
+    # imported rather than reimplemented so the two cannot drift apart: over
+    # the same answers, how many spans does the gate reject?
+    print("  and the rule as shipped, over the same answers:")
+    fired = 0
+    for answer, evidence in gated:
+        hits = _unquotable(answer, evidence)
+        fired += len(hits)
+        for h in hits:
+            print(f"    REJECTS  {h[:150]}")
+    print(f"    {fired} span(s) rejected of {spans_total} quoted")
     print()
     if unmatched:
         print(f"  spans found at no rung - read these, do not count them ({args.show} shown):")

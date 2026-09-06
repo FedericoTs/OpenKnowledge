@@ -160,8 +160,8 @@ def test_the_grounding_policy_revision_moved() -> None:
     router = (
         pathlib.Path(__file__).resolve().parents[1] / "src/openknowledge/cascade/router.py"
     ).read_text(encoding="utf-8")
-    assert '":g5"' in router
-    assert '":g4"' not in router
+    assert '":g6"' in router
+    assert '":g5"' not in router
 
 
 def test_the_prompt_states_how_each_boundary_wording_is_read() -> None:

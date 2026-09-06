@@ -16,6 +16,11 @@ from any tier is returned until it survives these checks:
 4. **It stays close to the source wording.** Enough of the answer's content words
    must appear in the cited passages. This is a blunt instrument, tuned to catch
    free-form invention rather than to judge style.
+5. **Its quotations are quotations.** A span in quotation marks long enough to
+   be a claim about what a document says must actually appear there. Check 4
+   cannot see this: a fabricated sentence assembled out of the corpus's own
+   vocabulary scores well by construction, which is how v0.12.10 shipped a
+   correct answer supported by a policy table row that does not exist.
 
 A failure is not an error - it is the escalation signal. The local tier failing
 this gate is exactly the case the frontier tier exists to serve, which is what
@@ -77,6 +82,10 @@ class GroundingReport:
     #: parts and one answer. Recorded so the gap it names is not lost, which
     #: is exactly what happened when partial declines stopped being refusals.
     declined_in_part: bool = False
+    #: Spans the answer put in quotation marks that the cited text does not
+    #: contain. A fabricated citation, which check 4 cannot see because the
+    #: words are all real somewhere in the corpus.
+    unquotable: tuple[str, ...] = ()
     reasons: tuple[str, ...] = ()
     #: Share of the answer's substantive claims that carry a resolving
     #: citation. 1.0 is the citation discipline that earns the lower floor.
@@ -253,6 +262,62 @@ def _declines_entirely(answer_text: str, retrieved: list[Chunk]) -> bool:
     return True
 
 
+#: A span in quotation marks - straight or curly. Not allowed to run over a
+#: blank line, so an unbalanced quote cannot swallow the rest of an answer.
+#: Single quotes are deliberately excluded: apostrophes make them ambiguous
+#: and no answer in the measured sample used them to quote a source.
+_QUOTED_SPAN = re.compile(r'["\u201c]([^"\u201c\u201d]{1,600}?)["\u201d]', re.DOTALL)
+
+#: Below this a quoted fragment is a phrase being *mentioned*, not a claim
+#: about what a document says. Measured rather than guessed
+#: (``tools/measure_quotations.py``, 99 quoted spans from this repository's own
+#: evaluation runs): every honest span the check would wrongly reject is four
+#: words - "from X to Y" used as a schematic, and "equal to or above" quoted in
+#: order to say the policy does NOT use it - while both real fabrications are
+#: ten and seventeen. Floors from 5 to 10 all reject exactly the two
+#: fabrications and nothing else; eight is the middle of that plateau.
+_QUOTE_MIN_WORDS = 8
+
+#: Quoting a phrase in order to deny it is not a claim that the phrase is
+#: there - "the policy says 'above EUR 25,000' and not 'equal to or above'".
+#: Two of the five unmatched spans in the sample were this shape. The length
+#: floor already excludes both, and this is here so that a longer one, which
+#: the sample simply did not contain, is not rejected either.
+_DENIAL_BEFORE_QUOTE = re.compile(
+    r"(?:\bnot\b|\bnever\b|\brather than\b|\binstead of\b|\bdoes(?:\s+n[o']t|n't)\b"
+    r"|\bno\b)[^.!?\"\u201c]{0,40}$",
+    re.IGNORECASE,
+)
+
+
+def _for_quote_match(text: str) -> str:
+    """Normalise for quotation matching, exactly as far as measurement warranted.
+
+    Whitespace collapsed, Markdown emphasis dropped, case folded. Each rung
+    earned its place: exact matching finds 70.7% of quoted spans, emphasis
+    another 21.2 points, case another 3.0. A further rung folding table
+    separators and dashes recovered nothing at all across 99 spans, so it is
+    not here - the looser the rule, the more a fabrication can slip through it.
+    """
+    return re.sub(r"\s+", " ", re.sub(r"[*_`]+", "", text)).strip().lower()
+
+
+def _unquotable(answer_text: str, evidence: str) -> tuple[str, ...]:
+    """Quoted spans of ``_QUOTE_MIN_WORDS`` or more that are not in ``evidence``."""
+    haystack = _for_quote_match(evidence)
+    missing: list[str] = []
+    for match in _QUOTED_SPAN.finditer(answer_text):
+        span = match.group(1).strip()
+        if len(span.split()) < _QUOTE_MIN_WORDS or "\n\n" in span:
+            continue
+        if _DENIAL_BEFORE_QUOTE.search(answer_text[: match.start()]):
+            continue
+        needle = _for_quote_match(span)
+        if needle and needle not in haystack:
+            missing.append(re.sub(r"\s+", " ", span))
+    return tuple(dict.fromkeys(missing))
+
+
 def check_grounding(
     answer_text: str,
     retrieved: list[Chunk],
@@ -379,6 +444,39 @@ def check_grounding(
     if answer_numbers:
         reasons.append(f"figures not found in the cited text: {', '.join(answer_numbers)}")
 
+    # A quotation is a claim that these exact words are in the document, and it
+    # is the one claim the support ratio cannot grade: a sentence assembled out
+    # of the corpus's own vocabulary scores well by construction. v0.12.10
+    # shipped a correct answer whose supporting "quotation" was a policy table
+    # row welded together from two different rows.
+    #
+    # Checked against the raw cited text rather than the machine-talk-filtered
+    # evidence above, because "does this document contain these words" is a
+    # question about the document as written; whether those words are proof of
+    # anything is what the support ratio is for. The passage headers count too -
+    # [doc-id] Title (chunk 4) is text the model was shown.
+    #
+    # The QUESTION deliberately does not, though the figure check admits the
+    # asker's numbers a few lines above. The two are not the same move. A
+    # number in the question has to be repeatable or "is EUR 40,000 above the
+    # limit?" cannot be answered at all, and even there it is admitted only
+    # beside a figure from the sources, because attacking the first version of
+    # that fix showed a leading question could otherwise write a number into
+    # policy. Quoted prose has no such need and the identical hole: allowing it
+    # would let `Does the policy say "all contracts require three quotes
+    # regardless of value"?` legitimise its own answer. The asker is not a
+    # source.
+    quotable = " ".join(
+        [
+            *(c.text for c in evidence),
+            *(f"{c.document_id} {c.document_title} {c.locator or ''}" for c in retrieved),
+        ]
+    )
+    unquotable = _unquotable(answer_text, quotable)
+    if unquotable:
+        shown = "; ".join(f'"{q[:80]}"' for q in unquotable)
+        reasons.append(f"quotes text that is not in the cited sources: {shown}")
+
     content_words = [
         w for w in tokenize(_CITATION_RE.sub("", answer_text)) if w not in _FUNCTION_WORDS
     ]
@@ -413,6 +511,7 @@ def check_grounding(
         cited_ids=tuple(dict.fromkeys((*cited, *(c.document_id for c in referenced)))),
         unknown_ids=unknown,
         unsupported_numbers=answer_numbers,
+        unquotable=unquotable,
         support_ratio=round(support_ratio, 4),
         reasons=tuple(reasons),
         cited_coverage=round(coverage, 4),

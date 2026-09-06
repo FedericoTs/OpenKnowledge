@@ -185,7 +185,7 @@ class Cascade:
                 # resolve as citations. Answers judged under an earlier policy
                 # could have been refused for shapes now allowed; do not serve
                 # their absence.
-                ":g5"
+                ":g6"
             ),
             model_id=self.route_id,
         )
