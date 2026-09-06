@@ -108,6 +108,13 @@ def scan_documents(
     present = frozenset(d.document_id for d in documents)
     report.conflicts_cleared = store.drop_conflicts_for_documents(present)
 
+    # A retired document's disagreements are expected, not news, and they must
+    # not gate an answer. Retrieval already excludes it - `demote_superseded`
+    # drops it whenever any current document matches - so a conflict it raises
+    # withholds an answer on the authority of text the reader was never going
+    # to be shown.
+    superseded_ids = frozenset(d.document_id for d in documents if d.superseded)
+
     conflicts, agreements = compare_documents(
         documents,
         min_overlap=min_conflict_overlap,
@@ -137,7 +144,18 @@ def scan_documents(
             report.notes.append(pair.describe())
             continue
         for conflict in pair.conflicts:
-            store.record_conflict(conflict)
+            # The variant grouping above spares a retired copy only against the
+            # document that replaced it. Against a THIRD document it still
+            # opened a blocking conflict, which is the same failure one line
+            # up: evals/corpus/aveline's 2023 expenses policy declares itself
+            # superseded, retrieval excludes it, and it was still refusing
+            # "do I need approval for a travel expense of exactly EUR 500?"
+            # by disagreeing with the travel guidelines about a threshold
+            # neither the reader nor the model would ever have seen.
+            if {conflict.left.document_id, conflict.right.document_id} & superseded_ids:
+                store.record_conflict(replace(conflict, kind="superseded"))
+            else:
+                store.record_conflict(conflict)
             detected.add(conflict.key)
             report.conflicts_detected += 1
 
@@ -155,7 +173,6 @@ def scan_documents(
     # lexical search plus regex: free, and it runs on every ingest. A document
     # that declares itself superseded is excluded: an archived copy landing in
     # the corpus disagreeing with current answers is expected, not news.
-    superseded_ids = frozenset(d.document_id for d in documents if d.superseded)
     to_crosscheck = (added | changed) - superseded_ids
     if retriever is not None and to_crosscheck:
         for finding in crosscheck_answers(

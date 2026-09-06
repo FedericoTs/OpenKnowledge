@@ -73,11 +73,19 @@
 
 - id: rule-03-3k-approver
   question: A team wants to spend EUR 3,000 a year on a subscription. Who approves it?
-  must_cite: [finance-procurement-policy]
+  must_cite:
+    - [finance-procurement-policy, finance-approval-limits]
   must_say:
     - ["line manager"]
   tags: [procurement, interior]
-  notes: '"Up to EUR 5,000 | Line manager | None". 3,000 is inside it.'
+  notes: >
+    "Up to EUR 5,000 | Line manager | None". 3,000 is inside it. Either
+    document answers this and the citation may be to either: the procurement
+    policy states the band for any contract, and finance-approval-limits states
+    it for the category the question actually names - "Software subscription |
+    0 | 5000 | Line manager | None". This demanded the procurement policy
+    alone, and so failed a correct answer for citing the MORE specific of the
+    two. That was a defect in the exam, not in the system.
 
 - id: rule-04-60k-board
   question: Does a EUR 60,000 annual contract need board approval?
@@ -102,14 +110,37 @@
 
 - id: rule-06-exactly-500
   question: Do I need prior approval for a travel expense of exactly EUR 500?
-  must_cite: [hr-expenses-policy]
+  kind: contested
   must_say:
-    - ["without prior approval", "at or below", "does not require", "no prior approval"]
+    - [hr-expenses-policy]
+    - [hr-travel-guidelines]
     - ["EUR 500", "500"]
-  tags: [expenses, boundary]
+    - ["EUR 1,000", "1,000", "1000"]
+  tags: [expenses, contested]
   notes: >
-    "Expenditure at or below EUR 500 may be claimed without prior approval."
-    The threshold sentence says *above* EUR 500, so 500 itself is not above it.
+    Written as an answerable boundary case and it cannot be one, which took
+    three runs and a corpus read to establish rather than assume.
+
+    Two LIVE documents set this threshold in different places.
+    hr-expenses-policy 4.1: "Any single item of travel expenditure above EUR
+    500 requires written approval". hr-travel-guidelines: "Travel expenditure
+    above EUR 1,000 requires written approval before booking". At EUR 700 they
+    give opposite answers, so the disagreement is real and an administrator
+    owes a decision on it. Reporting that is the designed behaviour and the
+    thing this product exists for; scoring it as a failure blamed the system
+    for being right.
+
+    At EUR 500 the two happen to agree - neither requires approval, and
+    finance-approval-limits agrees a third time with "Travel (single trip) | 0
+    | 500 | None required". Answering on that basis would need the system to
+    evaluate each conflicting rule AT the figure asked about rather than
+    noticing the rules differ, which it does not do and which is a much larger
+    change than this case.
+
+    A fourth document, archive/expenses-policy-2023, says EUR 300 - and used to
+    be reported here as a third disagreeing source even though it declares
+    itself superseded and retrieval excludes it. That was a real defect and is
+    fixed; the case now pins that only the two live documents are named.
 
 - id: rule-07-exactly-25000-quotes
   question: Does a contract with an annual value of exactly EUR 25,000 need three competitive quotes?

@@ -14,11 +14,24 @@ A case is a question plus what a correct answer has to contain. Two kinds:
     of questions correctly and confidently invents the other 5% is unusable in a
     company, because nobody can tell which kind they are looking at.
 
+``contested``
+    The corpus covers this and *disagrees with itself*, so the only correct
+    behaviour is to report the disagreement and name the documents. This kind
+    exists because a case was written as ``answerable`` for a corpus that
+    cannot answer it: two live documents in ``evals/corpus/aveline`` set the
+    travel approval threshold at EUR 500 and EUR 1,000. Scoring that as a
+    failure blamed the system for doing the right thing, and the honest
+    alternative to relabelling it a pass is a kind that says what the right
+    thing is. ``must_say`` still applies, against the text naming the
+    conflict - so the case pins WHICH disagreement is reported, and cannot
+    pass on any refusal that happens to come along.
+
 Cases may list ``paraphrases``: the same question asked differently. They must
 produce the same facts, which is what stops a cheap cache from being the only
 thing holding answer consistency together.
 
-A ``must_say`` entry may be a **list**, meaning *any one of these will do*:
+``must_say`` and ``must_cite`` entries may be a **list**, meaning *any one of
+these will do*:
 
     must_say:
       - ["two", "2"]        # either spelling of the same fact
@@ -40,7 +53,7 @@ from typing import Any, Literal
 
 import yaml
 
-CaseKind = Literal["answerable", "refusal"]
+CaseKind = Literal["answerable", "refusal", "contested"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -49,7 +62,9 @@ class Case:
     question: str
     kind: CaseKind = "answerable"
     #: Document ids the answer must cite. Empty means "any citation will do".
-    must_cite: tuple[str, ...] = ()
+    #: Each entry is one citation the answer must carry. A LIST inside it
+    #: means any one of those documents will do - see ``_as_alternatives``.
+    must_cite: tuple[tuple[str, ...], ...] = ()
     #: Facts the answer must state, matched on casefolded, whitespace-collapsed
     #: text. Each entry is a tuple of acceptable surface forms and satisfying
     #: **any one** of them satisfies the entry, so a fact with several correct
@@ -80,12 +95,18 @@ class Case:
         string*, which the scorer would iterate character by character - "2" is
         in almost any answer, so the case would silently pass. Coercing here is
         the difference between a friendly API and a test that lies.
+
+        `must_cite` takes alternatives too, and so needs the same coercion for
+        the same reason: every caller in this repository writes
+        `must_cite=("hr-handbook",)`, and without this each letter of the id
+        would become its own group of alternatives - each satisfied by any
+        citation containing that letter, so the requirement would evaporate.
         """
-        fixed = tuple(
-            (entry,) if isinstance(entry, str) else tuple(entry) for entry in self.must_say
-        )
-        if fixed != self.must_say:
-            object.__setattr__(self, "must_say", fixed)
+        for field_name in ("must_say", "must_cite"):
+            value = getattr(self, field_name)
+            fixed = tuple((e,) if isinstance(e, str) else tuple(e) for e in value)
+            if fixed != value:
+                object.__setattr__(self, field_name, fixed)
 
     @property
     def all_phrasings(self) -> tuple[str, ...]:
@@ -97,7 +118,7 @@ class DatasetError(ValueError):
 
 
 def _as_alternatives(value: Any, field_name: str, case_id: str) -> tuple[tuple[str, ...], ...]:
-    """Parse `must_say`, where a nested list means "any one of these".
+    """Parse `must_say` or `must_cite`, where a nested list means "any one of these".
 
     A bare string stays a single requirement, so every existing set keeps its
     meaning; only an author who writes a list is asking for alternatives.
@@ -152,8 +173,10 @@ def parse_cases(raw: Any, *, source: str = "<memory>") -> list[Case]:
             raise DatasetError(f"case {case_id!r}: 'question' is required")
 
         kind = entry.get("kind", "answerable")
-        if kind not in ("answerable", "refusal"):
-            raise DatasetError(f"case {case_id!r}: kind must be 'answerable' or 'refusal'")
+        if kind not in ("answerable", "refusal", "contested"):
+            raise DatasetError(
+                f"case {case_id!r}: kind must be 'answerable', 'refusal' or 'contested'"
+            )
 
         principals = entry.get("principals")
         min_share = entry.get("min_share", 1.0)
@@ -164,7 +187,7 @@ def parse_cases(raw: Any, *, source: str = "<memory>") -> list[Case]:
                 id=case_id,
                 question=question,
                 kind=kind,
-                must_cite=_as_tuple(entry.get("must_cite"), "must_cite", case_id),
+                must_cite=_as_alternatives(entry.get("must_cite"), "must_cite", case_id),
                 must_say=_as_alternatives(entry.get("must_say"), "must_say", case_id),
                 must_not_say=_as_tuple(entry.get("must_not_say"), "must_not_say", case_id),
                 must_list=_as_tuple(entry.get("must_list"), "must_list", case_id),

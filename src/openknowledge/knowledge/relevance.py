@@ -86,6 +86,10 @@ def claim_coverage(question: frozenset[str], context: frozenset[str]) -> float:
     return len(question & context) / len(context)
 
 
+#: Conflict kinds recorded for visibility that must never withhold an answer.
+_NEVER_GATES = frozenset({"versions", "superseded"})
+
+
 def relevant_conflicts(
     question: str,
     conflicts: list[StoredConflict],
@@ -100,11 +104,19 @@ def relevant_conflicts(
 
     scored: list[tuple[float, StoredConflict]] = []
     for conflict in conflicts:
-        # A "versions" conflict is a duplicated document pair - the decision
-        # it needs is which copy stands, owed once in /manage, not a
-        # per-question contradiction. Gating answers on it turned one stale
-        # archive copy into a refusal of the whole expenses domain.
-        if conflict.kind == "versions":
+        # Two kinds are recorded so an administrator can see them and never to
+        # gate an answer:
+        #
+        # "versions" is a duplicated document pair - the decision it needs is
+        # which copy stands, owed once in /manage, not a per-question
+        # contradiction. Gating answers on it turned one stale archive copy
+        # into a refusal of the whole expenses domain.
+        #
+        # "superseded" is a disagreement with a document that has been retired,
+        # which is what being retired means. Retrieval already excludes it, so
+        # gating on one withholds an answer on the authority of text the reader
+        # was never going to be shown.
+        if conflict.kind in _NEVER_GATES:
             continue
         context = frozenset(_fold(w) for w in conflict.context)
         shared = words & context

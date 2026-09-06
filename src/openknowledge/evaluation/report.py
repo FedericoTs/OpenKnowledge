@@ -82,7 +82,11 @@ def format_report(report: EvalReport, *, verbose: bool = False) -> str:
     answerable = len(report.answerable)
     refusals = len(report.refusal_cases)
 
-    lines.append(f"{n} cases  ({answerable} answerable, {refusals} must-refuse)")
+    contested = len(report.contested_cases)
+    shape = f"{answerable} answerable, {refusals} must-refuse"
+    if contested:
+        shape += f", {contested} must-report-a-disagreement"
+    lines.append(f"{n} cases  ({shape})")
     lines.append("")
 
     lines.append("Correctness")
@@ -94,6 +98,11 @@ def format_report(report: EvalReport, *, verbose: bool = False) -> str:
         f"  false answers            {report.false_answers:>8}  "
         f"({report.false_answer_rate:.1%} of must-refuse cases)"
     )
+    if contested:
+        # Reported rather than folded into accuracy: a category that appears in
+        # no headline is a category nobody watches.
+        held = sum(r.passed for r in report.contested_cases)
+        lines.append(f"  disagreements reported   {held:>8}  (of {contested} the corpus contains)")
     if report.determinism is None:
         lines.append("  determinism           not checked  (--no-determinism)")
     else:

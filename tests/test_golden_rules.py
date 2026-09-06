@@ -48,9 +48,14 @@ CORRECT = {
         "Yes. Any single item of travel expenditure above EUR 500 requires written approval "
         "from a line manager before the expense is incurred [hr-expenses-policy]."
     ),
+    # Not an answer: the correct behaviour here is to report that two live
+    # documents disagree. Kept in this table, and checked by the same tests,
+    # because a contested case with nothing written out is a case whose
+    # must_say nobody has ever confirmed is satisfiable.
     "rule-06-exactly-500": (
-        "EUR 500 is not above the threshold - the rule applies above EUR 500 - so it is at or "
-        "below it and may be claimed without prior approval [hr-expenses-policy]."
+        "Your documents disagree on this, so I won't guess:\n"
+        "  - [hr-expenses-policy] says EUR 500, [hr-travel-guidelines] says EUR 1,000\n"
+        "Please ask your administrator which one currently applies."
     ),
     "rule-07-exactly-25000-quotes": (
         "No, quotes are not required at exactly EUR 25,000: three competitive quotes apply to "
@@ -98,13 +103,22 @@ def cases():
 def test_the_set_is_the_shape_it_claims(cases) -> None:
     assert len(cases) == 16
     assert sum(1 for c in cases if c.kind == "refusal") == 2
-    assert sum(1 for c in cases if "boundary" in c.tags) == 7
+    # rule-06 was written as a seventh boundary case and could not be one: the
+    # corpus puts the travel approval threshold in two places, so the correct
+    # behaviour is to report the disagreement rather than to read the boundary.
+    assert sum(1 for c in cases if c.kind == "contested") == 1
+    assert sum(1 for c in cases if "boundary" in c.tags) == 6
 
 
-def test_every_answerable_case_has_a_written_out_correct_answer(cases) -> None:
-    """Adding a case without one would leave it unchecked by the two tests below."""
-    answerable = {c.id for c in cases if c.kind == "answerable"}
-    assert answerable == set(CORRECT)
+def test_every_case_that_expects_content_has_a_written_out_correct_answer(cases) -> None:
+    """Adding a case without one would leave it unchecked by the two tests below.
+
+    Contested cases are included: theirs is the text that reports the
+    disagreement, and its must_say is exactly as worth checking - a group no
+    real output can satisfy is a case that can never pass.
+    """
+    expecting = {c.id for c in cases if c.kind in ("answerable", "contested")}
+    assert expecting == set(CORRECT)
 
 
 @pytest.mark.parametrize("case_id", sorted(CORRECT))

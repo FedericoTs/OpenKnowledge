@@ -685,7 +685,10 @@ def test_every_shipped_case_rejects_its_own_forbidden_answer() -> None:
         for case in load_cases(root / directory):
             if case.kind != "answerable" or not case.must_not_say:
                 continue
-            cites = case.must_cite or ("hr-expenses-policy",)
+            # must_cite groups are alternatives; citing the first of each
+            # satisfies every requirement, which is what this test needs so the
+            # only reason to fail is the forbidden phrase.
+            cites = tuple(group[0] for group in case.must_cite) or ("hr-expenses-policy",)
             answer = Answer(
                 text=f"The answer is {case.must_not_say[0]}. " + " ".join(f"[{d}]" for d in cites),
                 tier=Tier.LOCAL,

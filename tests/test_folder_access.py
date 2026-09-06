@@ -165,11 +165,20 @@ def test_rules_apply_to_asserted_principals_even_without_sign_in(tmp_path: Path)
 
 
 def test_a_duplicated_pair_scans_as_one_versions_conflict() -> None:
-    """The aveline corpus's own spec: the free passes find two contradictions
-    and one duplicated pair. The audit always said so; the server scan used
-    to open every shared figure of the archive copy as its own blocking
-    conflict - 26 open conflicts on an 11-document corpus, and the whole
-    expenses domain refused."""
+    """The aveline corpus's own spec: the free passes find one live
+    contradiction, one disagreement with a retired copy, and one duplicated
+    pair. The audit always said so; the server scan used to open every shared
+    figure of the archive copy as its own blocking conflict - 26 open conflicts
+    on an 11-document corpus, and the whole expenses domain refused.
+
+    The shape moved once more when the archive stopped gating against a THIRD
+    document. Grouping variants spared it only against the policy that replaced
+    it; its disagreement with hr-travel-guidelines about a travel threshold
+    stayed `numeric`, and refused "do I need approval for a travel expense of
+    exactly EUR 500?" on the authority of a 2023 policy the corpus had retired
+    and retrieval already excluded. Exactly one live disagreement is left, and
+    it is a real one: two current documents put that threshold at EUR 500 and
+    EUR 1,000."""
     from openknowledge.connectors.local_files import LocalFilesConnector
     from openknowledge.knowledge import scan_documents
     from openknowledge.knowledge.store import KnowledgeStore
@@ -182,10 +191,19 @@ def test_a_duplicated_pair_scans_as_one_versions_conflict() -> None:
     report = scan_documents(docs, store=store, retriever=retriever)
     open_conflicts = store.open_conflicts()
     kinds = sorted(c.kind for c in open_conflicts)
-    assert kinds == ["numeric", "numeric", "versions"], kinds
+    assert kinds == ["numeric", "superseded", "versions"], kinds
     versions = next(c for c in open_conflicts if c.kind == "versions")
     assert versions.documents == frozenset({"archive-expenses-policy-2023", "hr-expenses-policy"})
     assert any("two versions of the same document" in n for n in report.notes)
+
+    # The retired copy is a party to no conflict that can gate an answer, and
+    # the one that remains does not involve it at all.
+    retired = "archive-expenses-policy-2023"
+    assert all(c.kind != "numeric" for c in open_conflicts if retired in c.documents), (
+        "a superseded document must not raise a blocking conflict with anything"
+    )
+    live = next(c for c in open_conflicts if c.kind == "numeric")
+    assert live.documents == frozenset({"hr-expenses-policy", "hr-travel-guidelines"})
     store.close()
 
 

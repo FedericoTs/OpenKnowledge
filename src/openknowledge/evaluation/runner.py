@@ -95,6 +95,17 @@ class EvalReport:
         return [r for r in self.results if r.case.kind == "refusal"]
 
     @property
+    def contested_cases(self) -> list[CaseResult]:
+        """Cases the corpus covers and disagrees with itself about.
+
+        Their own bucket rather than a share of accuracy: the correct
+        behaviour is to report the disagreement, so counting one as an
+        answerable failure blames the system for being right, and counting it
+        as a pass would flatter every refusal into a success.
+        """
+        return [r for r in self.results if r.case.kind == "contested"]
+
+    @property
     def accuracy(self) -> float:
         cases = self.answerable
         return sum(r.passed for r in cases) / len(cases) if cases else 0.0
@@ -220,7 +231,19 @@ def _score(case: Case, answer: Answer) -> tuple[bool, tuple[str, ...], bool]:
             True,
         )
 
-    if answer.tier is Tier.CONTESTED:
+    # The corpus covers this and disagrees with itself; reporting that IS the
+    # answer. must_say is still applied below, against the text naming the
+    # conflict, so the case pins which disagreement is reported rather than
+    # passing on any refusal that happens along. Answering anyway is a false
+    # answer: it picks one of two live policies without saying it chose.
+    if case.kind == "contested" and answer.tier is not Tier.CONTESTED:
+        return (
+            False,
+            (f"did not report the documents' disagreement (tier {answer.tier.value})",),
+            answer.tier is not Tier.REFUSED,
+        )
+
+    if answer.tier is Tier.CONTESTED and case.kind != "contested":
         # Distinguished from a plain refusal because the fix is different: the
         # documents disagree and somebody has to decide, whereas a refusal
         # usually means the fact was never retrieved. Reporting it as "did not
@@ -234,9 +257,15 @@ def _score(case: Case, answer: Answer) -> tuple[bool, tuple[str, ...], bool]:
         return False, ("refused a question the corpus does cover",), False
 
     cited = {c.document_id for c in answer.citations}
-    missing = [doc for doc in case.must_cite if doc not in cited]
-    if missing:
-        failures.append(f"did not cite {', '.join(missing)} (cited: {', '.join(sorted(cited))})")
+    # Each group is one requirement; any one document in it satisfies it. Two
+    # documents can each independently answer a question - evals/corpus/aveline
+    # states the subscription approval bands in both the procurement policy and
+    # the approval-limits sheet - and demanding the first while the system cites
+    # the second failed a correct answer for citing the MORE specific source.
+    for group in case.must_cite:
+        if not any(doc in cited for doc in group):
+            wanted = " or ".join(group)
+            failures.append(f"did not cite {wanted} (cited: {', '.join(sorted(cited))})")
 
     for alternatives in case.must_say:
         # Any one spelling satisfies the fact. Requiring all of them would fail

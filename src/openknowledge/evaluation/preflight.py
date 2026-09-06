@@ -114,9 +114,17 @@ def preflight(
             CaseCheck(
                 case_id=case.id,
                 question=case.question,
-                unknown_documents=tuple(d for d in case.must_cite if d not in known),
+                # must_cite groups are alternatives, so a group is only a
+                # problem when NONE of its documents is usable: naming one id
+                # that does not exist beside one that does is a widened
+                # requirement, not a broken case.
+                unknown_documents=tuple(
+                    " or ".join(g) for g in case.must_cite if not any(d in known for d in g)
+                ),
                 missing_citations=tuple(
-                    d for d in case.must_cite if d in known and d not in retrieved
+                    " or ".join(g)
+                    for g in case.must_cite
+                    if any(d in known for d in g) and not any(d in retrieved for d in g)
                 ),
                 missing_phrases=tuple(
                     alternatives[0]

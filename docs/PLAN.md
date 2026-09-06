@@ -551,3 +551,70 @@ the model. What this does *not* establish is how often the model fabricates
 here - two generations is not a rate.
 
 Full record: `evals/measured/fiftieth-the-quotation-that-was-not-one.json`.
+
+## The two golden-rules defects, and the system bug under one of them
+
+**Status: fixed, arm registered below.** Both cases had been recorded as "the
+exam's fault, not the system's". Checking that rather than trusting it found
+one of them was half a real bug.
+
+**`rule-03` was an exam defect.** It demanded a citation to
+`finance-procurement-policy` while the system cited `finance-approval-limits`.
+Both state the approval bands, and the second states them for the category the
+question actually names - *"Software subscription | 0 | 5000 | Line manager |
+None"*. The exam failed a correct answer for citing the **more** specific
+source. `must_cite` now takes alternatives, the way `must_say` already did.
+
+**`rule-06` was not.** It was written as an answerable boundary case for a
+corpus that cannot answer it - and the reason it refused was worse than that.
+Three documents state a travel prior-approval threshold:
+
+| document | threshold | |
+|---|---|---|
+| `hr-expenses-policy` v4.1 | above EUR 500 | live |
+| `hr-travel-guidelines` | above EUR 1,000 | live |
+| `archive/expenses-policy-2023` | above EUR 300 | **declares itself superseded** |
+
+The two live documents genuinely disagree - at EUR 700 they give opposite
+answers - so reporting that is the designed behaviour and the thing this
+product exists for. But the archive was being reported alongside them, and
+`demote_superseded` had **already excluded it from retrieval**. The system was
+withholding an answer partly on the authority of text the reader was never
+going to be shown.
+
+The variant grouping that predates this spared a retired copy only against the
+document that replaced it; against a third document it still opened a blocking
+conflict. Conflicts involving a superseded document are now recorded as kind
+`superseded`, which `/manage` still shows and which never gates.
+
+`rule-06` becomes a `contested` case - a third kind, asserting that the
+disagreement is reported and naming which documents. Its `must_say` is checked
+against the text the system really produces, so it cannot pass on any refusal
+that happens along.
+
+At EUR 500 all three live documents in fact agree that no approval is needed
+(`finance-approval-limits`: *"Travel (single trip) | 0 | 500 | None required"*).
+Answering on that basis would need the system to evaluate each conflicting rule
+**at the figure asked about** rather than noticing the rules differ. It does
+not do that, and building it is a much larger change than this.
+
+**Registered before the arm.**
+
+1. **The headline number will rise and it is not an improvement.** `rule-06`
+   leaves the answerable bucket, taking the denominator from 14 to 13, and
+   `rule-03` should start passing. Predicted **76.9% (10 of 13)**, against
+   64.3% (9 of 14). The two numbers are not comparable and the release note
+   must say so; if `rule-03` still fails for some other reason it is 69.2%.
+2. **No answerable case may change for the system reason.** The superseded fix
+   touches conflict gating only; every case that was refused stays refused.
+3. **The guard is absolute as always** - zero false answers across the 32
+   refusal cases. The aveline refusal half currently reports `refused=8
+   contested=1`, and that contested case is the one to watch: if it was
+   contested because of the archive it will move, which would be the fix
+   working, and must be reported as a changed tier rather than passed over.
+4. Full suite passes.
+
+**What this cannot establish.** Nothing here measures whether refusing on a
+live disagreement is the right product call at a figure where the disagreeing
+documents happen to agree. That question is now written down rather than
+settled.
