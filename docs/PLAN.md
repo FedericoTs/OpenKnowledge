@@ -554,7 +554,7 @@ Full record: `evals/measured/fiftieth-the-quotation-that-was-not-one.json`.
 
 ## The two golden-rules defects, and the system bug under one of them
 
-**Status: fixed, arm registered below.** Both cases had been recorded as "the
+**Status: fixed and measured.** Both cases had been recorded as "the
 exam's fault, not the system's". Checking that rather than trusting it found
 one of them was half a real bug.
 
@@ -613,6 +613,26 @@ not do that, and building it is a much larger change than this.
    contested because of the archive it will move, which would be the fix
    working, and must be reported as a changed tier rather than passed over.
 4. Full suite passes.
+
+**What it did.** 76.9% (10 of 13), the registered prediction exactly, with the
+disagreement reported 1 of 1 and the guard at 0 of 32 with every tier identical
+- including the aveline contested case flagged in advance, which turns out to
+have been a live conflict all along rather than the archive.
+
+| | before | after |
+|---|---:|---:|
+| accuracy | 64.3% (9 of 14) | **76.9% (10 of 13)** |
+| disagreements reported | - | **1 of 1** |
+| false answers, 32 refusal cases | 0 | **0** |
+
+**That rise is not progress and the release note must not present it as one.**
+One case left the denominator and one over-narrow citation requirement was
+widened. The system answers exactly the same questions it did before, and the
+only behavioural change - a retired document no longer gating - moved no case
+in either direction. `rule-05`, `rule-07` and `rule-08` fail exactly as they
+did.
+
+Full record: `evals/measured/fiftyfirst-the-exam-defect-that-was-half-a-bug.json`.
 
 **What this cannot establish.** Nothing here measures whether refusing on a
 live disagreement is the right product call at a figure where the disagreeing

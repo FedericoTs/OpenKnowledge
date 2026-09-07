@@ -1,0 +1,62 @@
+{
+  "what": "Two golden-rules cases recorded as exam defects; checking that found one was half a system bug",
+  "when": "2026-09-07",
+  "set": "evals/golden-rules/rules.yaml over evals/corpus/aveline, plus the refusal half of all four other sets",
+  "model": "Qwen3-4B-Instruct-2507 Q4_K_M, llama.cpp, n_ctx 8192, 4 CPU threads; BM25 only",
+  "why_this_was_worth_doing_properly": "Changing an exam so the system passes is the move that destroys an exam's value. Both cases had been written off across three releases as 'the exam's fault, not the system's', on the strength of a note I had written rather than the documents. Reading the corpus changed the answer for one of them.",
+  "rule_03_was_an_exam_defect": {
+    "question": "A team wants to spend EUR 3,000 a year on a subscription. Who approves it?",
+    "the_exam_demanded": "a citation to finance-procurement-policy",
+    "the_system_cited": "finance-approval-limits",
+    "why_the_exam_was_wrong": "Both documents state the approval bands, and the second states them for the category the question actually names - 'Software subscription | 0 | 5000 | Line manager | None'. The exam failed a correct answer for citing the MORE specific source.",
+    "fix": "must_cite now takes alternatives, the way must_say already did. A nested list means any one of these will do."
+  },
+  "rule_06_was_not": {
+    "question": "Do I need prior approval for a travel expense of exactly EUR 500?",
+    "thresholds_in_the_corpus": [
+      {"document": "hr-expenses-policy v4.1", "rule": "above EUR 500", "status": "live"},
+      {"document": "hr-travel-guidelines", "rule": "above EUR 1,000", "status": "live"},
+      {"document": "archive/expenses-policy-2023", "rule": "above EUR 300", "status": "declares itself superseded"}
+    ],
+    "the_live_disagreement_is_real": "At EUR 700 the two current documents give opposite answers. An administrator owes a decision on that, and reporting it is the designed behaviour - scoring it as a failure blamed the system for being right.",
+    "the_bug_underneath": {
+      "what": "The archive was reported as a third disagreeing source, and demote_superseded had ALREADY excluded it from retrieval. The system was withholding an answer partly on the authority of text the reader was never going to be shown.",
+      "measured_model_free": "retrieval for this question returns hr-expenses-policy, hr-travel-guidelines, finance-approval-limits and hr-remote-work; archive-expenses-policy-2023 appears nowhere in it, and appeared in the refusal anyway",
+      "why_it_survived_an_earlier_fix": "The variant grouping records ONE non-gating 'versions' conflict for two copies of the same document. It spared the retired copy only against the policy that replaced it. Against a THIRD document - hr-travel-guidelines - it still opened a blocking numeric conflict, which is the same failure the existing comment says was fixed.",
+      "fix": "A conflict with a superseded document is recorded as kind 'superseded': still visible in /manage, never gating. relevance.py now excludes a set of kinds rather than the one string 'versions'.",
+      "conflicts_before": ["versions: archive vs hr-expenses-policy", "numeric: archive vs hr-travel-guidelines (GATED)", "numeric: hr-expenses-policy vs hr-travel-guidelines"],
+      "conflicts_after": ["versions: archive vs hr-expenses-policy", "superseded: archive vs hr-travel-guidelines", "numeric: hr-expenses-policy vs hr-travel-guidelines (the only one that gates)"]
+    },
+    "fix_to_the_case": "rule-06 becomes a `contested` case - a third exam kind asserting that the disagreement is reported and naming which documents. Its must_say is checked against the text the system really produces, so it cannot pass on any refusal that happens along.",
+    "what_is_still_true_and_not_addressed": "At EUR 500 all three live documents agree that no approval is needed - finance-approval-limits says 'Travel (single trip) | 0 | 500 | None required'. Answering on that basis would need the system to evaluate each conflicting rule AT the figure asked about rather than noticing the rules differ. It does not, and that is a much larger change."
+  },
+  "registered_before_the_arm": {
+    "commit": "bde9533",
+    "predicted": "76.9% (10 of 13), against 64.3% (9 of 14) - rule-06 leaves the answerable bucket and rule-03 starts passing",
+    "and_stated_plainly_in_advance": "The rise is not an improvement. It is a denominator change plus a widened citation requirement. The two numbers are not comparable.",
+    "observed": "76.9% (10 of 13). Exactly."
+  },
+  "result": {
+    "before": {"accuracy_pct": 64.3, "answerable_cases": 14, "failures": ["rule-03", "rule-05", "rule-06", "rule-07", "rule-08"]},
+    "after": {"accuracy_pct": 76.9, "answerable_cases": 13, "contested_cases": 1, "disagreements_reported": "1 of 1",
+              "failures": ["rule-05", "rule-07", "rule-08"]},
+    "no_answerable_case_moved_for_the_system_reason": "rule-05, rule-07 and rule-08 are unchanged. The superseded fix touches conflict gating only.",
+    "guard": {"sets": 4, "reported": 4, "refusal_cases": 32, "false_answers": 0,
+              "tiers_identical_to_the_previous_arm": true,
+              "the_case_flagged_in_advance": "the aveline refusal half reports refused=8 contested=1, unchanged - so its contested case was already a live conflict, not the archive"}
+  },
+  "the_headline_number_is_not_progress": "64.3% -> 76.9% is entirely the exam. One case left the denominator and one over-narrow citation requirement was widened. The system answers exactly the same questions it did before, and the only behavioural change - a retired document no longer gating - moved no case in either direction. Reporting this as an improvement would be the most dishonest thing in the release.",
+  "sabotages": [
+    "superseded conflicts gate again (the shipped behaviour) - fails",
+    "must_cite alternatives collapse to a flat tuple - fails",
+    "must_cite dropped from the __post_init__ coercion, so each letter becomes its own group - fails",
+    "the contested kind removed from the schema - fails"
+  ],
+  "a_trap_worth_recording": "must_say documents why __post_init__ coerces a bare string: left alone, Case(must_say=('20 weeks',)) iterates character by character and '2' is in almost any answer, so the case silently passes. Giving must_cite alternatives put it one field away from the same trap - Case(must_cite=('hr-handbook',)) would have become eleven groups of one letter, each satisfied by any citation containing that letter. Coerced, and pinned by a test.",
+  "still_failing": {
+    "rule-05": "refuses a question the corpus covers - EUR 750 expense approval - and nothing here touched it",
+    "rule-07": "reaches the right conclusion and opens with the wrong one",
+    "rule-08": "refused since v0.12.11, because the model's citation for it was invented"
+  },
+  "what_this_cannot_establish": "Whether refusing on a live disagreement is the right product call at a figure where the disagreeing documents happen to agree. That question is now written down rather than settled."
+}
